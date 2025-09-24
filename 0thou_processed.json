@@ -1,0 +1,6 @@
+{
+    "use_clahe": true,
+    "low_sigma": 0.6466257668711657,
+    "high_sigma": 5.349693251533741,
+    "binary_threshold": 81.34969325153374
+}
