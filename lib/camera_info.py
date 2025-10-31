@@ -210,11 +210,12 @@ def get_camera_info(index: int, test_resolutions: bool = False,
     if backend is None:
         backend = get_camera_backend()
     
-    # Determine backends to try
+    # Determine backends to try - try multiple on Linux too
     if platform.system() == "Windows":
         backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, backend, cv2.CAP_ANY]
     else:
-        backends_to_try = [backend]
+        # On Linux, try V4L2 first, then CAP_ANY as fallback
+        backends_to_try = [cv2.CAP_V4L2, cv2.CAP_ANY]
     
     # Remove duplicates
     seen = set()
@@ -222,6 +223,9 @@ def get_camera_info(index: int, test_resolutions: bool = False,
     
     cap = None
     detection_timeout = 3.0 if is_raspberry_pi() else 1.5
+    
+    # FOURCC formats to test
+    fourcc_formats_to_test = ["MJPG", "YUYV", "H264", "YUV2"]
     
     # Try to open camera with each backend
     for backend_alt in backends_to_try:
@@ -236,64 +240,140 @@ def get_camera_info(index: int, test_resolutions: bool = False,
                 # Get backend name
                 info.backend = cap.getBackendName()
                 
+                # Set buffer size to 1 for V4L2 (helps avoid timeouts)
+                if is_linux() and backend_alt == cv2.CAP_V4L2:
+                    try:
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except:
+                        pass
+                
                 # Get default properties
                 info.default_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 info.default_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 info.default_fps = cap.get(cv2.CAP_PROP_FPS)
                 
-                # Get FOURCC
+                # Get default FOURCC
                 try:
                     fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
                     info.default_fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+                    # Add default to supported list if valid
+                    if info.default_fourcc and info.default_fourcc != "unknown" and info.default_fourcc not in info.supported_fourcc:
+                        info.supported_fourcc.append(info.default_fourcc)
                 except Exception:
                     info.default_fourcc = "unknown"
                 
-                # Try to read a frame to verify it works
+                # Test different FOURCC formats
+                for fourcc_str in fourcc_formats_to_test:
+                    if fourcc_str == info.default_fourcc:
+                        continue  # Already added
+                    try:
+                        old_fourcc = cap.get(cv2.CAP_PROP_FOURCC)
+                        fourcc_code = cv2.VideoWriter_fourcc(*fourcc_str)
+                        cap.set(cv2.CAP_PROP_FOURCC, fourcc_code)
+                        # Check if it was set
+                        actual_fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+                        actual_fourcc = "".join([chr((actual_fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+                        # Restore
+                        cap.set(cv2.CAP_PROP_FOURCC, old_fourcc)
+                        # If format matches or is similar, it's supported
+                        if actual_fourcc == fourcc_str or fourcc_str in actual_fourcc:
+                            if fourcc_str not in info.supported_fourcc:
+                                info.supported_fourcc.append(fourcc_str)
+                    except Exception:
+                        pass
+                
+                # Try to read a frame with default settings
                 ret, frame = read_frame_with_timeout(cap, timeout=detection_timeout)
                 if ret and frame is not None:
                     info.is_available = True
+                else:
+                    # If default format didn't work, try MJPEG
+                    try:
+                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                        time.sleep(0.1)  # Brief pause for format change
+                        ret, frame = read_frame_with_timeout(cap, timeout=detection_timeout)
+                        if ret and frame is not None:
+                            info.is_available = True
+                            # Update default if MJPEG works better
+                            if "MJPG" not in info.supported_fourcc:
+                                info.supported_fourcc.insert(0, "MJPG")
+                    except Exception:
+                        pass
                     
-                    # Test resolutions if requested
-                    if test_resolutions:
-                        test_list = resolution_list or [
-                            (640, 480), (800, 600), (1024, 768),
-                            (1280, 720), (1280, 960), (1600, 1200),
-                            (1920, 1080), (2560, 1440)
-                        ]
-                        
-                        for width, height in test_list:
-                            if test_resolution(cap, width, height):
-                                if (width, height) not in info.supported_resolutions:
-                                    info.supported_resolutions.append((width, height))
-                        
-                        # Sort resolutions
-                        info.supported_resolutions.sort(key=lambda x: (x[0] * x[1], x[0]))
+                    # If still no frame, try YUYV
+                    if not info.is_available:
+                        try:
+                            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"YUYV"))
+                            time.sleep(0.1)
+                            ret, frame = read_frame_with_timeout(cap, timeout=detection_timeout)
+                            if ret and frame is not None:
+                                info.is_available = True
+                                if "YUYV" not in info.supported_fourcc:
+                                    info.supported_fourcc.insert(0, "YUYV")
+                        except Exception:
+                            pass
+                
+                # Even if frame read failed, if we have valid properties, mark as partially available
+                if not info.is_available and info.default_width > 0 and info.default_height > 0:
+                    # Mark as available if properties are valid (camera exists even if frame read is slow)
+                    info.is_available = True
+                
+                # Test resolutions if requested (only if camera is available)
+                if info.is_available and test_resolutions:
+                    test_list = resolution_list or [
+                        (640, 480), (800, 600), (1024, 768),
+                        (1280, 720), (1280, 960), (1600, 1200),
+                        (1920, 1080), (2560, 1440)
+                    ]
                     
-                    # Test common FPS values
-                    if test_resolutions:
-                        test_fps = [15.0, 20.0, 24.0, 25.0, 30.0, 60.0]
-                        for fps in test_fps:
-                            try:
-                                old_fps = cap.get(cv2.CAP_PROP_FPS)
-                                cap.set(cv2.CAP_PROP_FPS, fps)
-                                actual_fps = cap.get(cv2.CAP_PROP_FPS)
-                                cap.set(cv2.CAP_PROP_FPS, old_fps)
-                                if abs(actual_fps - fps) < 1.0:  # Allow 1 FPS tolerance
-                                    if fps not in info.supported_fps:
-                                        info.supported_fps.append(fps)
-                            except Exception:
-                                pass
-                        info.supported_fps.sort()
+                    for width, height in test_list:
+                        if test_resolution(cap, width, height):
+                            if (width, height) not in info.supported_resolutions:
+                                info.supported_resolutions.append((width, height))
                     
-                    # Get Windows camera name if applicable
-                    if platform.system() == "Windows" and not info.name:
-                        info.name = get_windows_camera_name(index)
-                    
+                    # Sort resolutions
+                    info.supported_resolutions.sort(key=lambda x: (x[0] * x[1], x[0]))
+                
+                # Test common FPS values (only if camera is available)
+                if info.is_available and test_resolutions:
+                    test_fps = [15.0, 20.0, 24.0, 25.0, 30.0, 60.0]
+                    for fps in test_fps:
+                        try:
+                            old_fps = cap.get(cv2.CAP_PROP_FPS)
+                            cap.set(cv2.CAP_PROP_FPS, fps)
+                            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                            cap.set(cv2.CAP_PROP_FPS, old_fps)
+                            if abs(actual_fps - fps) < 1.0:  # Allow 1 FPS tolerance
+                                if fps not in info.supported_fps:
+                                    info.supported_fps.append(fps)
+                        except Exception:
+                            pass
+                    info.supported_fps.sort()
+                
+                # Get Windows camera name if applicable
+                if platform.system() == "Windows" and not info.name:
+                    info.name = get_windows_camera_name(index)
+                
+                # If we successfully opened and got info, break out of backend loop
+                if info.is_available:
+                    # Keep cap open for potential further testing
                     break
-        except Exception:
-            pass
+                else:
+                    # Release and try next backend
+                    if cap:
+                        cap.release()
+                        cap = None
+        except Exception as e:
+            # Release on exception and try next backend
+            if cap:
+                try:
+                    cap.release()
+                except:
+                    pass
+                cap = None
+            continue
     
-    # Clean up
+    # Clean up if cap is still open and we're done
     if cap:
         cap.release()
     
@@ -366,6 +446,9 @@ def print_camera_summary(cameras: List[CameraInfo]) -> None:
         
         if cam.is_available:
             print(f"  Default: {cam.default_fourcc} {cam.default_width}×{cam.default_height} @ {cam.default_fps:.1f} FPS")
+            
+            if cam.supported_fourcc:
+                print(f"  Supported Formats ({len(cam.supported_fourcc)}): {', '.join(cam.supported_fourcc)}")
             
             if cam.supported_resolutions:
                 print(f"  Supported Resolutions ({len(cam.supported_resolutions)}):")
