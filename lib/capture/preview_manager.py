@@ -56,6 +56,7 @@ class PreviewManager:
         
         # Always stop previous preview if running (ensures clean restart)
         if self.preview_on or (self.preview_thread and self.preview_thread.is_alive()):
+            print("[DEBUG] Stopping existing preview before restart")
             self.stop()
             time.sleep(0.2)  # Give time for cleanup
         
@@ -63,6 +64,7 @@ class PreviewManager:
         try:
             cv2.destroyWindow("Preview")
             cv2.waitKey(1)
+            time.sleep(0.05)  # Brief pause for window destruction
         except:
             pass
         
@@ -73,6 +75,15 @@ class PreviewManager:
         try:
             self.preview_thread = threading.Thread(target=self._preview_loop, daemon=True)
             self.preview_thread.start()
+            
+            # Verify thread started
+            time.sleep(0.1)
+            if not self.preview_thread.is_alive():
+                print("[ERROR] Preview thread did not start properly")
+                self.preview_on = False
+                self.preview_thread = None
+            else:
+                print("[DEBUG] Preview thread started successfully")
         except Exception as e:
             print(f"[ERROR] Failed to start preview thread: {e}")
             traceback.print_exc()
@@ -104,13 +115,26 @@ class PreviewManager:
         """Preview thread loop - simple like capture.py."""
         # Create window in preview thread (simpler approach)
         window_name = "Preview"
-        cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+        
+        # Destroy existing window first to ensure clean creation
+        try:
+            cv2.destroyWindow(window_name)
+            cv2.waitKey(1)
+        except:
+            pass
+        
+        # Create window - it's safe to call namedWindow even if window exists
+        try:
+            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+            print("[INFO] Preview window created")
+        except Exception as e:
+            print(f"[ERROR] Failed to create preview window: {e}")
+            self.preview_on = False
+            return
         
         last_time = time.time()
         frame_count = 0
         fps = 0.0
-        
-        print("[INFO] Preview window created")
         
         try:
             while self.preview_on:
@@ -167,6 +191,7 @@ class PreviewManager:
             self.preview_on = False
             try:
                 cv2.destroyWindow(window_name)
+                cv2.waitKey(1)
             except:
                 pass
             print(f"[INFO] Preview stopped. Total frames: {frame_count}")
