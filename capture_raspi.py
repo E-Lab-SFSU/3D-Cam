@@ -95,119 +95,112 @@ class CaptureApp:
     def _build_ui(self):
         """Build the Tkinter GUI."""
         # No canvas - preview will be in OpenCV window
-        main = ttk.Frame(self.root, padding="10")
+        main = ttk.Frame(self.root, padding="5")
         main.pack(fill=tk.BOTH, expand=True)
         
-        # Right side: Controls
+        # Right side: Controls in a scrollable frame if needed
         ctrl = ttk.Frame(main)
-        ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=6, pady=6)
+        ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=3, pady=3)
         
-        # Camera selection
-        cam_frame = ttk.LabelFrame(ctrl, text="Camera Selection", padding="5")
-        cam_frame.pack(fill=tk.X, pady=(0, 10))
+        # Camera selection (compact)
+        cam_frame = ttk.LabelFrame(ctrl, text="Camera", padding="3")
+        cam_frame.pack(fill=tk.X, pady=(0, 4))
         
-        ttk.Label(cam_frame, text="Camera:").pack(anchor="w")
-        self.camera_combo = ttk.Combobox(cam_frame, width=25, state="readonly")
-        self.camera_combo.pack(pady=2, fill=tk.X)
+        cam_row = ttk.Frame(cam_frame)
+        cam_row.pack(fill=tk.X)
+        ttk.Label(cam_row, text="Cam:").pack(side=tk.LEFT, padx=(0, 2))
+        self.camera_combo = ttk.Combobox(cam_row, width=18, state="readonly")
+        self.camera_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 2))
         self.camera_combo.bind("<<ComboboxSelected>>", self.on_camera_selected)
+        ttk.Button(cam_row, text="↻", width=3, command=self.refresh_camera_list).pack(side=tk.LEFT)
         
-        ttk.Button(cam_frame, text="Refresh", command=self.refresh_camera_list).pack(pady=2)
-        
-        # Camera info display
+        # Camera info display (compact, smaller font)
         self.camera_info_label = ttk.Label(
             cam_frame, 
-            text="No camera selected", 
+            text="No camera", 
             justify="left",
+            font=("TkDefaultFont", 8),
             wraplength=200
         )
-        self.camera_info_label.pack(pady=2, fill=tk.X)
+        self.camera_info_label.pack(fill=tk.X, pady=(2, 0))
         
-        ttk.Separator(ctrl, orient="horizontal").pack(fill=tk.X, pady=6)
+        # Format selection (compact)
+        format_frame = ttk.LabelFrame(ctrl, text="Format", padding="3")
+        format_frame.pack(fill=tk.X, pady=(0, 4))
         
-        # Format selection
-        format_frame = ttk.LabelFrame(ctrl, text="Capture Format", padding="5")
-        format_frame.pack(fill=tk.X, pady=(0, 10))
+        # Format and FPS in one row
+        fmt_row = ttk.Frame(format_frame)
+        fmt_row.pack(fill=tk.X)
+        ttk.Label(fmt_row, text="Format:").pack(side=tk.LEFT, padx=(0, 2))
+        self.format_combo = ttk.Combobox(fmt_row, textvariable=self.format_var, width=6, state="readonly")
+        self.format_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.format_combo.bind("<<ComboboxSelected>>", lambda e: None)  # No need to update desc
+        tooltip(self.format_combo, "YUYV = raw/VGA | MJPG = compressed/HD")
         
-        ttk.Label(format_frame, text="Format:").pack(anchor="w")
-        self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var, width=8, state="readonly")
-        self.format_combo.pack(pady=2)
-        self.format_combo.bind("<<ComboboxSelected>>", lambda e: self._update_format_desc())
+        ttk.Label(fmt_row, text="FPS:").pack(side=tk.LEFT, padx=(0, 2))
+        fps_entry = ttk.Entry(fmt_row, textvariable=self.fps_var, width=5)
+        fps_entry.pack(side=tk.LEFT)
+        tooltip(fps_entry, "0=max speed, 1-60=specific FPS")
         
-        tooltip(self.format_combo,
-                "YUYV = raw, fastest, limited to ~640×480.\n"
-                "MJPG = compressed, allows 720p/1080p but higher CPU decode.")
+        # FPS and Scale status in one compact row
+        status_row = ttk.Frame(format_frame)
+        status_row.pack(fill=tk.X, pady=(2, 0))
+        self.fps_label = ttk.Label(status_row, text="FPS: —", font=("TkDefaultFont", 8))
+        self.fps_label.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(status_row, text="Scale:").pack(side=tk.LEFT, padx=(0, 2))
+        scale_entry = ttk.Entry(status_row, textvariable=self.scale_percent, width=4)
+        scale_entry.pack(side=tk.LEFT, padx=(0, 2))
+        tooltip(scale_entry, "Output scale %")
+        self.scale_label = ttk.Label(status_row, text="—", font=("TkDefaultFont", 8))
+        self.scale_label.pack(side=tk.LEFT)
         
-        self.format_desc = tk.Label(
-            format_frame, 
-            justify="left", 
-            bg="#eef", 
-            relief="groove",
-            wraplength=200
-        )
-        self.format_desc.pack(fill=tk.X, pady=2)
-        self._update_format_desc()
-        
-        # Framerate
-        ttk.Label(format_frame, text="Frame Rate (FPS):").pack(anchor="w", pady=(5, 0))
-        fps_entry = ttk.Entry(format_frame, textvariable=self.fps_var, width=8)
-        fps_entry.pack(pady=2)
-        tooltip(fps_entry, "Capture and output framerate (0 = maximum speed, 1-60 = specific FPS)")
-        self.fps_label = ttk.Label(format_frame, text="Current: —")
-        self.fps_label.pack(pady=(0, 5))
-        
-        # Scale
-        ttk.Label(format_frame, text="Output Scale (%):").pack(anchor="w", pady=(5, 0))
-        scale_entry = ttk.Entry(format_frame, textvariable=self.scale_percent, width=8)
-        scale_entry.pack(pady=2)
-        tooltip(scale_entry, "Resize output relative to native resolution (1–100 %)")
-        ttk.Button(format_frame, text="Apply Scale", command=self.update_scale_info).pack(pady=3)
-        self.scale_label = ttk.Label(format_frame, text="Scaled: —")
-        self.scale_label.pack()
-        
-        ttk.Separator(ctrl, orient="horizontal").pack(fill=tk.X, pady=6)
-        
-        # Camera controls
-        self.param_frame = ttk.LabelFrame(ctrl, text="Camera Controls", padding="5")
-        self.param_frame.pack(fill=tk.X, pady=(0, 10))
+        # Camera controls (compact, 2 columns)
+        self.param_frame = ttk.LabelFrame(ctrl, text="Controls", padding="3")
+        self.param_frame.pack(fill=tk.X, pady=(0, 4))
         
         self._build_camera_controls()
         
-        ttk.Separator(ctrl, orient="horizontal").pack(fill=tk.X, pady=6)
+        # Action buttons (compact grid)
+        btn_frame = ttk.LabelFrame(ctrl, text="Actions", padding="3")
+        btn_frame.pack(fill=tk.X, pady=(0, 4))
         
-        # Action buttons
-        btn_frame = ttk.Frame(ctrl)
-        btn_frame.pack(fill=tk.X)
+        btn_grid = ttk.Frame(btn_frame)
+        btn_grid.pack()
         
-        ttk.Button(btn_frame, text="Open Camera", command=self.open_camera).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Start Preview", command=self.start_preview).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Stop Preview", command=self.stop_preview).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Capture Frame", command=self.capture_frame).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Toggle Record", command=self.toggle_record).pack(fill=tk.X, pady=2)
-        ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_grid, text="Open", command=self.open_camera).grid(row=0, column=0, padx=2, pady=1, sticky="ew")
+        ttk.Button(btn_grid, text="Preview", command=self.start_preview).grid(row=0, column=1, padx=2, pady=1, sticky="ew")
+        ttk.Button(btn_grid, text="Stop", command=self.stop_preview).grid(row=0, column=2, padx=2, pady=1, sticky="ew")
+        ttk.Button(btn_grid, text="Capture", command=self.capture_frame).grid(row=1, column=0, padx=2, pady=1, sticky="ew")
+        ttk.Button(btn_grid, text="Record", command=self.toggle_record).grid(row=1, column=1, padx=2, pady=1, sticky="ew")
+        ttk.Button(btn_grid, text="Reset", command=self.reset_controls).grid(row=1, column=2, padx=2, pady=1, sticky="ew")
+        btn_grid.columnconfigure(0, weight=1)
+        btn_grid.columnconfigure(1, weight=1)
+        btn_grid.columnconfigure(2, weight=1)
         
         # Status
-        ttk.Separator(ctrl, orient="horizontal").pack(fill=tk.X, pady=6)
-        self.status_label = ttk.Label(ctrl, text="Ready", font=("TkDefaultFont", 10, "bold"))
-        self.status_label.pack(pady=5)
+        self.status_label = ttk.Label(ctrl, text="Ready", font=("TkDefaultFont", 9, "bold"))
+        self.status_label.pack(pady=(4, 0))
     
     def _build_camera_controls(self):
-        """Build camera control sliders."""
+        """Build camera control sliders in compact 2-column layout."""
         # Define controls with defaults
         controls = {
-            "brightness": ("Brightness", -64, 64, 0),
+            "brightness": ("Bright", -64, 64, 0),
             "contrast": ("Contrast", 0, 64, 32),
-            "saturation": ("Saturation", 0, 128, 60),
+            "saturation": ("Sat", 0, 128, 60),
             "gain": ("Gain", 0, 100, 32),
         }
         
         self.control_vars = {}
+        row = 0
+        col = 0
         
         for name, (label, default_min, default_max, default_val) in controls.items():
-            # Create frame for this control
+            # Create frame for this control (2 columns)
             frame = ttk.Frame(self.param_frame)
-            frame.pack(fill=tk.X, pady=2)
+            frame.grid(row=row, column=col, sticky="ew", padx=2, pady=1)
             
-            ttk.Label(frame, text=label, width=12, anchor="w").pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Label(frame, text=label, width=6, anchor="w", font=("TkDefaultFont", 8)).pack(side=tk.LEFT, padx=(0, 2))
             
             var = tk.DoubleVar(value=default_val)
             slider = tk.Scale(
@@ -217,12 +210,12 @@ class CaptureApp:
                 orient="horizontal", 
                 variable=var,
                 resolution=1,
-                length=120
+                length=70
             )
-            slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+            slider.pack(side=tk.LEFT, fill=tk.X, expand=True)
             
-            entry = ttk.Entry(frame, textvariable=var, width=6)
-            entry.pack(side=tk.LEFT, padx=2)
+            entry = ttk.Entry(frame, textvariable=var, width=4, font=("TkDefaultFont", 8))
+            entry.pack(side=tk.LEFT, padx=(2, 0))
             
             # Update callback
             def update_control(ctrl_name=name, ctrl_var=var):
@@ -237,18 +230,24 @@ class CaptureApp:
             entry.bind("<Return>", lambda e, update=update_control: update())
             
             self.control_vars[name] = var
+            
+            # Move to next row after 2 columns
+            col += 1
+            if col >= 2:
+                col = 0
+                row += 1
         
-        # Power line frequency dropdown
+        # Power line frequency dropdown (full width)
         freq_frame = ttk.Frame(self.param_frame)
-        freq_frame.pack(fill=tk.X, pady=2)
+        freq_frame.grid(row=row, column=0, columnspan=2, sticky="ew", padx=2, pady=1)
         
-        ttk.Label(freq_frame, text="Power Line:", width=12, anchor="w").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(freq_frame, text="Power:", width=6, anchor="w", font=("TkDefaultFont", 8)).pack(side=tk.LEFT, padx=(0, 2))
         
         freq_var = tk.IntVar(value=2)
         freq_combo = ttk.Combobox(
             freq_frame, 
             values=["0: Disabled", "1: 50 Hz", "2: 60 Hz"],
-            width=15,
+            width=12,
             state="readonly"
         )
         freq_combo.set("2: 60 Hz")
@@ -266,6 +265,10 @@ class CaptureApp:
         
         freq_combo.bind("<<ComboboxSelected>>", lambda e: update_freq())
         self.control_vars["power_line_frequency"] = freq_var
+        
+        # Configure grid columns
+        self.param_frame.columnconfigure(0, weight=1)
+        self.param_frame.columnconfigure(1, weight=1)
     
     def refresh_camera_list(self):
         """Refresh the list of available cameras."""
@@ -413,12 +416,12 @@ class CaptureApp:
         
         # Update FPS display
         if actual_fps == 0:
-            self.fps_label.config(text="Current: Maximum speed")
+            self.fps_label.config(text="FPS: Max speed")
             print("[INFO] Camera set to capture at maximum speed (FPS not limited)")
             # Use 30 FPS for output if capturing at max speed
             output_fps = 30.0
         else:
-            self.fps_label.config(text=f"Current: {actual_fps:.1f} FPS")
+            self.fps_label.config(text=f"FPS: {actual_fps:.1f}")
             print(f"[INFO] Camera FPS: {actual_fps:.1f}")
             output_fps = actual_fps
         
@@ -481,7 +484,7 @@ class CaptureApp:
         
         p = max(1, min(100, float(self.scale_percent.get())))
         sw, sh = int(self.cam.w * p / 100), int(self.cam.h * p / 100)
-        self.scale_label.config(text=f"Scaled: {sw}×{sh}")
+        self.scale_label.config(text=f"{sw}×{sh}")
         print(f"[INFO] {self.format_var.get()} {self.cam.w}×{self.cam.h} → {sw}×{sh} ({p:.1f}%)")
     
     def scaled_size(self):
