@@ -144,6 +144,113 @@ def get_windows_camera_name(index: int) -> Optional[str]:
     return None
 
 
+def set_camera_control(device_path: str, control_name: str, value: int) -> bool:
+    """
+    Set a camera control using v4l2-ctl (Linux only).
+    
+    Args:
+        device_path: Path to video device (e.g., "/dev/video0")
+        control_name: Name of control (e.g., "brightness", "contrast", "saturation", "gain", "power_line_frequency")
+        value: Value to set
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    if not is_linux():
+        return False
+    
+    try:
+        result = subprocess.run(
+            ['v4l2-ctl', '--device', device_path, '-c', f'{control_name}={int(value)}'],
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        return False
+
+
+def get_camera_control(device_path: str, control_name: str) -> Optional[int]:
+    """
+    Get a camera control value using v4l2-ctl (Linux only).
+    
+    Args:
+        device_path: Path to video device (e.g., "/dev/video0")
+        control_name: Name of control (e.g., "brightness", "contrast")
+    
+    Returns:
+        Control value or None if failed
+    """
+    if not is_linux():
+        return None
+    
+    try:
+        result = subprocess.run(
+            ['v4l2-ctl', '--device', device_path, '-C', control_name],
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        if result.returncode == 0:
+            # Parse output like "brightness (int)    : min=-64 max=64 step=1 default=0 value=0"
+            for line in result.stdout.split('\n'):
+                if control_name in line.lower() and 'value=' in line:
+                    try:
+                        # Extract value after "value="
+                        value_part = line.split('value=')[1].strip()
+                        # Get number before any whitespace or newline
+                        value = int(value_part.split()[0])
+                        return value
+                    except (ValueError, IndexError):
+                        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+    
+    return None
+
+
+def get_camera_control_range(device_path: str, control_name: str) -> Optional[Dict[str, int]]:
+    """
+    Get the range (min, max, default, step) for a camera control (Linux only).
+    
+    Args:
+        device_path: Path to video device (e.g., "/dev/video0")
+        control_name: Name of control
+    
+    Returns:
+        Dictionary with 'min', 'max', 'default', 'step' keys, or None if failed
+    """
+    if not is_linux():
+        return None
+    
+    try:
+        result = subprocess.run(
+            ['v4l2-ctl', '--device', device_path, '-C', control_name],
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        if result.returncode == 0:
+            range_info = {}
+            for line in result.stdout.split('\n'):
+                if control_name in line.lower():
+                    # Parse line like "brightness (int)    : min=-64 max=64 step=1 default=0 value=0"
+                    for key in ['min', 'max', 'default', 'step']:
+                        if f'{key}=' in line:
+                            try:
+                                value_str = line.split(f'{key}=')[1].strip().split()[0]
+                                range_info[key] = int(value_str)
+                            except (ValueError, IndexError):
+                                pass
+            if len(range_info) >= 3:  # At least min, max, default
+                return range_info
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
+    
+    return None
+
+
 def test_resolution(cap: cv2.VideoCapture, width: int, height: int) -> bool:
     """
     Test if a camera supports a specific resolution.
