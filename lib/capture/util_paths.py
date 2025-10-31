@@ -56,7 +56,9 @@ def make_capture_output_path(width: int, height: int, fps: int) -> str:
     """
     ensure_dir(CAPTURE_OUTPUT_DIR)
     name = ts_name(f"video_{width}x{height}_{fps}fps", "mp4")
-    return os.path.join(CAPTURE_OUTPUT_DIR, name)
+    path = os.path.join(CAPTURE_OUTPUT_DIR, name)
+    print(f"[DEBUG] Video will be saved to: {os.path.abspath(path)}")
+    return path
 
 
 def make_capture_frame_path(width: int, height: int) -> str:
@@ -66,6 +68,8 @@ def make_capture_frame_path(width: int, height: int) -> str:
     """
     ensure_dir(CAPTURE_OUTPUT_DIR)
     name = ts_name(f"frame_{width}x{height}", "png")
-    return os.path.join(CAPTURE_OUTPUT_DIR, name)
+    path = os.path.join(CAPTURE_OUTPUT_DIR, name)
+    print(f"[DEBUG] Frame will be saved to: {os.path.abspath(path)}")
+    return path
 
 

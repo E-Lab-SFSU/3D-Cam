@@ -118,8 +118,8 @@ class PreviewManager:
         
         # Create window - it's safe to call namedWindow even if window exists
         try:
-            cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
-            cv2.resizeWindow(window_name, 640, 480)
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(window_name, 640, 480)  # Initial size, will adjust based on content
             print("[INFO] Preview window created")
         except Exception as e:
             print(f"[ERROR] Failed to create preview window: {e}")
@@ -134,6 +134,7 @@ class PreviewManager:
         waiting_frame = np.zeros((480, 640, 3), dtype=np.uint8)
         cv2.putText(waiting_frame, "Waiting for Camera...", (120, 240),
                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        current_window_size = (640, 480)  # Track current window size
         
         try:
             while self.preview_on:
@@ -141,6 +142,9 @@ class PreviewManager:
                 
                 if not cam or not is_open:
                     # Camera not open - show waiting message
+                    if current_window_size != (640, 480):
+                        cv2.resizeWindow(window_name, 640, 480)
+                        current_window_size = (640, 480)
                     cv2.imshow(window_name, waiting_frame)
                     cv2.waitKey(1)
                     time.sleep(0.1)  # Don't spin too fast when waiting
@@ -175,8 +179,19 @@ class PreviewManager:
                             cv2.putText(display_frame, "REC", (10, 55),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                         
-                        # Resize display frame to 640x480 for preview window
-                        display_resized = cv2.resize(display_frame, (640, 480))
+                        # Resize display frame maintaining aspect ratio, target width ~640px
+                        src_h, src_w = display_frame.shape[:2]
+                        target_width = 640
+                        scale = target_width / src_w
+                        target_height = int(src_h * scale)
+                        display_resized = cv2.resize(display_frame, (target_width, target_height))
+                        
+                        # Resize window if needed (maintain aspect ratio)
+                        new_size = (target_width, target_height)
+                        if current_window_size != new_size:
+                            cv2.resizeWindow(window_name, target_width, target_height)
+                            current_window_size = new_size
+                        
                         cv2.imshow(window_name, display_resized)
                     
                 except Empty:
