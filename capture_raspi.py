@@ -432,8 +432,7 @@ class CaptureApp:
             print(f"[INFO] Camera FPS: {actual_fps:.1f}")
             output_fps = actual_fps
         
-        # Small delay to ensure camera is fully ready
-        time.sleep(0.2)
+        # No delay - start immediately
         
         # Start frame grabber (after camera is fully initialized)
         self._start_frame_grabber()
@@ -537,8 +536,7 @@ class CaptureApp:
         frames_read = 0
         last_status_time = time.time()
         
-        # Wait a bit for camera to stabilize (MJPG might need more time)
-        time.sleep(1.0)
+        # No delay - start immediately
         
         print("[INFO] Frame grabber: Starting frame capture...")
         
@@ -592,6 +590,7 @@ class CaptureApp:
         """Start live preview in OpenCV window."""
         # Don't start if already running
         if self.preview_on:
+            print("[INFO] Preview already running, skipping start")
             return
         
         if not self.cam or not self.cam.is_open():
@@ -599,19 +598,33 @@ class CaptureApp:
             if not self.cam or not self.cam.is_open():
                 return
         
-        # Ensure previous thread is dead (non-blocking check)
-        if self.preview_thread and self.preview_thread.is_alive():
-            print("[INFO] Previous preview still running, stopping it first...")
-            self.preview_on = False  # Signal stop
-            self.preview_thread.join(timeout=1.0)  # Don't wait too long
+        # Ensure previous thread is fully stopped
+        if self.preview_thread is not None:
+            if self.preview_thread.is_alive():
+                print("[INFO] Previous preview thread still alive, stopping it first...")
+                self.preview_on = False  # Signal stop
+                self.preview_thread.join(timeout=0.5)  # Short timeout
+                if self.preview_thread.is_alive():
+                    print("[WARN] Previous preview thread did not stop in time, continuing anyway")
+            # Reset thread reference regardless
+            self.preview_thread = None
         
-        # Clean up any existing window (non-blocking)
-        try:
-            cv2.destroyWindow("Preview")
-        except:
-            pass
+        # Ensure flag is clear
+        self.preview_on = False
         
-        # Set flag before starting thread
+        # Clean up any existing window and reset OpenCV state
+        for _ in range(5):
+            try:
+                cv2.destroyWindow("Preview")
+                # Process OpenCV events to ensure window is actually destroyed
+                cv2.waitKey(1)
+            except:
+                pass
+        
+        # Small delay to let OpenCV fully release the window
+        time.sleep(0.05)
+        
+        # Now set flag to True and start thread
         self.preview_on = True
         
         print("[INFO] Starting preview")
@@ -642,12 +655,16 @@ class CaptureApp:
         if self.preview_thread and self.preview_thread.is_alive():
             self.preview_thread.join(timeout=0.5)  # Short timeout
         
-        # Thread should have cleaned up window in finally block
-        # Just try once more (non-blocking)
-        try:
-            cv2.destroyWindow("Preview")
-        except:
-            pass
+        # Force cleanup of window (thread should have done it, but be sure)
+        for _ in range(3):
+            try:
+                cv2.destroyWindow("Preview")
+                cv2.waitKey(1)  # Process events
+            except:
+                pass
+        
+        # Small delay to ensure cleanup completes
+        time.sleep(0.05)
         
         # Reset thread reference
         self.preview_thread = None
@@ -662,19 +679,29 @@ class CaptureApp:
         window_created = False
         
         try:
-            # Clean up any existing window first
-            try:
-                cv2.destroyWindow("Preview")
-            except:
-                pass
+            # Clean up any existing window first (multiple attempts)
+            for _ in range(3):
+                try:
+                    cv2.destroyWindow("Preview")
+                    cv2.waitKey(1)  # Process events
+                except:
+                    pass
+            
+            # Small delay to ensure previous window is fully destroyed
+            time.sleep(0.05)
             
             # Create new window
             try:
                 cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)
                 cv2.resizeWindow("Preview", 640, 480)
+                # Process events to ensure window is actually created
+                cv2.waitKey(1)
                 window_created = True
+                print("[INFO] Preview window created successfully")
             except Exception as e:
                 print(f"[ERROR] Failed to create preview window: {e}")
+                import traceback
+                traceback.print_exc()
                 self.preview_on = False
                 self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
                 return
@@ -813,11 +840,13 @@ class CaptureApp:
             import traceback
             traceback.print_exc()
         finally:
-            # Cleanup: ensure window is closed (non-blocking)
-            try:
-                cv2.destroyWindow("Preview")
-            except:
-                pass
+            # Cleanup: ensure window is closed (multiple attempts)
+            for _ in range(3):
+                try:
+                    cv2.destroyWindow("Preview")
+                    cv2.waitKey(1)  # Process events
+                except:
+                    pass
             
             # Reset flag (don't use lock, avoid deadlocks)
             self.preview_on = False
