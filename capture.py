@@ -19,6 +19,7 @@ import cv2
 import time
 import threading
 import os
+from queue import Queue, Empty
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -60,6 +61,11 @@ class CaptureApp:
         # Preview state
         self.preview_on = False
         self.preview_thread = None
+        
+        # Frame grabbing (single thread feeds both preview and recording)
+        self.frame_queue = Queue(maxsize=10)  # Buffer to allow both preview and recording
+        self.frame_grabber_thread = None
+        self.frame_grabber_running = False
         
         # Build UI first (needed for camera_combo widget)
         self._build_ui()
@@ -151,6 +157,9 @@ class CaptureApp:
     # ------------------------------------------------------------------
     def open_camera(self):
         """Open camera with current settings."""
+        # Stop frame grabber if running
+        self._stop_frame_grabber()
+        
         if self.cam:
             self.cam.release()
             self.cam = None
@@ -180,8 +189,79 @@ class CaptureApp:
             messagebox.showerror("Camera Error", error_msg)
             return
         
+        # Clear frame queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except Empty:
+                break
+        
+        # Start frame grabber thread
+        self._start_frame_grabber()
+        
         print("[INFO] Camera ready")
         self.status_label.config(text=f"Camera {self.camera_index} ready", foreground="green")
+    
+    def _start_frame_grabber(self):
+        """Start the frame grabbing thread."""
+        if self.frame_grabber_running:
+            return
+        self.frame_grabber_running = True
+        self.frame_grabber_thread = threading.Thread(target=self._frame_grabber_loop, daemon=True)
+        self.frame_grabber_thread.start()
+    
+    def _stop_frame_grabber(self):
+        """Stop the frame grabbing thread."""
+        self.frame_grabber_running = False
+        if self.frame_grabber_thread and self.frame_grabber_thread.is_alive():
+            self.frame_grabber_thread.join(timeout=2.0)
+        # Clear queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except Empty:
+                break
+    
+    def _frame_grabber_loop(self):
+        """Single thread that reads frames from camera and feeds the queue."""
+        consecutive_errors = 0
+        max_errors = 30  # Allow more errors before giving up (timeouts are expected)
+        
+        while self.frame_grabber_running and self.cam and self.cam.is_open():
+            frame = self.cam.read()
+            if frame is not None:
+                consecutive_errors = 0
+                # Put frame in queue (drop old frame if queue is full to avoid lag)
+                try:
+                    # If both preview and recording are active, we need to feed both
+                    # Put original frame, and if queue has room, put a clone too
+                    if self.frame_queue.full():
+                        try:
+                            self.frame_queue.get_nowait()  # Remove oldest frame
+                        except Empty:
+                            pass
+                    
+                    # Put the frame
+                    self.frame_queue.put_nowait(frame)
+                    
+                    # If both preview and recording are active, put a clone so both can consume
+                    # This ensures neither thread starves
+                    if self.preview_on and self.recording and not self.frame_queue.full():
+                        try:
+                            frame_clone = frame.copy()
+                            self.frame_queue.put_nowait(frame_clone)
+                        except:
+                            pass  # If clone fails, skip it
+                            
+                except Exception as e:
+                    # Queue error, skip this frame
+                    pass
+            else:
+                consecutive_errors += 1
+                if consecutive_errors >= max_errors:
+                    print("[WARN] Too many consecutive frame read errors, stopping frame grabber")
+                    break
+                time.sleep(0.01)  # Small delay to prevent busy waiting
 
     # ------------------------------------------------------------------
     def start_record(self):
@@ -227,17 +307,26 @@ class CaptureApp:
         t0 = time.time()
         
         while not self.stop_flag and self.cam and self.cam.is_open():
-            frame = self.cam.read()
-            if frame is not None:
-                try:
-                    self.video_writer.write(frame)
-                    frame_count += 1
-                except Exception as e:
-                    print(f"[WARN] Frame write error: {e}")
-                    dropped_frames += 1
-            else:
+            try:
+                # Get frame from queue (with timeout to avoid blocking forever)
+                frame = self.frame_queue.get(timeout=0.1)
+                if frame is not None:
+                    try:
+                        # Clone frame before writing (in case preview also has reference)
+                        frame_to_write = frame.copy() if self.preview_on else frame
+                        self.video_writer.write(frame_to_write)
+                        frame_count += 1
+                    except Exception as e:
+                        print(f"[WARN] Frame write error: {e}")
+                        dropped_frames += 1
+            except Empty:
+                # No frame available, continue waiting
+                if not self.frame_grabber_running:
+                    # Frame grabber stopped, exit recording
+                    break
+                continue
+            except Exception as e:
                 dropped_frames += 1
-                time.sleep(0.001)  # Small delay if no frame available
         
         duration = time.time() - t0
         fps_measured = frame_count / duration if duration > 0 else 0
@@ -288,46 +377,42 @@ class CaptureApp:
         last_time = time.time()
         frame_count = 0
         fps = 0.0
-        consecutive_errors = 0
-        max_errors = 10
         
         try:
             while self.preview_on and self.cam and self.cam.is_open():
-                frame = self.cam.read()
-                if frame is not None:
-                    consecutive_errors = 0  # Reset error counter on success
-                    
-                    # Calculate FPS (moving average)
-                    frame_count += 1
-                    now = time.time()
-                    if frame_count % 10 == 0:
-                        elapsed = now - last_time
-                        fps = 10.0 / elapsed if elapsed > 0 else 0
-                        last_time = now
-                    
-                    # Draw FPS overlay
-                    try:
-                        cv2.putText(
-                            frame, 
-                            f"{fps:.1f} FPS", 
-                            (10, 25),
-                            cv2.FONT_HERSHEY_SIMPLEX, 
-                            0.7, 
-                            (0, 0, 255), 
-                            2
-                        )
-                        cv2.imshow("Preview", frame)
-                    except Exception as e:
-                        print(f"[WARN] Preview display error: {e}")
-                        consecutive_errors += 1
-                else:
-                    consecutive_errors += 1
-                    # If we get too many consecutive errors, the camera might be disconnected
-                    if consecutive_errors >= max_errors:
-                        print("[WARN] Too many consecutive frame read errors, stopping preview")
-                        self.preview_on = False
+                try:
+                    # Get frame from queue (with timeout)
+                    frame = self.frame_queue.get(timeout=0.1)
+                    if frame is not None:
+                        
+                        # Calculate FPS (moving average)
+                        frame_count += 1
+                        now = time.time()
+                        if frame_count % 10 == 0:
+                            elapsed = now - last_time
+                            fps = 10.0 / elapsed if elapsed > 0 else 0
+                            last_time = now
+                        
+                        # Draw FPS overlay
+                        try:
+                            cv2.putText(
+                                frame, 
+                                f"{fps:.1f} FPS", 
+                                (10, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX, 
+                                0.7, 
+                                (0, 0, 255), 
+                                2
+                            )
+                            cv2.imshow("Preview", frame)
+                        except Exception as e:
+                            print(f"[WARN] Preview display error: {e}")
+                except Empty:
+                    # No frame available, check if we should continue
+                    if not self.frame_grabber_running:
+                        # Frame grabber stopped, exit preview
                         break
-                    time.sleep(0.01)  # Small delay to prevent busy waiting
+                    continue
                 
                 # ESC key closes preview
                 if cv2.waitKey(1) & 0xFF == 27:
@@ -347,6 +432,7 @@ class CaptureApp:
         print("[INFO] Exiting…")
         self.preview_on = False
         self.stop_record()
+        self._stop_frame_grabber()
         if self.cam:
             self.cam.release()
         self.root.destroy()
