@@ -901,7 +901,7 @@ class CaptureApp:
                     if not self.preview_on:
                         break
                     
-                    if frame is not None and window_created:
+                    if frame is not None:
                         no_frame_count = 0
                         
                         # Validate frame
