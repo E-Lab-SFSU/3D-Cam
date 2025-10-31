@@ -9,6 +9,22 @@ import cv2
 import time
 import platform
 import threading
+import os
+
+
+def is_raspberry_pi():
+    """Check if running on Raspberry Pi."""
+    try:
+        with open('/proc/cpuinfo', 'r') as f:
+            cpuinfo = f.read()
+            return 'Raspberry Pi' in cpuinfo or 'BCM' in cpuinfo
+    except:
+        return False
+
+
+def is_linux():
+    """Check if running on Linux."""
+    return platform.system() == "Linux"
 
 
 def get_camera_backend():
@@ -79,29 +95,38 @@ def detect_cameras(max_test=10, suppress_warnings=True):
         else:
             yield
     
-    # On Linux, check if /dev/video* devices exist to speed up detection
-    def check_v4l2_device_exists(idx):
-        """Check if /dev/video{idx} exists on Linux."""
-        if platform.system() != "Linux":
-            return True  # Can't check on other platforms
-        dev_path = f"/dev/video{idx}"
-        return os.path.exists(dev_path)
+    # On Linux, pre-scan available /dev/video* devices to speed up detection
+    available_devices = []
+    if is_linux() and preferred_backend == cv2.CAP_V4L2:
+        # Pre-scan /dev/video* devices to avoid opening non-existent ones
+        for idx in range(max_test):
+            dev_path = f"/dev/video{idx}"
+            if os.path.exists(dev_path):
+                available_devices.append(idx)
     
     available = []
     preferred_backend = get_camera_backend()
+    is_raspi = is_raspberry_pi()
+    
+    # Adjust timeout based on platform (Raspberry Pi is slower)
+    detection_timeout = 3.0 if is_raspi else 1.5
+    
     # On Windows, try MSMF first (more reliable than DSHOW for some cameras)
     if platform.system() == "Windows":
         backends_to_try = [cv2.CAP_MSMF, preferred_backend, cv2.CAP_DSHOW, cv2.CAP_V4L2, cv2.CAP_ANY]
     else:
-        backends_to_try = [preferred_backend, cv2.CAP_DSHOW, cv2.CAP_V4L2, cv2.CAP_ANY]
+        # On Linux, prefer V4L2 and limit backends to try
+        backends_to_try = [preferred_backend]
     
-    print("[INFO] Detecting cameras...")
+    print(f"[INFO] Detecting cameras... (OS: {platform.system()}, Raspberry Pi: {is_raspi})")
+    if available_devices:
+        print(f"[INFO] Found {len(available_devices)} video devices: {available_devices}")
+    
     with suppress_stderr():
-        for idx in range(max_test):
-            # On Linux, skip if device doesn't exist
-            if platform.system() == "Linux" and preferred_backend == cv2.CAP_V4L2:
-                if not check_v4l2_device_exists(idx):
-                    continue  # Skip this index
+        # On Linux, only check devices we found, otherwise check all indices
+        indices_to_check = available_devices if available_devices else range(max_test)
+        
+        for idx in indices_to_check:
             
             found = False
             for backend in backends_to_try:
@@ -117,8 +142,8 @@ def detect_cameras(max_test=10, suppress_warnings=True):
                         # Otherwise skip frame read to avoid long timeouts
                         if width > 0 and height > 0:
                             # Try to read a frame with timeout to verify it works
-                            # Use short timeout to avoid long delays during detection
-                            ret, frame = read_frame_with_timeout(cap, timeout=1.5)
+                            # Use platform-appropriate timeout
+                            ret, frame = read_frame_with_timeout(cap, timeout=detection_timeout)
                             if ret and frame is not None:
                                 # Get camera info (without suppressing stderr for this)
                                 backend_name = cap.getBackendName()
@@ -167,14 +192,16 @@ class Camera:
 
     def open(self):
         """Open camera with specified settings. Tries multiple backends if needed."""
-        import platform
+        is_raspi = is_raspberry_pi()
+        is_linux_os = is_linux()
         
         # Determine backends to try
         if platform.system() == "Windows":
             # On Windows, try DSHOW first (often more reliable than MSMF for some cameras)
             backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, self.backend, cv2.CAP_V4L2, cv2.CAP_ANY]
         else:
-            backends_to_try = [self.backend, cv2.CAP_DSHOW, cv2.CAP_V4L2, cv2.CAP_ANY]
+            # On Linux, prefer V4L2 and limit backends
+            backends_to_try = [self.backend]
         
         # Remove duplicates while preserving order
         seen = set()
@@ -184,25 +211,47 @@ class Camera:
         for backend_alt in backends_to_try:
             if self.cap:
                 self.cap.release()
-            self.cap = cv2.VideoCapture(self.index, backend_alt)
+            
+            # Open camera with backend
+            if is_linux_os and backend_alt == cv2.CAP_V4L2:
+                # On Linux/V4L2, use device path directly if possible for better reliability
+                dev_path = f"/dev/video{self.index}"
+                if os.path.exists(dev_path):
+                    # Open by device path (more reliable than index on some systems)
+                    self.cap = cv2.VideoCapture(dev_path, backend_alt)
+                else:
+                    self.cap = cv2.VideoCapture(self.index, backend_alt)
+            else:
+                self.cap = cv2.VideoCapture(self.index, backend_alt)
+            
             if self.cap.isOpened():
-                # Verify we can actually read valid frames (try a few times)
-                valid_frames = 0
-                for _ in range(5):  # Try up to 5 frames
+                # On Linux/V4L2, set additional properties for better performance
+                if is_linux_os and backend_alt == cv2.CAP_V4L2:
                     try:
-                        ret, frame = self.cap.read()
+                        # Set buffer size to 1 to reduce latency and avoid timeouts
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except:
+                        pass
+                
+                # Verify we can actually read valid frames (try fewer times with timeout)
+                valid_frames = 0
+                max_attempts = 3 if is_raspi else 5  # Fewer attempts on Pi to speed up
+                for _ in range(max_attempts):
+                    try:
+                        # Use timeout for frame reads during opening
+                        ret, frame = read_frame_with_timeout(self.cap, timeout=2.0 if is_raspi else 1.0)
                         if ret and frame is not None:
                             # Validate frame structure
                             if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
                                 valid_frames += 1
-                                if valid_frames >= 2:  # Need at least 2 valid frames
+                                if valid_frames >= 1:  # Need at least 1 valid frame (reduced for Pi)
                                     self.backend = backend_alt
                                     break
                     except (cv2.error, Exception):
                         # Frame read failed, continue trying
                         continue
                 
-                if valid_frames >= 2:
+                if valid_frames >= 1:
                     break
                 else:
                     # Backend didn't work, try next
@@ -234,17 +283,30 @@ class Camera:
         except:
             pass
         
+        # Determine if using V4L2 (check actual backend name or backend type)
+        using_v4l2 = is_linux_os and (self.backend == cv2.CAP_V4L2 or 'V4L2' in str(self.actual_backend))
+        
+        # Set buffer size - critical for V4L2 to avoid timeouts
         try:
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
+            if using_v4l2:
+                # V4L2: smaller buffer = lower latency but less tolerance for delays
+                # Always use 1 for V4L2 to minimize timeouts
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            else:
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except:
             pass
         
-        time.sleep(0.5)  # Allow camera to stabilize
+        # Shorter stabilization time on Linux/V4L2
+        stabilization_time = 0.3 if using_v4l2 else 0.5
+        time.sleep(stabilization_time)
         
-        # Flush initial frames (camera warm-up)
-        for _ in range(10):
+        # Flush initial frames (camera warm-up) - fewer on Linux/V4L2 to avoid timeouts
+        flush_count = 5 if using_v4l2 else 10
+        for _ in range(flush_count):
             try:
-                ret, frame = self.cap.read()
+                # Use timeout for flushing to avoid blocking
+                ret, frame = read_frame_with_timeout(self.cap, timeout=0.5)
                 if ret and frame is not None:
                     if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
                         pass  # Valid frame, continue flushing
