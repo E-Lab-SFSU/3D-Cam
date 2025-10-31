@@ -1,4 +1,4 @@
-# Output folder - ignore all contents except sample dataset
+# Output folders - ignore all contents except sample datasets
 pair_detect_output/*
 !pair_detect_output/.gitkeep
 # Uncomment and modify the lines below to preserve a specific sample dataset folder
@@ -6,4 +6,9 @@ pair_detect_output/*
 # !pair_detect_output/sample_dataset/**
 # Or use a pattern like:
 # !pair_detect_output/*sample*/
+
+capture_output/*
+!capture_output/.gitkeep
+# Uncomment to preserve specific captured videos
+# !capture_output/*sample*/
 

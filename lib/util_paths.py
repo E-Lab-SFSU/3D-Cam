@@ -45,3 +45,17 @@ def export_paths_for(video_path: str) -> dict:
     }
 
 
+# Capture output directory
+CAPTURE_OUTPUT_DIR = "capture_output"
+
+
+def make_capture_output_path(width: int, height: int, fps: int) -> str:
+    """
+    Create output path for captured video.
+    Returns: capture_output/video_WxH_YYYYmmdd_HHMMSS.mp4
+    """
+    ensure_dir(CAPTURE_OUTPUT_DIR)
+    name = ts_name(f"video_{width}x{height}_{fps}fps", "mp4")
+    return os.path.join(CAPTURE_OUTPUT_DIR, name)
+
+

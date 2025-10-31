@@ -23,7 +23,7 @@
   "overlays": {
     "show_blobs": 1,
     "show_center": 1,
-    "show_pair_center": 1,
+    "show_pair_center": 0,
     "show_lines": 1,
     "show_rays": 1,
     "label_mode": "Random",
