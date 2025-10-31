@@ -21,7 +21,6 @@ import subprocess
 
 import tkinter as tk
 from tkinter import ttk, messagebox
-from PIL import Image, ImageTk
 
 from lib.camera import Camera, get_camera_backend, is_linux, is_raspberry_pi
 from lib.camera_info import (
@@ -67,12 +66,21 @@ class CaptureApp:
         
         # Preview state
         self.preview_on = False
+        self.preview_thread = None
         self.last_time = time.time()
         self.fps_est = 0.0
         
         # Recording state
         self.recording = False
+        self.stop_flag = False
         self.video_writer = None
+        self.record_thread = None
+        self.output_fps = 30.0  # Consistent output FPS for video file
+        
+        # Frame grabbing (single thread feeds both preview and recording)
+        self.frame_queue = Queue(maxsize=10)
+        self.frame_grabber_thread = None
+        self.frame_grabber_running = False
         
         # Camera controls
         self.control_vars = {}
@@ -86,12 +94,9 @@ class CaptureApp:
     
     def _build_ui(self):
         """Build the Tkinter GUI."""
-        main = ttk.Frame(self.root)
+        # No canvas - preview will be in OpenCV window
+        main = ttk.Frame(self.root, padding="10")
         main.pack(fill=tk.BOTH, expand=True)
-        
-        # Left side: Preview canvas
-        self.canvas = tk.Canvas(main, bg="black")
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         # Right side: Controls
         ctrl = ttk.Frame(main)
@@ -356,9 +361,13 @@ class CaptureApp:
         else:
             width, height = 640, 480
         
+        # Don't limit FPS - let camera run at maximum speed
+        # Use 0 to auto-detect or let camera choose its maximum
+        max_fps = 0  # 0 means don't set FPS, capture at max speed
+        
         self.cam = Camera(
             index=self.camera_info.index,
-            fps=int(self.camera_info.default_fps),
+            fps=max_fps,  # Let camera run at maximum speed
             fourcc=format_str,
             width=width,
             height=height,
@@ -369,16 +378,37 @@ class CaptureApp:
             messagebox.showerror("Camera Error", f"Failed to open camera {self.camera_info.index}")
             return
         
+        # Stop frame grabber if running
+        self._stop_frame_grabber()
+        
+        # Clear frame queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except Empty:
+                break
+        
         # Load camera control ranges
         if self.camera_info.device_path:
             self._load_camera_control_ranges()
             # Apply current control values
             self._apply_camera_controls()
         
+        # Start frame grabber
+        self._start_frame_grabber()
+        
+        # Get actual camera FPS (may be 0 if not set, meaning max speed)
+        actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
+        if actual_fps == 0:
+            print("[INFO] Camera set to capture at maximum speed (FPS not limited)")
+        else:
+            print(f"[INFO] Camera FPS: {actual_fps:.1f}")
+        
         self.update_scale_info()
         self.status_label.config(text=f"Camera {self.camera_info.index} ready", foreground="green")
         print("[INFO] Camera opened successfully")
         print(f"[INFO] Using automatic exposure (default)")
+        print(f"[INFO] Output video will be recorded at {self.output_fps} FPS (consistent)")
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
@@ -434,11 +464,65 @@ class CaptureApp:
         p = max(1, min(100, float(self.scale_percent.get())))
         return int(self.cam.w * p / 100), int(self.cam.h * p / 100)
     
+    def _start_frame_grabber(self):
+        """Start the frame grabbing thread."""
+        if self.frame_grabber_running:
+            return
+        self.frame_grabber_running = True
+        self.frame_grabber_thread = threading.Thread(target=self._frame_grabber_loop, daemon=True)
+        self.frame_grabber_thread.start()
+        print("[INFO] Frame grabber started")
+    
+    def _stop_frame_grabber(self):
+        """Stop the frame grabbing thread."""
+        self.frame_grabber_running = False
+        if self.frame_grabber_thread and self.frame_grabber_thread.is_alive():
+            self.frame_grabber_thread.join(timeout=2.0)
+        # Clear queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except Empty:
+                break
+        print("[INFO] Frame grabber stopped")
+    
+    def _frame_grabber_loop(self):
+        """Single thread that reads frames from camera and feeds the queue."""
+        consecutive_errors = 0
+        max_errors = 50  # More lenient for slow cameras
+        
+        # Wait a bit for camera to stabilize
+        time.sleep(0.5)
+        
+        while self.frame_grabber_running and self.cam and self.cam.is_open():
+            frame = self.cam.read()
+            if frame is not None:
+                consecutive_errors = 0
+                
+                # Put frame in queue (drop old frame if queue is full)
+                try:
+                    if self.frame_queue.full():
+                        try:
+                            self.frame_queue.get_nowait()
+                        except Empty:
+                            pass
+                    
+                    self.frame_queue.put_nowait(frame)
+                except Exception as e:
+                    print(f"[WARN] Frame queue error: {e}")
+            else:
+                consecutive_errors += 1
+                if consecutive_errors >= max_errors:
+                    print(f"[WARN] Too many consecutive frame read errors ({consecutive_errors}), stopping frame grabber")
+                    break
+                # Longer sleep on error to avoid hammering the camera
+                time.sleep(0.1)
+    
     def start_preview(self):
-        """Start live preview."""
-        if not self.cam:
+        """Start live preview in OpenCV window."""
+        if not self.cam or not self.cam.is_open():
             self.open_camera()
-            if not self.cam:
+            if not self.cam or not self.cam.is_open():
                 return
         
         if not self.preview_on:
@@ -446,13 +530,108 @@ class CaptureApp:
             self.preview_on = True
             self.last_time = time.time()
             self.fps_est = 0.0
-            self._update_frame()
+            
+            # Start preview thread
+            self.preview_thread = threading.Thread(target=self._preview_loop, daemon=True)
+            self.preview_thread.start()
     
     def stop_preview(self):
         """Stop live preview."""
         if self.preview_on:
             print("[INFO] Stopping preview")
         self.preview_on = False
+        
+        # Wait for preview thread to finish
+        if self.preview_thread and self.preview_thread.is_alive():
+            self.preview_thread.join(timeout=1.0)
+        
+        # Close OpenCV window
+        try:
+            cv2.destroyWindow("Preview")
+        except:
+            pass
+    
+    def _preview_loop(self):
+        """Preview thread loop with OpenCV window."""
+        # Set OpenCV to use X11 backend on Raspberry Pi
+        os.environ['DISPLAY'] = os.environ.get('DISPLAY', ':0')
+        
+        cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Preview", 640, 480)
+        
+        last_time = time.time()
+        frame_count = 0
+        fps = 0.0
+        
+        try:
+            while self.preview_on and self.cam and self.cam.is_open():
+                try:
+                    # Get frame from queue
+                    frame = self.frame_queue.get(timeout=0.5)
+                    
+                    if frame is not None:
+                        # Validate frame
+                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                            # Convert to RGB if needed
+                            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                                # Already BGR from OpenCV
+                                display_frame = frame.copy()
+                            else:
+                                # Handle YUYV format
+                                display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                            
+                            # Calculate FPS
+                            frame_count += 1
+                            now = time.time()
+                            if frame_count % 10 == 0:
+                                elapsed = now - last_time
+                                fps = 10.0 / elapsed if elapsed > 0 else 0
+                                last_time = now
+                            
+                            # Draw overlay
+                            cv2.putText(
+                                display_frame,
+                                f"{self.format_var.get()} {self.cam.w}x{self.cam.h}  FPS:{fps:.1f}",
+                                (10, 25),
+                                cv2.FONT_HERSHEY_SIMPLEX,
+                                0.7,
+                                (0, 255, 0),
+                                2
+                            )
+                            if self.recording:
+                                cv2.putText(
+                                    display_frame,
+                                    "REC",
+                                    (10, 55),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.7,
+                                    (0, 0, 255),
+                                    2
+                                )
+                            
+                            cv2.imshow("Preview", display_frame)
+                            # CRITICAL: waitKey is needed for OpenCV to process window events
+                            key = cv2.waitKey(1) & 0xFF
+                            if key == 27:  # ESC key
+                                self.preview_on = False
+                                break
+                except Empty:
+                    # No frame available, check if we should continue
+                    if not self.frame_grabber_running:
+                        print("[INFO] Preview: Frame grabber stopped, exiting preview")
+                        break
+                    # Still process window events
+                    cv2.waitKey(1)
+                    continue
+        except Exception as e:
+            print(f"[ERROR] Preview loop error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            try:
+                cv2.destroyWindow("Preview")
+            except:
+                pass
     
     def reset_controls(self):
         """Reset camera controls to defaults."""
@@ -479,128 +658,193 @@ class CaptureApp:
     
     def capture_frame(self):
         """Capture a single frame."""
-        if not self.cam:
+        if not self.cam or not self.cam.is_open():
             messagebox.showinfo("Camera", "Open camera first.")
             return
         
-        frame = self.cam.read()
+        # Try to get frame from queue
+        try:
+            frame = self.frame_queue.get(timeout=1.0)
+        except Empty:
+            messagebox.showerror("Capture Error", "Failed to read frame from camera (timeout).")
+            return
+        
         if frame is None:
             messagebox.showerror("Capture Error", "Failed to read frame from camera.")
             return
         
+        # Scale frame
         w, h = self.scaled_size()
-        frame_resized = cv2.resize(frame, (w, h))
+        if w != self.cam.w or h != self.cam.h:
+            frame_resized = cv2.resize(frame, (w, h))
+        else:
+            frame_resized = frame
+        
+        # Convert if needed
+        if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
+            frame_bgr = frame_resized
+        else:
+            frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
         
         ts = time.strftime("%Y%m%d_%H%M%S")
         name = f"frame_{w}x{h}_{ts}.png"
-        cv2.imwrite(name, frame_resized)
+        cv2.imwrite(name, frame_bgr)
         print(f"[INFO] Saved {name}")
         self.status_label.config(text=f"Saved: {name}", foreground="blue")
     
     def toggle_record(self):
         """Toggle video recording."""
-        if not self.cam:
+        if not self.cam or not self.cam.is_open():
             messagebox.showinfo("Camera", "Open camera first.")
             return
         
-        if self.video_writer:
+        if self.recording:
             # Stop recording
-            self.video_writer.release()
-            self.video_writer = None
+            self.stop_flag = True
+            if self.record_thread and self.record_thread.is_alive():
+                self.record_thread.join(timeout=2.0)
+            
+            if self.video_writer:
+                self.video_writer.release()
+                self.video_writer = None
+            
             self.recording = False
             self.status_label.config(text="Recording stopped", foreground="black")
             print("[INFO] Recording stopped")
         else:
             # Start recording
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             w, h = self.scaled_size()
-            name = f"video_{w}x{h}_{ts}.mp4"
+            # Use consistent output FPS (not camera FPS which may vary)
+            output_path = make_capture_output_path(w, h, int(self.output_fps))
             
-            self.video_writer = cv2.VideoWriter(name, fourcc, self.cam.fps, (w, h))
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            # Use consistent output FPS for smooth playback
+            self.video_writer = cv2.VideoWriter(output_path, fourcc, self.output_fps, (w, h))
+            
             if not self.video_writer.isOpened():
-                messagebox.showerror("Recording Error", f"Failed to create video file: {name}")
+                messagebox.showerror("Recording Error", f"Failed to create video file: {output_path}")
                 return
             
+            self.stop_flag = False
             self.recording = True
-            self.status_label.config(text=f"Recording: {name}", foreground="red")
-            print(f"[INFO] Recording started: {name}")
+            self.status_label.config(text=f"Recording: {os.path.basename(output_path)}", foreground="red")
+            
+            # Start recording thread
+            self.record_thread = threading.Thread(target=self._record_loop, daemon=True)
+            self.record_thread.start()
+            
+            print(f"[INFO] Recording started: {output_path}")
     
-    def _update_frame(self):
-        """Update preview frame."""
-        if not self.preview_on or not self.cam:
-            return
+    def _record_loop(self):
+        """Recording thread loop with consistent output FPS."""
+        frame_count = 0
+        dropped_frames = 0
+        skipped_frames = 0
+        t0 = time.time()
         
-        frame = self.cam.read()
-        if frame is not None:
-            # Convert to RGB
-            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            else:
-                # Handle YUYV format
-                rgb = cv2.cvtColor(frame, cv2.COLOR_YUV2RGB_YUY2)
-            
-            # Scale
-            w, h = self.scaled_size()
-            rgb_resized = cv2.resize(rgb, (w, h))
-            
-            # FPS estimation
-            now = time.time()
-            dt = now - self.last_time
-            self.last_time = now
-            if dt > 0:
-                self.fps_est = 0.9 * self.fps_est + 0.1 * (1.0 / dt)
-            
-            # Add overlay text
-            rgb_preview = rgb_resized.copy()
-            cv2.putText(
-                rgb_preview,
-                f"{self.format_var.get()} {self.cam.w}x{self.cam.h}  FPS:{self.fps_est:.1f}",
-                (10, 25),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 0, 0),
-                2
-            )
-            if self.recording:
-                cv2.putText(
-                    rgb_preview,
-                    "REC",
-                    (10, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (0, 0, 255),
-                    2
-                )
-            
-            # Update canvas
-            im = Image.fromarray(rgb_preview)
-            cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
-            if cw > 1 and ch > 1:
-                scale = min(cw / w, ch / h)
-                im = im.resize((int(w * scale), int(h * scale)), Image.NEAREST)
-                imgtk = ImageTk.PhotoImage(image=im)
-                self.canvas.delete("all")
-                self.canvas.create_image(cw // 2, ch // 2, image=imgtk)
-                self.canvas.image = imgtk
-            
-            # Save frame for recording
-            if self.video_writer:
-                self.video_writer.write(cv2.cvtColor(rgb_resized, cv2.COLOR_RGB2BGR))
+        # Frame timing for consistent output FPS
+        frame_interval = 1.0 / self.output_fps  # Time between frames at output FPS
+        next_frame_time = t0
+        last_frame = None
         
-        # Schedule next update
-        fps = self.cam.fps if self.cam.fps else 30
-        delay = int(1000 / fps)
-        self.root.after(delay, self._update_frame)
+        while not self.stop_flag and self.cam and self.cam.is_open():
+            try:
+                # Get frame (non-blocking with timeout)
+                try:
+                    frame = self.frame_queue.get(timeout=0.1)
+                except Empty:
+                    # No frame available, check if we should write last frame (duplicate)
+                    # to maintain consistent output FPS
+                    current_time = time.time()
+                    if current_time >= next_frame_time and last_frame is not None:
+                        # Time to write next frame, use last frame to maintain FPS
+                        w, h = self.scaled_size()
+                        if w != self.cam.w or h != self.cam.h:
+                            frame_resized = cv2.resize(last_frame, (w, h))
+                        else:
+                            frame_resized = last_frame.copy()
+                        
+                        # Convert if needed (ensure BGR)
+                        if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
+                            frame_bgr = frame_resized
+                        else:
+                            frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
+                        
+                        self.video_writer.write(frame_bgr)
+                        frame_count += 1
+                        next_frame_time += frame_interval
+                    continue
+                
+                if frame is not None:
+                    last_frame = frame  # Store for potential duplication
+                    
+                    # Scale frame
+                    w, h = self.scaled_size()
+                    if w != self.cam.w or h != self.cam.h:
+                        frame_resized = cv2.resize(frame, (w, h))
+                    else:
+                        frame_resized = frame
+                    
+                    # Convert if needed (ensure BGR)
+                    if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
+                        frame_bgr = frame_resized
+                    else:
+                        frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
+                    
+                    # Write frames at consistent intervals for smooth playback
+                    current_time = time.time()
+                    
+                    # If it's time to write, write immediately
+                    if current_time >= next_frame_time:
+                        self.video_writer.write(frame_bgr)
+                        frame_count += 1
+                        next_frame_time += frame_interval
+                        
+                        # If we're significantly behind, skip ahead to current time
+                        # (don't accumulate too much lag)
+                        if current_time > next_frame_time + frame_interval * 2:
+                            next_frame_time = current_time + frame_interval
+                    else:
+                        # Frame came too early - skip it to maintain timing
+                        # We'll use the next frame when it's time
+                        skipped_frames += 1
+                        
+            except Exception as e:
+                print(f"[WARN] Frame write error: {e}")
+                dropped_frames += 1
+        
+        duration = time.time() - t0
+        fps_capture_avg = frame_count / duration if duration > 0 else 0
+        
+        print(f"[INFO] Recorded {frame_count} frames in {duration:.1f}s")
+        print(f"[INFO] Average capture rate: {fps_capture_avg:.1f} FPS")
+        print(f"[INFO] Output video FPS: {self.output_fps:.1f} FPS (consistent)")
+        if skipped_frames > 0:
+            print(f"[INFO] Skipped {skipped_frames} early frames to maintain consistent FPS")
+        if dropped_frames > 0:
+            print(f"[INFO] Dropped {dropped_frames} frames due to errors")
+    
     
     def on_close(self):
         """Handle application close."""
         print("[INFO] Closing application")
         self.stop_preview()
+        self.stop_flag = True
+        
+        # Wait for recording thread
+        if self.record_thread and self.record_thread.is_alive():
+            self.record_thread.join(timeout=2.0)
+        
         if self.video_writer:
             self.video_writer.release()
+            self.video_writer = None
+        
+        self._stop_frame_grabber()
+        
         if self.cam:
             self.cam.release()
+        
+        cv2.destroyAllWindows()
         self.root.destroy()
 
 
