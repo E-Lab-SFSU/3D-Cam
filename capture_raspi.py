@@ -780,6 +780,13 @@ class CaptureApp:
         
         window_created = False
         
+        # Initialize loop variables early so they're always available in finally block
+        last_time = time.time()
+        frame_count = 0
+        fps = 0.0
+        no_frame_count = 0
+        first_frame = True
+        
         try:
             debug_print("Starting window cleanup in _preview_loop()...")
             # Use destroyAllWindows to fully reset OpenCV's window state
@@ -816,39 +823,11 @@ class CaptureApp:
                         window_flags = cv2.WINDOW_NORMAL
                     
                     debug_print(f"Calling cv2.namedWindow('{window_name}', ...)...")
-                    # Use timeout wrapper to detect hangs (prevents infinite blocking)
-                    def timeout_handler(signum, frame):
-                        raise TimeoutError("cv2.namedWindow() timed out")
-                    
-                    # Set a timeout for window creation (Unix/Linux only)
-                    # SIGALRM can detect if namedWindow hangs
+                    # Note: Cannot use signal-based timeout in threads (signal only works in main thread)
+                    # Just try to create the window - unique names should avoid conflicts
                     try:
-                        # Check if SIGALRM is available
-                        if hasattr(signal, 'SIGALRM'):
-                            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-                            signal.alarm(3)  # 3 second timeout
-                            try:
-                                cv2.namedWindow(window_name, window_flags)
-                                signal.alarm(0)  # Cancel alarm
-                                debug_print(f"cv2.namedWindow('{window_name}') succeeded")
-                            finally:
-                                signal.signal(signal.SIGALRM, old_handler)
-                                signal.alarm(0)  # Ensure alarm is cancelled
-                        else:
-                            # SIGALRM not available (Windows)
-                            debug_print("SIGALRM not available, creating window without timeout...")
-                            cv2.namedWindow(window_name, window_flags)
-                            debug_print(f"cv2.namedWindow('{window_name}') succeeded")
-                    except TimeoutError:
-                        debug_print(f"ERROR: cv2.namedWindow('{window_name}') timed out after 3s (Qt backend hung)")
-                        # If it hung, try destroyAllWindows and retry on next iteration
-                        try:
-                            cv2.destroyAllWindows()
-                            for _ in range(3):
-                                cv2.waitKey(10)
-                        except:
-                            pass
-                        raise  # Re-raise to trigger retry logic
+                        cv2.namedWindow(window_name, window_flags)
+                        debug_print(f"cv2.namedWindow('{window_name}') succeeded")
                     except Exception as e:
                         debug_print(f"Exception during cv2.namedWindow: {type(e).__name__}: {e}")
                         raise
@@ -922,6 +901,7 @@ class CaptureApp:
                 debug_print("ERROR: Failed to create window after all retries")
                 return
             
+            # Reset loop variables before entering the main loop
             last_time = time.time()
             frame_count = 0
             fps = 0.0
