@@ -1,0 +1,44 @@
+{
+  "params": {
+    "threshold": 46,
+    "blur": 1,
+    "minArea": 0,
+    "maxArea": 5000,
+    "maxW": 100,
+    "maxRadGap": 120,
+    "maxDMR": 10,
+    "maxCenterOff": 15,
+    "w_theta": 0.35,
+    "w_area": 0.35,
+    "w_center": 0.3,
+    "Smin": 0.1,
+    "pair_method": "Hungarian",
+    "track_max_match_dist": 25.0,
+    "track_max_misses": 10,
+    "bg_alpha": 0.95,
+    "bg_static_thresh": 6,
+    "bg_min_static_ratio": 0.8,
+    "contrast": 100
+  },
+  "overlays": {
+    "show_blobs": 1,
+    "show_center": 1,
+    "show_pair_center": 1,
+    "show_lines": 1,
+    "show_rays": 1,
+    "label_mode": "Random",
+    "show_text_labels": 1,
+    "show_current_stats": 0,
+    "show_total_stats": 0
+  },
+  "overlay_targets": {
+    "enable_tracked": 1,
+    "enable_binary": 0
+  },
+  "center": {
+    "x": 277,
+    "y": 207,
+    "valid": true
+  },
+  "video_path": "C:/Users/923521596/Documents/GitHub/3D-Cam/input/video_640x480_20251029_174357.mp4"
+}

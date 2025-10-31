@@ -1,0 +1,9 @@
+# Output folder - ignore all contents except sample dataset
+pair_detect_output/*
+!pair_detect_output/.gitkeep
+# Uncomment and modify the lines below to preserve a specific sample dataset folder
+# !pair_detect_output/sample_dataset/
+# !pair_detect_output/sample_dataset/**
+# Or use a pattern like:
+# !pair_detect_output/*sample*/
+
