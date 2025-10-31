@@ -95,6 +95,10 @@ def detect_cameras(max_test=10, suppress_warnings=True):
         else:
             yield
     
+    # Get preferred backend first (needed for device scanning)
+    preferred_backend = get_camera_backend()
+    is_raspi = is_raspberry_pi()
+    
     # On Linux, pre-scan available /dev/video* devices to speed up detection
     available_devices = []
     if is_linux() and preferred_backend == cv2.CAP_V4L2:
@@ -105,8 +109,6 @@ def detect_cameras(max_test=10, suppress_warnings=True):
                 available_devices.append(idx)
     
     available = []
-    preferred_backend = get_camera_backend()
-    is_raspi = is_raspberry_pi()
     
     # Adjust timeout based on platform (Raspberry Pi is slower)
     detection_timeout = 3.0 if is_raspi else 1.5
