@@ -63,6 +63,7 @@ class CaptureApp:
         # Format and resolution
         self.format_var = tk.StringVar(value="YUYV")
         self.scale_percent = tk.DoubleVar(value=100.0)
+        self.fps_var = tk.DoubleVar(value=30.0)  # Framerate
         
         # Preview state
         self.preview_on = False
@@ -75,7 +76,6 @@ class CaptureApp:
         self.stop_flag = False
         self.video_writer = None
         self.record_thread = None
-        self.output_fps = 30.0  # Consistent output FPS for video file
         
         # Frame grabbing (single thread feeds both preview and recording)
         self.frame_queue = Queue(maxsize=10)
@@ -146,6 +146,14 @@ class CaptureApp:
         )
         self.format_desc.pack(fill=tk.X, pady=2)
         self._update_format_desc()
+        
+        # Framerate
+        ttk.Label(format_frame, text="Frame Rate (FPS):").pack(anchor="w", pady=(5, 0))
+        fps_entry = ttk.Entry(format_frame, textvariable=self.fps_var, width=8)
+        fps_entry.pack(pady=2)
+        tooltip(fps_entry, "Capture and output framerate (0 = maximum speed, 1-60 = specific FPS)")
+        self.fps_label = ttk.Label(format_frame, text="Current: —")
+        self.fps_label.pack(pady=(0, 5))
         
         # Scale
         ttk.Label(format_frame, text="Output Scale (%):").pack(anchor="w", pady=(5, 0))
@@ -361,13 +369,19 @@ class CaptureApp:
         else:
             width, height = 640, 480
         
-        # Don't limit FPS - let camera run at maximum speed
-        # Use 0 to auto-detect or let camera choose its maximum
-        max_fps = 0  # 0 means don't set FPS, capture at max speed
+        # Get framerate from input (0 = maximum speed, >0 = specific FPS)
+        try:
+            fps_value = float(self.fps_var.get())
+            # Clamp between 0 (max speed) and 60
+            fps_value = max(0.0, min(60.0, fps_value))
+            self.fps_var.set(fps_value)
+        except (ValueError, tk.TclError):
+            fps_value = 30.0  # Default to 30 FPS if invalid
+            self.fps_var.set(fps_value)
         
         self.cam = Camera(
             index=self.camera_info.index,
-            fps=max_fps,  # Let camera run at maximum speed
+            fps=int(fps_value) if fps_value > 0 else 0,  # 0 = max speed, >0 = specific FPS
             fourcc=format_str,
             width=width,
             height=height,
@@ -394,21 +408,34 @@ class CaptureApp:
             # Apply current control values
             self._apply_camera_controls()
         
-        # Start frame grabber
-        self._start_frame_grabber()
-        
         # Get actual camera FPS (may be 0 if not set, meaning max speed)
         actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
+        
+        # Update FPS display
         if actual_fps == 0:
+            self.fps_label.config(text="Current: Maximum speed")
             print("[INFO] Camera set to capture at maximum speed (FPS not limited)")
+            # Use 30 FPS for output if capturing at max speed
+            output_fps = 30.0
         else:
+            self.fps_label.config(text=f"Current: {actual_fps:.1f} FPS")
             print(f"[INFO] Camera FPS: {actual_fps:.1f}")
+            output_fps = actual_fps
+        
+        # Small delay to ensure camera is fully ready
+        time.sleep(0.2)
+        
+        # Start frame grabber (after camera is fully initialized)
+        self._start_frame_grabber()
         
         self.update_scale_info()
         self.status_label.config(text=f"Camera {self.camera_info.index} ready", foreground="green")
         print("[INFO] Camera opened successfully")
         print(f"[INFO] Using automatic exposure (default)")
-        print(f"[INFO] Output video will be recorded at {self.output_fps} FPS (consistent)")
+        print(f"[INFO] Output video will be recorded at {output_fps:.1f} FPS")
+        print(f"[INFO] Format: {format_str}, Resolution: {self.cam.w}x{self.cam.h}")
+        if format_str == "MJPG":
+            print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
@@ -489,15 +516,20 @@ class CaptureApp:
     def _frame_grabber_loop(self):
         """Single thread that reads frames from camera and feeds the queue."""
         consecutive_errors = 0
-        max_errors = 50  # More lenient for slow cameras
+        max_errors = 100  # More lenient for slow cameras
+        frames_read = 0
+        last_status_time = time.time()
         
-        # Wait a bit for camera to stabilize
-        time.sleep(0.5)
+        # Wait a bit for camera to stabilize (MJPG might need more time)
+        time.sleep(1.0)
+        
+        print("[INFO] Frame grabber: Starting frame capture...")
         
         while self.frame_grabber_running and self.cam and self.cam.is_open():
-            frame = self.cam.read()
+            frame = self.cam.read(max_retries=1)  # Use fewer retries to avoid blocking
             if frame is not None:
                 consecutive_errors = 0
+                frames_read += 1
                 
                 # Put frame in queue (drop old frame if queue is full)
                 try:
@@ -508,15 +540,30 @@ class CaptureApp:
                             pass
                     
                     self.frame_queue.put_nowait(frame)
+                    
+                    # Print status every 30 frames
+                    if frames_read % 30 == 0:
+                        elapsed = time.time() - last_status_time
+                        actual_fps = 30.0 / elapsed if elapsed > 0 else 0
+                        print(f"[INFO] Frame grabber: {frames_read} frames read ({actual_fps:.1f} FPS avg)")
+                        last_status_time = time.time()
+                        
                 except Exception as e:
                     print(f"[WARN] Frame queue error: {e}")
             else:
                 consecutive_errors += 1
+                
+                # Print warning every 10 consecutive errors
+                if consecutive_errors % 10 == 0 and consecutive_errors < max_errors:
+                    print(f"[WARN] Frame grabber: {consecutive_errors} consecutive read failures (timeout expected for V4L2)")
+                
                 if consecutive_errors >= max_errors:
-                    print(f"[WARN] Too many consecutive frame read errors ({consecutive_errors}), stopping frame grabber")
+                    print(f"[ERROR] Too many consecutive frame read errors ({consecutive_errors}), stopping frame grabber")
+                    print(f"[INFO] Frame grabber: Total frames read: {frames_read}")
                     break
-                # Longer sleep on error to avoid hammering the camera
-                time.sleep(0.1)
+                
+                # Shorter sleep on error - don't wait too long between attempts
+                time.sleep(0.05)
     
     def start_preview(self):
         """Start live preview in OpenCV window."""
@@ -562,23 +609,37 @@ class CaptureApp:
         last_time = time.time()
         frame_count = 0
         fps = 0.0
+        no_frame_count = 0
+        first_frame = True
+        
+        print("[INFO] Preview: Waiting for frames...")
         
         try:
             while self.preview_on and self.cam and self.cam.is_open():
                 try:
-                    # Get frame from queue
-                    frame = self.frame_queue.get(timeout=0.5)
+                    # Get frame from queue with longer timeout
+                    frame = self.frame_queue.get(timeout=1.0)
                     
                     if frame is not None:
+                        no_frame_count = 0
+                        
                         # Validate frame
                         if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
-                            # Convert to RGB if needed
+                            # Determine format based on shape and channels
                             if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                # Already BGR from OpenCV
+                                # Already BGR from OpenCV (MJPG or already decoded)
                                 display_frame = frame.copy()
                             else:
-                                # Handle YUYV format
-                                display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                                # Handle YUYV format (2D array, needs conversion)
+                                try:
+                                    display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                                except Exception as e:
+                                    print(f"[WARN] Preview: Frame conversion error: {e}, frame shape: {frame.shape}")
+                                    continue
+                            
+                            if first_frame:
+                                print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {self.format_var.get()}")
+                                first_frame = False
                             
                             # Calculate FPS
                             frame_count += 1
@@ -615,12 +676,20 @@ class CaptureApp:
                             if key == 27:  # ESC key
                                 self.preview_on = False
                                 break
+                        else:
+                            print(f"[WARN] Preview: Invalid frame shape: {frame.shape if frame is not None else 'None'}")
                 except Empty:
-                    # No frame available, check if we should continue
+                    no_frame_count += 1
+                    # No frame available
+                    if no_frame_count == 1:
+                        print("[INFO] Preview: Waiting for frames from grabber...")
+                    elif no_frame_count % 20 == 0:
+                        print(f"[WARN] Preview: No frames received for {no_frame_count} seconds")
+                    
                     if not self.frame_grabber_running:
                         print("[INFO] Preview: Frame grabber stopped, exiting preview")
                         break
-                    # Still process window events
+                    # Still process window events to keep window responsive
                     cv2.waitKey(1)
                     continue
         except Exception as e:
@@ -632,6 +701,7 @@ class CaptureApp:
                 cv2.destroyWindow("Preview")
             except:
                 pass
+            print(f"[INFO] Preview: Exited. Total frames displayed: {frame_count}")
     
     def reset_controls(self):
         """Reset camera controls to defaults."""
@@ -714,12 +784,16 @@ class CaptureApp:
         else:
             # Start recording
             w, h = self.scaled_size()
-            # Use consistent output FPS (not camera FPS which may vary)
-            output_path = make_capture_output_path(w, h, int(self.output_fps))
+            
+            # Get output FPS (use actual camera FPS, or 30 if max speed)
+            actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
+            output_fps = actual_fps if actual_fps > 0 else 30.0
+            
+            output_path = make_capture_output_path(w, h, int(output_fps))
             
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             # Use consistent output FPS for smooth playback
-            self.video_writer = cv2.VideoWriter(output_path, fourcc, self.output_fps, (w, h))
+            self.video_writer = cv2.VideoWriter(output_path, fourcc, output_fps, (w, h))
             
             if not self.video_writer.isOpened():
                 messagebox.showerror("Recording Error", f"Failed to create video file: {output_path}")
@@ -742,8 +816,12 @@ class CaptureApp:
         skipped_frames = 0
         t0 = time.time()
         
+        # Get output FPS (use actual camera FPS, or 30 if max speed)
+        actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
+        output_fps = actual_fps if actual_fps > 0 else 30.0
+        
         # Frame timing for consistent output FPS
-        frame_interval = 1.0 / self.output_fps  # Time between frames at output FPS
+        frame_interval = 1.0 / output_fps  # Time between frames at output FPS
         next_frame_time = t0
         last_frame = None
         
@@ -818,7 +896,7 @@ class CaptureApp:
         
         print(f"[INFO] Recorded {frame_count} frames in {duration:.1f}s")
         print(f"[INFO] Average capture rate: {fps_capture_avg:.1f} FPS")
-        print(f"[INFO] Output video FPS: {self.output_fps:.1f} FPS (consistent)")
+        print(f"[INFO] Output video FPS: {output_fps:.1f} FPS (consistent)")
         if skipped_frames > 0:
             print(f"[INFO] Skipped {skipped_frames} early frames to maintain consistent FPS")
         if dropped_frames > 0:
