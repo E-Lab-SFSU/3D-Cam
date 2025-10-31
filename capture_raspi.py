@@ -65,11 +65,9 @@ class CaptureApp:
         self.scale_percent = tk.DoubleVar(value=100.0)
         self.fps_var = tk.DoubleVar(value=30.0)  # Framerate
         
-        # Preview state
+        # Preview state (use simple flag, avoid locks to prevent deadlocks)
         self.preview_on = False
-        self.preview_closing = False  # Flag to indicate preview is being closed
         self.preview_thread = None
-        self.preview_thread_lock = threading.Lock()  # Lock for thread-safe flag access
         self.last_time = time.time()
         self.fps_est = 0.0
         
@@ -93,13 +91,13 @@ class CaptureApp:
         
         # Detect cameras on startup
         self.refresh_camera_list()
-    
+
     def _build_ui(self):
         """Build the Tkinter GUI."""
         # No canvas - preview will be in OpenCV window
         main = ttk.Frame(self.root, padding="5")
         main.pack(fill=tk.BOTH, expand=True)
-        
+
         # Right side: Controls
         ctrl = ttk.Frame(main)
         ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=3, pady=3)
@@ -339,9 +337,8 @@ class CaptureApp:
     
     def close_camera(self):
         """Close the camera."""
-        with self.preview_thread_lock:
-            if self.preview_on:
-                self.stop_preview()
+        if self.preview_on:
+            self.stop_preview()
         
         if self.recording:
             self.stop_record()
@@ -567,7 +564,6 @@ class CaptureApp:
                         actual_fps = 30.0 / elapsed if elapsed > 0 else 0
                         print(f"[INFO] Frame grabber: {frames_read} frames read ({actual_fps:.1f} FPS avg)")
                         last_status_time = time.time()
-                        
                 except Exception as e:
                     print(f"[WARN] Frame queue error: {e}")
             else:
@@ -587,43 +583,36 @@ class CaptureApp:
     
     def toggle_preview(self):
         """Toggle preview on/off."""
-        with self.preview_thread_lock:
-            preview_running = self.preview_on and not self.preview_closing
-        
-        if preview_running:
+        if self.preview_on:
             self.stop_preview()
         else:
             self.start_preview()
     
     def start_preview(self):
         """Start live preview in OpenCV window."""
-        with self.preview_thread_lock:
-            # Don't start if already running or closing
-            if self.preview_on or self.preview_closing:
-                return
+        # Don't start if already running
+        if self.preview_on:
+            return
         
         if not self.cam or not self.cam.is_open():
             self.open_camera()
             if not self.cam or not self.cam.is_open():
                 return
         
-        # Wait for any previous close operation to complete
+        # Ensure previous thread is dead (non-blocking check)
         if self.preview_thread and self.preview_thread.is_alive():
-            print("[INFO] Waiting for previous preview to close...")
-            self.preview_thread.join(timeout=2.0)
+            print("[INFO] Previous preview still running, stopping it first...")
+            self.preview_on = False  # Signal stop
+            self.preview_thread.join(timeout=1.0)  # Don't wait too long
         
-        # Ensure any previous window is closed
-        for _ in range(3):
-            try:
-                cv2.destroyWindow("Preview")
-            except:
-                pass
-            time.sleep(0.05)
+        # Clean up any existing window (non-blocking)
+        try:
+            cv2.destroyWindow("Preview")
+        except:
+            pass
         
-        with self.preview_thread_lock:
-            # Reset flags
-            self.preview_closing = False
-            self.preview_on = True
+        # Set flag before starting thread
+        self.preview_on = True
         
         print("[INFO] Starting preview")
         self.last_time = time.time()
@@ -638,223 +627,206 @@ class CaptureApp:
     
     def stop_preview(self):
         """Stop live preview."""
-        with self.preview_thread_lock:
-            # Check if already closing or not running
-            if self.preview_closing or not self.preview_on:
-                return
-            # Set closing flag
-            self.preview_closing = True
-            self.preview_on = False
+        if not self.preview_on:
+            return
         
         print("[INFO] Stopping preview")
+        
+        # Set flag to stop loop (thread will clean up)
+        self.preview_on = False
         
         # Update button immediately
         self.preview_btn.config(text="Open Preview")
         
-        # Wait for preview thread to finish
+        # Wait briefly for thread to exit (non-blocking timeout)
         if self.preview_thread and self.preview_thread.is_alive():
-            self.preview_thread.join(timeout=3.0)
+            self.preview_thread.join(timeout=0.5)  # Short timeout
         
-        # Close OpenCV window (try multiple times to ensure it's closed)
-        for _ in range(5):
-            try:
-                cv2.destroyWindow("Preview")
-            except:
-                pass
-            time.sleep(0.1)
-        
-        # Force cleanup
+        # Thread should have cleaned up window in finally block
+        # Just try once more (non-blocking)
         try:
-            cv2.waitKey(1)
-            cv2.destroyAllWindows()  # Nuclear option
+            cv2.destroyWindow("Preview")
         except:
             pass
         
-        with self.preview_thread_lock:
-            # Reset flags and thread reference
-            self.preview_closing = False
-            self.preview_on = False
-            self.preview_thread = None
+        # Reset thread reference
+        self.preview_thread = None
         
-        print("[INFO] Preview stopped and cleaned up")
-    
+        print("[INFO] Preview stopped")
+
     def _preview_loop(self):
         """Preview thread loop with OpenCV window."""
         # Set OpenCV to use X11 backend on Raspberry Pi
         os.environ['DISPLAY'] = os.environ.get('DISPLAY', ':0')
         
-        # Ensure window is properly created (check if it exists first)
-        try:
-            # Try to destroy any existing window first
-            cv2.destroyWindow("Preview")
-            time.sleep(0.1)
-        except:
-            pass
-        
-        # Create new window
-        try:
-            cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)
-            cv2.resizeWindow("Preview", 640, 480)
-        except Exception as e:
-            print(f"[ERROR] Failed to create preview window: {e}")
-            self.preview_on = False
-            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-            return
-        
-        last_time = time.time()
-        frame_count = 0
-        fps = 0.0
-        no_frame_count = 0
-        first_frame = True
-        
-        print("[INFO] Preview: Waiting for frames...")
+        window_created = False
         
         try:
-            while True:
-                # Check flags with lock (thread-safe)
-                with self.preview_thread_lock:
-                    preview_running = self.preview_on and not self.preview_closing
-                
-                if not preview_running or not self.cam or not self.cam.is_open():
-                    print("[INFO] Preview loop exiting (flag check)")
+            # Clean up any existing window first
+            try:
+                cv2.destroyWindow("Preview")
+            except:
+                pass
+            
+            # Create new window
+            try:
+                cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)
+                cv2.resizeWindow("Preview", 640, 480)
+                window_created = True
+            except Exception as e:
+                print(f"[ERROR] Failed to create preview window: {e}")
+                self.preview_on = False
+                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                return
+            
+            last_time = time.time()
+            frame_count = 0
+            fps = 0.0
+            no_frame_count = 0
+            first_frame = True
+            
+            print("[INFO] Preview: Waiting for frames...")
+            
+            while self.preview_on:
+                # Check if camera is still valid
+                if not self.cam or not self.cam.is_open():
+                    print("[INFO] Preview loop exiting (camera closed)")
                     break
                 
-                # Check if window was closed FIRST (before waiting for frames)
-                try:
-                    window_visible = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-                    if window_visible < 1:
-                        print("[INFO] Preview window closed by user (X button)")
-                        with self.preview_thread_lock:
+                # Check if window was closed (only if window was created)
+                if window_created:
+                    try:
+                        window_visible = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                        if window_visible < 1:
+                            print("[INFO] Preview window closed by user (X button)")
                             self.preview_on = False
-                            self.preview_closing = True
-                        self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                        break
-                except cv2.error:
-                    # Window doesn't exist or was destroyed
-                    print("[INFO] Preview window no longer exists")
-                    with self.preview_thread_lock:
-                        self.preview_on = False
-                        self.preview_closing = True
-                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                    break
-                except Exception as e:
-                    # Any other error - assume window is closed
-                    print(f"[INFO] Preview window error: {e}")
-                    with self.preview_thread_lock:
-                        self.preview_on = False
-                        self.preview_closing = True
-                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                            break
+                    except cv2.error:
+                        # Window doesn't exist - mark as not created
+                        window_created = False
+                    except Exception:
+                        # Ignore other errors
+                        pass
+                
+                # Check flag again before blocking
+                if not self.preview_on:
                     break
                 
                 try:
-                    # Get frame from queue with shorter timeout to check window more frequently
+                    # Get frame from queue with timeout
                     frame = self.frame_queue.get(timeout=0.1)
                     
-                    if frame is not None:
+                    # Check flag again after potentially blocking
+                    if not self.preview_on:
+                        break
+                    
+                    if frame is not None and window_created:
                         no_frame_count = 0
                         
                         # Validate frame
                         if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
-                            # Determine format based on shape and channels
-                            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                # Already BGR from OpenCV (MJPG or already decoded)
-                                display_frame = frame.copy()
-                            else:
-                                # Handle YUYV format (2D array, needs conversion)
-                                try:
-                                    display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
-                                except Exception as e:
-                                    print(f"[WARN] Preview: Frame conversion error: {e}, frame shape: {frame.shape}")
-                                    continue
-                            
-                            if first_frame:
-                                print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {self.format_var.get()}")
-                                first_frame = False
-                            
-                            # Calculate FPS
-                            frame_count += 1
-                            now = time.time()
-                            if frame_count % 10 == 0:
-                                elapsed = now - last_time
-                                fps = 10.0 / elapsed if elapsed > 0 else 0
-                                last_time = now
-                            
-                            # Draw overlay
-                            cv2.putText(
-                                display_frame,
-                                f"{self.format_var.get()} {self.cam.w}x{self.cam.h}  FPS:{fps:.1f}",
-                                (10, 25),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.7,
-                                (0, 255, 0),
-                                2
-                            )
-                            
-                            # Check recording state (thread-safe)
                             try:
-                                is_recording = self.recording
-                            except:
-                                is_recording = False
+                                # Determine format based on shape and channels
+                                if len(frame.shape) == 3 and frame.shape[2] == 3:
+                                    # Already BGR from OpenCV (MJPG or already decoded)
+                                    display_frame = frame.copy()
+                                else:
+                                    # Handle YUYV format (2D array, needs conversion)
+                                    display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
                                 
-                            if is_recording:
+                                if first_frame:
+                                    print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {self.format_var.get()}")
+                                    first_frame = False
+                                
+                                # Calculate FPS
+                                frame_count += 1
+                                now = time.time()
+                                if frame_count % 10 == 0:
+                                    elapsed = now - last_time
+                                    fps = 10.0 / elapsed if elapsed > 0 else 0
+                                    last_time = now
+                                
+                                # Draw overlay
                                 cv2.putText(
                                     display_frame,
-                                    "REC",
-                                    (10, 55),
+                                    f"{self.format_var.get()} {self.cam.w}x{self.cam.h}  FPS:{fps:.1f}",
+                                    (10, 25),
                                     cv2.FONT_HERSHEY_SIMPLEX,
                                     0.7,
-                                    (0, 0, 255),
+                                    (0, 255, 0),
                                     2
                                 )
-                            
-                            cv2.imshow("Preview", display_frame)
-                            
-                            # Check for ESC key (non-blocking)
-                            key = cv2.waitKey(1) & 0xFF
-                            if key == 27:
-                                print("[INFO] Preview closed by ESC key")
-                                with self.preview_thread_lock:
-                                    self.preview_on = False
-                                    self.preview_closing = True
-                                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                                break
-                        else:
-                            print(f"[WARN] Preview: Invalid frame shape: {frame.shape if frame is not None else 'None'}")
+                                
+                                # Check recording state
+                                if self.recording:
+                                    cv2.putText(
+                                        display_frame,
+                                        "REC",
+                                        (10, 55),
+                                        cv2.FONT_HERSHEY_SIMPLEX,
+                                        0.7,
+                                        (0, 0, 255),
+                                        2
+                                    )
+                                
+                                # Show frame (only if window exists)
+                                if window_created:
+                                    try:
+                                        cv2.imshow("Preview", display_frame)
+                                        
+                                        # Check for ESC key (non-blocking)
+                                        key = cv2.waitKey(1) & 0xFF
+                                        if key == 27:
+                                            print("[INFO] Preview closed by ESC key")
+                                            self.preview_on = False
+                                            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                                            break
+                                    except cv2.error:
+                                        # Window was closed
+                                        window_created = False
+                            except Exception as e:
+                                print(f"[WARN] Preview: Frame processing error: {e}")
+                                continue
                 except Empty:
-                    # No frame available - check window status and continue
+                    # No frame available
                     no_frame_count += 1
                     if no_frame_count == 1:
                         print("[INFO] Preview: Waiting for frames from grabber...")
-                    elif no_frame_count % 50 == 0:
-                        print(f"[WARN] Preview: No frames received for {no_frame_count * 0.1:.1f} seconds")
                     
                     if not self.frame_grabber_running:
                         print("[INFO] Preview: Frame grabber stopped, exiting preview")
                         break
                     
-                    # Still process window events (check window status is done at top of loop)
-                    cv2.waitKey(1)
+                    # Process window events if window exists
+                    if window_created:
+                        try:
+                            cv2.waitKey(1)
+                        except:
+                            window_created = False
+                    continue
+                except Exception as e:
+                    print(f"[WARN] Preview: Unexpected error: {e}")
                     continue
         except Exception as e:
             print(f"[ERROR] Preview loop error: {e}")
             import traceback
             traceback.print_exc()
         finally:
-            # Cleanup: ensure window is closed
-            for _ in range(3):
-                try:
-                    cv2.destroyWindow("Preview")
-                except:
-                    pass
-                time.sleep(0.05)
+            # Cleanup: ensure window is closed (non-blocking)
+            try:
+                cv2.destroyWindow("Preview")
+            except:
+                pass
             
-            # Reset state with lock
-            with self.preview_thread_lock:
-                self.preview_on = False
-                self.preview_closing = False
+            # Reset flag (don't use lock, avoid deadlocks)
+            self.preview_on = False
             
             # Update button in main thread
-            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+            try:
+                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+            except:
+                pass
             
             print(f"[INFO] Preview: Exited. Total frames displayed: {frame_count}")
     
@@ -1068,7 +1040,7 @@ class CaptureApp:
         if dropped_frames > 0:
             print(f"[INFO] Dropped {dropped_frames} frames due to errors")
     
-    
+
     def on_close(self):
         """Handle application close."""
         print("[INFO] Closing application")
