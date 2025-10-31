@@ -683,9 +683,29 @@ class CaptureApp:
         
         try:
             while self.preview_on and self.cam and self.cam.is_open():
+                # Check if window was closed FIRST (before waiting for frames)
                 try:
-                    # Get frame from queue with longer timeout
-                    frame = self.frame_queue.get(timeout=1.0)
+                    window_visible = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                    if window_visible < 1:
+                        print("[INFO] Preview window closed by user")
+                        self.preview_on = False
+                        self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                        break
+                except cv2.error:
+                    # Window doesn't exist or was destroyed
+                    print("[INFO] Preview window no longer exists")
+                    self.preview_on = False
+                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                    break
+                except Exception:
+                    # Any other error - assume window is closed
+                    self.preview_on = False
+                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                    break
+                
+                try:
+                    # Get frame from queue with shorter timeout to check window more frequently
+                    frame = self.frame_queue.get(timeout=0.1)
                     
                     if frame is not None:
                         no_frame_count = 0
@@ -745,54 +765,29 @@ class CaptureApp:
                                 )
                             
                             cv2.imshow("Preview", display_frame)
-                            # CRITICAL: waitKey is needed for OpenCV to process window events
-                            cv2.waitKey(1)
                             
-                            # Check if window was closed by clicking X
-                            try:
-                                if cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE) < 1:
-                                    self.preview_on = False
-                                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                                    break
-                            except:
-                                # Window might not exist anymore
-                                self.preview_on = False
-                                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                                break
-                            
-                            # Also check for ESC key
+                            # Check for ESC key or window close (non-blocking)
                             key = cv2.waitKey(1) & 0xFF
                             if key == 27:
+                                print("[INFO] Preview closed by ESC key")
                                 self.preview_on = False
                                 self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
                                 break
                         else:
                             print(f"[WARN] Preview: Invalid frame shape: {frame.shape if frame is not None else 'None'}")
                 except Empty:
+                    # No frame available - check window status and continue
                     no_frame_count += 1
-                    # No frame available
                     if no_frame_count == 1:
                         print("[INFO] Preview: Waiting for frames from grabber...")
-                    elif no_frame_count % 20 == 0:
-                        print(f"[WARN] Preview: No frames received for {no_frame_count} seconds")
+                    elif no_frame_count % 50 == 0:
+                        print(f"[WARN] Preview: No frames received for {no_frame_count * 0.1:.1f} seconds")
                     
                     if not self.frame_grabber_running:
                         print("[INFO] Preview: Frame grabber stopped, exiting preview")
                         break
                     
-                    # Check if window was closed by clicking X
-                    try:
-                        if cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE) < 1:
-                            self.preview_on = False
-                            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                            break
-                    except:
-                        # Window doesn't exist
-                        self.preview_on = False
-                        self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                        break
-                    
-                    # Still process window events to keep window responsive
+                    # Still process window events (check window status is done at top of loop)
                     cv2.waitKey(1)
                     continue
         except Exception as e:
