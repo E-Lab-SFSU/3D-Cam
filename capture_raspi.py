@@ -19,6 +19,7 @@ import os
 from queue import Queue, Empty
 import subprocess
 import traceback
+import signal
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -89,6 +90,8 @@ class CaptureApp:
         self.preview_thread = None
         self.last_time = time.time()
         self.fps_est = 0.0
+        self.preview_window_name = "Preview"  # Base name, we'll make it unique
+        self.preview_window_counter = 0  # Counter to ensure unique window names
         
         # Recording state
         self.recording = False
@@ -770,6 +773,11 @@ class CaptureApp:
         os.environ['OPENCV_VIDEOIO_PRIORITY_INTEL_MFX'] = '0'
         debug_print("OpenCV backend environment variables set (preferring GTK)")
         
+        # Use unique window name to avoid conflicts with previous windows
+        self.preview_window_counter += 1
+        window_name = f"{self.preview_window_name}_{self.preview_window_counter}"
+        debug_print(f"Using unique window name: {window_name}")
+        
         window_created = False
         
         try:
@@ -787,8 +795,8 @@ class CaptureApp:
                 debug_print(f"Exception in destroyAllWindows: {type(e).__name__}: {e}")
             
             # Additional delay to ensure OpenCV backend is fully reset
-            debug_print("Waiting 0.2s for OpenCV backend to fully reset...")
-            time.sleep(0.2)
+            debug_print("Waiting 0.3s for OpenCV backend to fully reset...")
+            time.sleep(0.3)
             debug_print("Cleanup complete, starting window creation...")
             
             # Create new window with retry logic
@@ -807,17 +815,51 @@ class CaptureApp:
                         # WINDOW_GUI_EXPANDED not available in this OpenCV version
                         window_flags = cv2.WINDOW_NORMAL
                     
-                    debug_print("Calling cv2.namedWindow('Preview', ...)...")
-                    cv2.namedWindow("Preview", window_flags)
-                    debug_print("cv2.namedWindow() succeeded")
+                    debug_print(f"Calling cv2.namedWindow('{window_name}', ...)...")
+                    # Use timeout wrapper to detect hangs (prevents infinite blocking)
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("cv2.namedWindow() timed out")
+                    
+                    # Set a timeout for window creation (Unix/Linux only)
+                    # SIGALRM can detect if namedWindow hangs
+                    try:
+                        # Check if SIGALRM is available
+                        if hasattr(signal, 'SIGALRM'):
+                            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                            signal.alarm(3)  # 3 second timeout
+                            try:
+                                cv2.namedWindow(window_name, window_flags)
+                                signal.alarm(0)  # Cancel alarm
+                                debug_print(f"cv2.namedWindow('{window_name}') succeeded")
+                            finally:
+                                signal.signal(signal.SIGALRM, old_handler)
+                                signal.alarm(0)  # Ensure alarm is cancelled
+                        else:
+                            # SIGALRM not available (Windows)
+                            debug_print("SIGALRM not available, creating window without timeout...")
+                            cv2.namedWindow(window_name, window_flags)
+                            debug_print(f"cv2.namedWindow('{window_name}') succeeded")
+                    except TimeoutError:
+                        debug_print(f"ERROR: cv2.namedWindow('{window_name}') timed out after 3s (Qt backend hung)")
+                        # If it hung, try destroyAllWindows and retry on next iteration
+                        try:
+                            cv2.destroyAllWindows()
+                            for _ in range(3):
+                                cv2.waitKey(10)
+                        except:
+                            pass
+                        raise  # Re-raise to trigger retry logic
+                    except Exception as e:
+                        debug_print(f"Exception during cv2.namedWindow: {type(e).__name__}: {e}")
+                        raise
                     
                     # Process events to ensure window is created
                     for _ in range(3):
                         cv2.waitKey(50)
                     debug_print("Events processed after namedWindow")
                     
-                    debug_print("Calling cv2.resizeWindow('Preview', 640, 480)...")
-                    cv2.resizeWindow("Preview", 640, 480)
+                    debug_print(f"Calling cv2.resizeWindow('{window_name}', 640, 480)...")
+                    cv2.resizeWindow(window_name, 640, 480)
                     debug_print("cv2.resizeWindow() succeeded")
                     
                     debug_print("Processing events with cv2.waitKey(1)...")
@@ -828,11 +870,11 @@ class CaptureApp:
                     # Verify window was created successfully
                     debug_print("Verifying window was created successfully...")
                     try:
-                        verify_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                        verify_prop = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
                         debug_print(f"Window verification: property = {verify_prop}")
                         if verify_prop >= 0:
                             window_created = True
-                            print("[INFO] Preview window created successfully")
+                            print(f"[INFO] Preview window created successfully: {window_name}")
                             debug_print("Window creation verified successfully")
                             break  # Success, exit retry loop
                         else:
@@ -843,11 +885,11 @@ class CaptureApp:
                         if retry < max_retries - 1:
                             debug_print(f"Retrying window creation... (attempt {retry + 2}/{max_retries})")
                             try:
-                                cv2.destroyWindow("Preview")
+                                cv2.destroyWindow(window_name)
                                 cv2.waitKey(10)
                             except:
                                 pass
-                            time.sleep(0.1)
+                            time.sleep(0.2)
                             continue
                         else:
                             debug_print("ERROR: Window creation verification failed after all retries")
@@ -899,7 +941,7 @@ class CaptureApp:
                 # Check if window was closed (only if window was created)
                 if window_created:
                     try:
-                        window_visible = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                        window_visible = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
                         debug_print(f"Window visibility check: {window_visible}")
                         if window_visible < 1:
                             debug_print("Window visibility < 1, window was closed by user")
@@ -981,7 +1023,7 @@ class CaptureApp:
                                 # Show frame (only if window exists)
                                 if window_created:
                                     try:
-                                        cv2.imshow("Preview", display_frame)
+                                        cv2.imshow(window_name, display_frame)
                                         
                                         # Check for ESC key (non-blocking)
                                         key = cv2.waitKey(1) & 0xFF
