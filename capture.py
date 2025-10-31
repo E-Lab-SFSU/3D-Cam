@@ -25,8 +25,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from lib.camera import Camera, detect_cameras
-from lib.capture_utils import safe_run
-from lib.util_paths import make_capture_output_path
+from lib.capture.capture_utils import safe_run
+from lib.capture.util_paths import make_capture_output_path
 
 
 # ============ Default settings ============

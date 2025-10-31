@@ -29,7 +29,7 @@ from lib.camera_info import (
     list_all_cameras, get_camera_info, CameraInfo,
     set_camera_control, get_camera_control, get_camera_control_range
 )
-from lib.util_paths import make_capture_output_path
+from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_output_path
 
 
 # ============ Debug Configuration ============
@@ -85,26 +85,25 @@ class CaptureApp:
         self.scale_percent = tk.DoubleVar(value=100.0)
         self.fps_var = tk.DoubleVar(value=30.0)  # Framerate
         
-        # Preview state (use simple flag, avoid locks to prevent deadlocks)
-        self.preview_on = False
-        self.preview_thread = None
-        self.last_time = time.time()
-        self.fps_est = 0.0
-        self.preview_window_name = "Preview"  # Base name, we'll make it unique
-        self.preview_window_counter = 0  # Counter to ensure unique window names
-        self.preview_window_name_current = None  # Current active window name
-        self.opencv_event_processing_active = False  # Flag for OpenCV event processing
-        
-        # Recording state
-        self.recording = False
-        self.stop_flag = False
-        self.video_writer = None
-        self.record_thread = None
-        
-        # Frame grabbing (single thread feeds both preview and recording)
+        # Frame queue (shared by preview and recording)
         self.frame_queue = Queue(maxsize=10)
-        self.frame_grabber_thread = None
-        self.frame_grabber_running = False
+        
+        # Initialize managers (order matters - preview needs recording ref)
+        self.frame_grabber = FrameGrabber(self.frame_queue)
+        self.recording_manager = RecordingManager(
+            frame_queue=self.frame_queue,
+            get_camera_fn=lambda: self.cam,
+            scaled_size_fn=lambda: self.scaled_size(),
+            status_callback=lambda text, color: self.status_label.config(text=text, foreground=color) if hasattr(self, 'status_label') else None,
+            button_callback=lambda text: self.record_btn.config(text=text) if hasattr(self, 'record_btn') else None
+        )
+        self.preview_manager = PreviewManager(
+            root=self.root,
+            frame_queue=self.frame_queue,
+            camera_var=lambda: (self.cam, self.cam.is_open() if self.cam else False),
+            format_var=lambda: self.format_var.get(),
+            recording_var=lambda: self.recording_manager.recording
+        )
         
         # Camera controls
         self.control_vars = {}
@@ -203,10 +202,6 @@ class CaptureApp:
         # Actions section
         btn_frame = ttk.LabelFrame(ctrl, text="Actions", padding="3")
         btn_frame.pack(fill=tk.X, pady=(0, 4))
-        
-        # Open/Close Preview button
-        self.preview_btn = ttk.Button(btn_frame, text="Open Preview", command=self.toggle_preview)
-        self.preview_btn.pack(fill=tk.X, pady=(0, 2))
         
         # Record/Stop Record button
         self.record_btn = ttk.Button(btn_frame, text="Record", command=self.toggle_record)
@@ -366,13 +361,13 @@ class CaptureApp:
     def close_camera(self):
         """Close the camera."""
         # Stop preview before closing camera
-        if self.preview_on:
-            self.stop_preview()
+        self.preview_manager.stop()
         
-        if self.recording:
-            self.stop_record()
+        # Stop recording
+        self.recording_manager.stop()
         
-        self._stop_frame_grabber()
+        # Stop frame grabber
+        self.frame_grabber.stop()
         
         if self.cam:
             self.cam.release()
@@ -430,7 +425,7 @@ class CaptureApp:
             return
         
         # Stop frame grabber if running
-        self._stop_frame_grabber()
+        self.frame_grabber.stop()
         
         # Clear frame queue
         while not self.frame_queue.empty():
@@ -464,7 +459,7 @@ class CaptureApp:
         # No delay - start immediately
         
         # Start frame grabber (after camera is fully initialized)
-        self._start_frame_grabber()
+        self.frame_grabber.start(self.cam)
         
         self.update_scale_info()
         
@@ -485,9 +480,8 @@ class CaptureApp:
             print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
         
         # Automatically start preview when camera opens
-        if not self.preview_on:
-            debug_print("Auto-starting preview after camera opened...")
-            self.root.after(100, self.start_preview)  # Small delay to ensure camera is ready
+        debug_print("Auto-starting preview after camera opened...")
+        self.root.after(100, self.preview_manager.start)  # Small delay to ensure camera is ready
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
@@ -540,491 +534,6 @@ class CaptureApp:
             return 640, 480
         p = max(1, min(100, float(self.scale_percent.get())))
         return int(self.cam.w * p / 100), int(self.cam.h * p / 100)
-    
-    def _start_frame_grabber(self):
-        """Start the frame grabbing thread."""
-        if self.frame_grabber_running:
-            return
-        self.frame_grabber_running = True
-        self.frame_grabber_thread = threading.Thread(target=self._frame_grabber_loop, daemon=True)
-        self.frame_grabber_thread.start()
-        print("[INFO] Frame grabber started")
-    
-    def _stop_frame_grabber(self):
-        """Stop the frame grabbing thread."""
-        self.frame_grabber_running = False
-        if self.frame_grabber_thread and self.frame_grabber_thread.is_alive():
-            self.frame_grabber_thread.join(timeout=2.0)
-        # Clear queue
-        while not self.frame_queue.empty():
-            try:
-                self.frame_queue.get_nowait()
-            except Empty:
-                break
-        print("[INFO] Frame grabber stopped")
-    
-    def _frame_grabber_loop(self):
-        """Single thread that reads frames from camera and feeds the queue."""
-        consecutive_errors = 0
-        max_errors = 100  # More lenient for slow cameras
-        frames_read = 0
-        last_status_time = time.time()
-        
-        # No delay - start immediately
-        
-        print("[INFO] Frame grabber: Starting frame capture...")
-        
-        while self.frame_grabber_running and self.cam and self.cam.is_open():
-            frame = self.cam.read(max_retries=1)  # Use fewer retries to avoid blocking
-            if frame is not None:
-                consecutive_errors = 0
-                frames_read += 1
-                
-                # Put frame in queue (drop old frame if queue is full)
-                try:
-                    if self.frame_queue.full():
-                        try:
-                            self.frame_queue.get_nowait()
-                        except Empty:
-                            pass
-                    
-                    self.frame_queue.put_nowait(frame)
-                    
-                    # Print status every 30 frames
-                    if frames_read % 30 == 0:
-                        elapsed = time.time() - last_status_time
-                        actual_fps = 30.0 / elapsed if elapsed > 0 else 0
-                        print(f"[INFO] Frame grabber: {frames_read} frames read ({actual_fps:.1f} FPS avg)")
-                        last_status_time = time.time()
-                except Exception as e:
-                    print(f"[WARN] Frame queue error: {e}")
-            else:
-                consecutive_errors += 1
-                
-                # Print warning every 10 consecutive errors
-                if consecutive_errors % 10 == 0 and consecutive_errors < max_errors:
-                    print(f"[WARN] Frame grabber: {consecutive_errors} consecutive read failures (timeout expected for V4L2)")
-                
-                if consecutive_errors >= max_errors:
-                    print(f"[ERROR] Too many consecutive frame read errors ({consecutive_errors}), stopping frame grabber")
-                    print(f"[INFO] Frame grabber: Total frames read: {frames_read}")
-                    break
-                
-                # Shorter sleep on error - don't wait too long between attempts
-                time.sleep(0.05)
-    
-    def toggle_preview(self):
-        """Toggle preview on/off."""
-        debug_print(f"=== toggle_preview() called, current state: preview_on={self.preview_on} ===")
-        if self.preview_on:
-            debug_print("Preview is on, calling stop_preview()...")
-            self.stop_preview()
-        else:
-            debug_print("Preview is off, calling start_preview()...")
-            self.start_preview()
-    
-    def start_preview(self):
-        """Start live preview in OpenCV window."""
-        self.preview_start_count += 1
-        debug_print(f"=== start_preview() called (count: {self.preview_start_count}) ===")
-        debug_print(f"Current state: preview_on={self.preview_on}, thread={self.preview_thread}, thread_alive={self.preview_thread.is_alive() if self.preview_thread else None}")
-        
-        # Check if preview is already running with a valid window
-        if self.preview_on and self.preview_window_name_current:
-            # Check if window still exists
-            try:
-                window_visible = cv2.getWindowProperty(self.preview_window_name_current, cv2.WND_PROP_VISIBLE)
-                if window_visible >= 0:
-                    debug_print("Preview already running with valid window, skipping start")
-                    return
-            except:
-                # Window doesn't exist, continue to recreate
-                debug_print("Preview flag set but window doesn't exist, recreating...")
-                self.preview_on = False
-                self.preview_window_name_current = None
-        
-        if not self.cam or not self.cam.is_open():
-            debug_print("Camera not open, cannot start preview")
-            return
-        
-        # Ensure previous thread is fully stopped
-        if self.preview_thread is not None:
-            debug_print(f"Previous thread exists: alive={self.preview_thread.is_alive()}")
-            if self.preview_thread.is_alive():
-                debug_print("Previous preview thread still alive, stopping it first...")
-                print("[INFO] Previous preview thread still alive, stopping it first...")
-                self.preview_on = False  # Signal stop
-                debug_print("Waiting for thread to join (timeout=0.5)...")
-                self.preview_thread.join(timeout=0.5)  # Short timeout
-                if self.preview_thread.is_alive():
-                    debug_print("WARN: Previous preview thread did not stop in time")
-                    print("[WARN] Previous preview thread did not stop in time, continuing anyway")
-                else:
-                    debug_print("Previous thread joined successfully")
-            # Reset thread reference regardless
-            self.preview_thread = None
-            debug_print("Thread reference reset to None")
-        
-        # Ensure flag is clear
-        self.preview_on = False
-        debug_print("Flag set to False before cleanup")
-        
-        # Clean up any existing window and reset OpenCV state
-        debug_print("Starting window cleanup in start_preview() (main thread)...")
-        # Use destroyAllWindows to fully reset OpenCV's window state
-        debug_print("Calling cv2.destroyAllWindows() to reset OpenCV state...")
-        try:
-            cv2.destroyAllWindows()
-            # Process events multiple times to ensure cleanup
-            for _ in range(5):
-                cv2.waitKey(10)
-            debug_print("destroyAllWindows() succeeded, processed events")
-        except Exception as e:
-            debug_print(f"Exception in destroyAllWindows: {type(e).__name__}: {e}")
-        
-        # Small delay to let OpenCV fully reset
-        debug_print("Waiting 0.15s for OpenCV to fully reset...")
-        time.sleep(0.15)
-        debug_print("Cleanup complete")
-        
-        # Create window in main thread (required for Qt backend)
-        self.preview_window_counter += 1
-        window_name = f"{self.preview_window_name}_{self.preview_window_counter}"
-        debug_print(f"Creating window in main thread: {window_name}")
-        
-        try:
-            # Determine window flags
-            try:
-                window_flags = cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED
-            except AttributeError:
-                window_flags = cv2.WINDOW_NORMAL
-            
-            debug_print(f"Calling cv2.namedWindow('{window_name}', ...) in main thread...")
-            cv2.namedWindow(window_name, window_flags)
-            cv2.resizeWindow(window_name, 640, 480)
-            # Process events to ensure window is created
-            for _ in range(3):
-                cv2.waitKey(50)
-            
-            # Verify window was created
-            verify_prop = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
-            if verify_prop < 0:
-                raise cv2.error("Window verification failed")
-            
-            self.preview_window_name_current = window_name
-            debug_print(f"Window '{window_name}' created successfully in main thread")
-            print(f"[INFO] Preview window created: {window_name}")
-        except Exception as e:
-            debug_print(f"ERROR: Failed to create window in main thread: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            self.preview_on = False
-            messagebox.showerror("Preview Error", f"Failed to create preview window: {e}")
-            return
-        
-        # Now set flag to True and start thread
-        self.preview_on = True
-        debug_print("Flag set to True, starting preview thread...")
-        
-        print("[INFO] Starting preview")
-        self.last_time = time.time()
-        self.fps_est = 0.0
-        
-        # Update button
-        self.preview_btn.config(text="Close Preview")
-        debug_print("Button text updated to 'Close Preview'")
-        
-        # Start periodic OpenCV event processing in main thread
-        self._start_opencv_event_processing()
-        
-        # Start preview thread
-        try:
-            debug_print("Creating preview thread...")
-            self.preview_thread = threading.Thread(target=self._preview_loop, daemon=True)
-            debug_print("Starting preview thread...")
-            self.preview_thread.start()
-            debug_print(f"Preview thread started: thread_id={self.preview_thread.ident}, alive={self.preview_thread.is_alive()}")
-        except Exception as e:
-            debug_print(f"ERROR: Failed to start preview thread: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            self.preview_on = False
-            self.preview_thread = None
-            raise
-    
-    def stop_preview(self):
-        """Stop live preview."""
-        self.preview_stop_count += 1
-        debug_print(f"=== stop_preview() called (count: {self.preview_stop_count}) ===")
-        debug_print(f"Current state: preview_on={self.preview_on}, thread={self.preview_thread}, thread_alive={self.preview_thread.is_alive() if self.preview_thread else None}")
-        
-        if not self.preview_on:
-            debug_print("Preview not on, returning early")
-            return
-        
-        print("[INFO] Stopping preview")
-        debug_print("Setting preview_on flag to False...")
-        
-        # Set flag to stop loop (thread will clean up)
-        self.preview_on = False
-        
-        # Update button immediately
-        self.preview_btn.config(text="Open Preview")
-        debug_print("Button text updated to 'Open Preview'")
-        
-        # Wait for thread to exit with longer timeout
-        if self.preview_thread and self.preview_thread.is_alive():
-            debug_print(f"Waiting for preview thread to exit (timeout=2.0)... thread_id={self.preview_thread.ident}")
-            self.preview_thread.join(timeout=2.0)  # Longer timeout to allow cleanup
-            if self.preview_thread.is_alive():
-                debug_print("WARN: Preview thread did not exit in time, but continuing cleanup")
-            else:
-                debug_print("Preview thread exited successfully")
-        else:
-            debug_print("No thread or thread not alive, skipping join")
-        
-        # Stop OpenCV event processing
-        self.opencv_event_processing_active = False
-        
-        # Force cleanup of window in main thread (where it was created)
-        debug_print("Starting window cleanup in stop_preview() (main thread)...")
-        if self.preview_window_name_current:
-            window_name = self.preview_window_name_current
-            debug_print(f"Destroying window '{window_name}' in main thread...")
-            try:
-                cv2.destroyWindow(window_name)
-                for _ in range(5):
-                    cv2.waitKey(10)
-                debug_print(f"Window '{window_name}' destroyed successfully")
-            except Exception as e:
-                debug_print(f"Exception destroying window: {type(e).__name__}: {e}")
-            self.preview_window_name_current = None
-        
-        # Also call destroyAllWindows as backup
-        debug_print("Calling cv2.destroyAllWindows() in stop_preview()...")
-        try:
-            cv2.destroyAllWindows()
-            for _ in range(5):
-                cv2.waitKey(10)
-            debug_print("destroyAllWindows() succeeded in stop_preview()")
-        except Exception as e:
-            debug_print(f"Exception in destroyAllWindows (stop_preview): {type(e).__name__}: {e}")
-        
-        # Small delay to ensure cleanup completes
-        debug_print("Waiting 0.15s for cleanup to complete...")
-        time.sleep(0.15)
-        
-        # Reset thread reference
-        self.preview_thread = None
-        debug_print("Thread reference reset to None")
-        debug_print("stop_preview() complete")
-        
-        print("[INFO] Preview stopped")
-
-    def _start_opencv_event_processing(self):
-        """Start periodic OpenCV event processing in main thread."""
-        if self.opencv_event_processing_active:
-            return
-        
-        self.opencv_event_processing_active = True
-        debug_print("Starting OpenCV event processing in main thread")
-        self._process_opencv_events()
-    
-    def _process_opencv_events(self):
-        """Process OpenCV window events in main thread and auto-reopen if closed."""
-        if not self.preview_on:
-            self.opencv_event_processing_active = False
-            return
-        
-        # If camera is closed, stop preview
-        if not self.cam or not self.cam.is_open():
-            self.opencv_event_processing_active = False
-            return
-        
-        try:
-            # Check if window exists and is visible
-            window_name = self.preview_window_name_current
-            if not window_name:
-                # No window name, try to reopen
-                debug_print("No window name, reopening preview...")
-                self.root.after(100, self.start_preview)
-                self.opencv_event_processing_active = False
-                return
-            
-            try:
-                window_visible = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
-                if window_visible < 1:
-                    # Window was closed, automatically reopen it
-                    debug_print("Window closed by user, auto-reopening preview...")
-                    self.preview_window_name_current = None  # Reset window name
-                    self.root.after(100, self.start_preview)  # Reopen after short delay
-                    self.opencv_event_processing_active = False
-                    return
-                # Process events and check for ESC key (but don't close, just ignore ESC)
-                cv2.waitKey(1)
-            except cv2.error:
-                # Window doesn't exist, try to reopen
-                debug_print("Window no longer exists, auto-reopening preview...")
-                self.preview_window_name_current = None  # Reset window name
-                self.root.after(100, self.start_preview)  # Reopen after short delay
-                self.opencv_event_processing_active = False
-                return
-        except Exception as e:
-            debug_print(f"Exception in OpenCV event processing: {type(e).__name__}: {e}")
-        
-        # Schedule next event processing
-        if self.opencv_event_processing_active:
-            self.root.after(50, self._process_opencv_events)  # Every 50ms
-    
-    def _preview_loop(self):
-        """Preview thread loop - only displays frames, window created in main thread."""
-        thread_id = threading.current_thread().ident
-        debug_print(f"=== _preview_loop() started (thread_id={thread_id}) ===")
-        
-        # Get window name from main thread
-        window_name = self.preview_window_name_current
-        if not window_name:
-            debug_print("ERROR: No window name available")
-            self.preview_on = False
-            return
-        
-        debug_print(f"Preview loop using window: {window_name}")
-        
-        # Initialize loop variables early so they're always available in finally block
-        last_time = time.time()
-        frame_count = 0
-        fps = 0.0
-        no_frame_count = 0
-        first_frame = True
-        
-        try:
-            # Window already created in main thread, just start the display loop
-            print("[INFO] Preview: Waiting for frames...")
-            debug_print("Entering main preview loop...")
-            
-            while self.preview_on:
-                # Check if camera is still valid
-                if not self.cam or not self.cam.is_open():
-                    debug_print("Camera not valid or not open, exiting loop")
-                    print("[INFO] Preview loop exiting (camera closed)")
-                    break
-                
-                # Window visibility is checked in main thread via _process_opencv_events()
-                # Just continue with frame display
-                
-                # Check flag again before blocking
-                if not self.preview_on:
-                    debug_print("preview_on flag is False, exiting loop")
-                    break
-                
-                try:
-                    # Get frame from queue with timeout
-                    frame = self.frame_queue.get(timeout=0.1)
-                    
-                    # Check flag again after potentially blocking
-                    if not self.preview_on:
-                        break
-                    
-                    if frame is not None:
-                        no_frame_count = 0
-                        
-                        # Validate frame
-                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
-                            try:
-                                # Determine format based on shape and channels
-                                if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                    # Already BGR from OpenCV (MJPG or already decoded)
-                                    display_frame = frame.copy()
-                                else:
-                                    # Handle YUYV format (2D array, needs conversion)
-                                    display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
-                                
-                                if first_frame:
-                                    print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {self.format_var.get()}")
-                                    first_frame = False
-                                
-                                # Calculate FPS
-                                frame_count += 1
-                                now = time.time()
-                                if frame_count % 10 == 0:
-                                    elapsed = now - last_time
-                                    fps = 10.0 / elapsed if elapsed > 0 else 0
-                                    last_time = now
-                                
-                                # Draw overlay
-                                cv2.putText(
-                                    display_frame,
-                                    f"{self.format_var.get()} {self.cam.w}x{self.cam.h}  FPS:{fps:.1f}",
-                                    (10, 25),
-                                    cv2.FONT_HERSHEY_SIMPLEX,
-                                    0.7,
-                                    (0, 255, 0),
-                                    2
-                                )
-                                
-                                # Check recording state
-                                if self.recording:
-                                    cv2.putText(
-                                        display_frame,
-                                        "REC",
-                                        (10, 55),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.7,
-                                        (0, 0, 255),
-                                        2
-                                    )
-                                
-                                # Show frame (window exists, created in main thread)
-                                try:
-                                    cv2.imshow(window_name, display_frame)
-                                    # Note: waitKey() is handled in main thread via _process_opencv_events()
-                                except cv2.error as e:
-                                    debug_print(f"cv2.error in imshow: {e}, window may be closed")
-                                    # Window may have been closed - main thread will detect this and reopen
-                                    # Don't break, just continue - the main thread will handle reopening
-                                    pass
-                            except Exception as e:
-                                debug_print(f"Frame processing error: {type(e).__name__}: {e}")
-                                print(f"[WARN] Preview: Frame processing error: {e}")
-                                traceback.print_exc()
-                                continue
-                except Empty:
-                    # No frame available
-                    no_frame_count += 1
-                    if no_frame_count == 1:
-                        debug_print("No frame available, waiting for frames from grabber...")
-                        print("[INFO] Preview: Waiting for frames from grabber...")
-                    
-                    if not self.frame_grabber_running:
-                        debug_print("Frame grabber stopped, exiting preview")
-                        print("[INFO] Preview: Frame grabber stopped, exiting preview")
-                        break
-                    
-                    # Window events are processed in main thread via _process_opencv_events()
-                    continue
-                except Exception as e:
-                    debug_print(f"Unexpected error in preview loop: {type(e).__name__}: {e}")
-                    print(f"[WARN] Preview: Unexpected error: {e}")
-                    traceback.print_exc()
-                    continue
-        except Exception as e:
-            debug_print(f"CRITICAL: Exception in preview loop try block: {type(e).__name__}: {e}")
-            print(f"[ERROR] Preview loop error: {e}")
-            traceback.print_exc()
-        finally:
-            debug_print("=== Entering finally block for preview cleanup ===")
-            # Note: Window destruction is handled in stop_preview() in main thread
-            # Just reset the flag here (thread cleanup only)
-            debug_print("Setting preview_on flag to False in finally block")
-            self.preview_on = False
-            
-            # Update button in main thread
-            try:
-                debug_print("Updating button text to 'Open Preview' in finally block")
-                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-            except Exception as e:
-                debug_print(f"Failed to update button: {type(e).__name__}: {e}")
-            
-            debug_print(f"_preview_loop() exiting. Total frames displayed: {frame_count}, thread_id={thread_id}")
-            print(f"[INFO] Preview: Exited. Total frames displayed: {frame_count}")
     
     def reset_controls(self):
         """Reset camera controls to defaults."""
@@ -1091,167 +600,18 @@ class CaptureApp:
             messagebox.showinfo("Camera", "Open camera first.")
             return
         
-        if self.recording:
-            self.stop_record()
+        if self.recording_manager.recording:
+            self.recording_manager.stop()
         else:
-            # Start recording
-            w, h = self.scaled_size()
-            
-            # Get output FPS (use actual camera FPS, or 30 if max speed)
-            actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
-            output_fps = actual_fps if actual_fps > 0 else 30.0
-            
-            output_path = make_capture_output_path(w, h, int(output_fps))
-            
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            # Use consistent output FPS for smooth playback
-            self.video_writer = cv2.VideoWriter(output_path, fourcc, output_fps, (w, h))
-            
-            if not self.video_writer.isOpened():
-                messagebox.showerror("Recording Error", f"Failed to create video file: {output_path}")
-                return
-            
-            self.stop_flag = False
-            self.recording = True
-            self.status_label.config(text=f"Recording: {os.path.basename(output_path)}", foreground="red")
-            
-            # Start recording thread
-            self.record_thread = threading.Thread(target=self._record_loop, daemon=True)
-            self.record_thread.start()
-            
-            # Update button
-            self.record_btn.config(text="Stop Record")
-            
-            print(f"[INFO] Recording started: {output_path}")
-    
-    def stop_record(self):
-        """Stop video recording."""
-        if not self.recording:
-            return
-        
-        # Stop recording
-        self.stop_flag = True
-        if self.record_thread and self.record_thread.is_alive():
-            self.record_thread.join(timeout=2.0)
-        
-        if self.video_writer:
-            self.video_writer.release()
-            self.video_writer = None
-        
-        self.recording = False
-        self.record_btn.config(text="Record")
-        self.status_label.config(text="Recording stopped", foreground="black")
-        print("[INFO] Recording stopped")
-    
-    def _record_loop(self):
-        """Recording thread loop with consistent output FPS."""
-        frame_count = 0
-        dropped_frames = 0
-        skipped_frames = 0
-        t0 = time.time()
-        
-        # Get output FPS (use actual camera FPS, or 30 if max speed)
-        actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
-        output_fps = actual_fps if actual_fps > 0 else 30.0
-        
-        # Frame timing for consistent output FPS
-        frame_interval = 1.0 / output_fps  # Time between frames at output FPS
-        next_frame_time = t0
-        last_frame = None
-        
-        while not self.stop_flag and self.cam and self.cam.is_open():
-            try:
-                # Get frame (non-blocking with timeout)
-                try:
-                    frame = self.frame_queue.get(timeout=0.1)
-                except Empty:
-                    # No frame available, check if we should write last frame (duplicate)
-                    # to maintain consistent output FPS
-                    current_time = time.time()
-                    if current_time >= next_frame_time and last_frame is not None:
-                        # Time to write next frame, use last frame to maintain FPS
-                        w, h = self.scaled_size()
-                        if w != self.cam.w or h != self.cam.h:
-                            frame_resized = cv2.resize(last_frame, (w, h))
-                        else:
-                            frame_resized = last_frame.copy()
-                        
-                        # Convert if needed (ensure BGR)
-                        if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
-                            frame_bgr = frame_resized
-                        else:
-                            frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
-                        
-                        self.video_writer.write(frame_bgr)
-                        frame_count += 1
-                        next_frame_time += frame_interval
-                    continue
-                
-                if frame is not None:
-                    last_frame = frame  # Store for potential duplication
-                    
-                    # Scale frame
-                    w, h = self.scaled_size()
-                    if w != self.cam.w or h != self.cam.h:
-                        frame_resized = cv2.resize(frame, (w, h))
-                    else:
-                        frame_resized = frame
-                    
-                    # Convert if needed (ensure BGR)
-                    if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
-                        frame_bgr = frame_resized
-                    else:
-                        frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
-                    
-                    # Write frames at consistent intervals for smooth playback
-                    current_time = time.time()
-                    
-                    # If it's time to write, write immediately
-                    if current_time >= next_frame_time:
-                        self.video_writer.write(frame_bgr)
-                        frame_count += 1
-                        next_frame_time += frame_interval
-                        
-                        # If we're significantly behind, skip ahead to current time
-                        # (don't accumulate too much lag)
-                        if current_time > next_frame_time + frame_interval * 2:
-                            next_frame_time = current_time + frame_interval
-                    else:
-                        # Frame came too early - skip it to maintain timing
-                        # We'll use the next frame when it's time
-                        skipped_frames += 1
-                        
-            except Exception as e:
-                print(f"[WARN] Frame write error: {e}")
-                dropped_frames += 1
-        
-        duration = time.time() - t0
-        fps_capture_avg = frame_count / duration if duration > 0 else 0
-        
-        print(f"[INFO] Recorded {frame_count} frames in {duration:.1f}s")
-        print(f"[INFO] Average capture rate: {fps_capture_avg:.1f} FPS")
-        print(f"[INFO] Output video FPS: {output_fps:.1f} FPS (consistent)")
-        if skipped_frames > 0:
-            print(f"[INFO] Skipped {skipped_frames} early frames to maintain consistent FPS")
-        if dropped_frames > 0:
-            print(f"[INFO] Dropped {dropped_frames} frames due to errors")
+            self.recording_manager.start()
     
 
     def on_close(self):
         """Handle application close."""
         print("[INFO] Closing application")
-        self.stop_preview()
-        self.stop_flag = True
-        
-        # Wait for recording thread
-        if self.record_thread and self.record_thread.is_alive():
-            self.record_thread.join(timeout=2.0)
-        
-        if self.video_writer:
-            self.video_writer.release()
-            self.video_writer = None
-        
-        self._stop_frame_grabber()
+        self.preview_manager.stop()
+        self.recording_manager.stop()
+        self.frame_grabber.stop()
         
         if self.cam:
             self.cam.release()

@@ -27,13 +27,13 @@ NOTES
 import cv2, numpy as np, math, csv, json, os, time, sys
 import tkinter as tk
 from tkinter import ttk, filedialog
-from lib.pair_algorithms import (
+from lib.pair.pair_algorithms import (
     detect as alg_detect,
     pair_scored as alg_pair_scored,
     pair_scored_symmetric as alg_pair_scored_symmetric,
     pair_scored_hungarian as alg_pair_scored_hungarian,
 )
-from lib.pair_draw import (
+from lib.pair.pair_draw import (
     draw_blob_boxes as draw_blob_boxes_ext,
     draw_center as draw_center_ext,
     draw_pair_centers as draw_pair_centers_ext,
@@ -42,10 +42,10 @@ from lib.pair_draw import (
     set_video_seed as set_video_seed_ext,
     draw_stats_overlay as draw_stats_overlay_ext,
 )
-from lib.util_paths import ts_name, path_stem, export_paths_for
-from lib.preset_io import save_preset_file, load_preset_file
+from lib.capture.util_paths import ts_name, path_stem, export_paths_for
+from lib.pair.preset_io import save_preset_file, load_preset_file
 from lib.ui import build_gui as ui_build_gui, set_controls_enabled as ui_set_controls_enabled, reset_defaults_ui as ui_reset_defaults_ui
-from lib.pair_tracker import PairTracker
+from lib.pair.pair_tracker import PairTracker
 
 # ============ Persistent preset file ============
 PRESET_PATH = "pair_preset.json"
