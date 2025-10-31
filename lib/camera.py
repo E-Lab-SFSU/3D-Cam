@@ -292,10 +292,13 @@ class Camera:
         except:
             pass
         
-        try:
-            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-        except:
-            pass
+        # Only set FPS if explicitly provided (non-zero)
+        # If fps is 0, let camera run at maximum speed (don't limit)
+        if self.fps > 0:
+            try:
+                self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+            except:
+                pass
         
         # Determine if using V4L2 (check actual backend name or backend type)
         using_v4l2 = is_linux_os and (self.backend == cv2.CAP_V4L2 or 'V4L2' in str(self.actual_backend))
