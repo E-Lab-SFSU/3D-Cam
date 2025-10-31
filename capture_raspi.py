@@ -365,6 +365,7 @@ class CaptureApp:
     
     def close_camera(self):
         """Close the camera."""
+        # Stop preview before closing camera
         if self.preview_on:
             self.stop_preview()
         
@@ -482,6 +483,11 @@ class CaptureApp:
         print(f"[INFO] Format: {format_str}, Resolution: {self.cam.w}x{self.cam.h}")
         if format_str == "MJPG":
             print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
+        
+        # Automatically start preview when camera opens
+        if not self.preview_on:
+            debug_print("Auto-starting preview after camera opened...")
+            self.root.after(100, self.start_preview)  # Small delay to ensure camera is ready
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
@@ -623,19 +629,23 @@ class CaptureApp:
         debug_print(f"=== start_preview() called (count: {self.preview_start_count}) ===")
         debug_print(f"Current state: preview_on={self.preview_on}, thread={self.preview_thread}, thread_alive={self.preview_thread.is_alive() if self.preview_thread else None}")
         
-        # Don't start if already running
-        if self.preview_on:
-            debug_print("Preview already running, skipping start")
-            print("[INFO] Preview already running, skipping start")
-            return
+        # Check if preview is already running with a valid window
+        if self.preview_on and self.preview_window_name_current:
+            # Check if window still exists
+            try:
+                window_visible = cv2.getWindowProperty(self.preview_window_name_current, cv2.WND_PROP_VISIBLE)
+                if window_visible >= 0:
+                    debug_print("Preview already running with valid window, skipping start")
+                    return
+            except:
+                # Window doesn't exist, continue to recreate
+                debug_print("Preview flag set but window doesn't exist, recreating...")
+                self.preview_on = False
+                self.preview_window_name_current = None
         
         if not self.cam or not self.cam.is_open():
-            debug_print("Camera not open, attempting to open...")
-            self.open_camera()
-            if not self.cam or not self.cam.is_open():
-                debug_print("Failed to open camera")
-                return
-            debug_print("Camera opened successfully")
+            debug_print("Camera not open, cannot start preview")
+            return
         
         # Ensure previous thread is fully stopped
         if self.preview_thread is not None:
@@ -819,31 +829,43 @@ class CaptureApp:
         self._process_opencv_events()
     
     def _process_opencv_events(self):
-        """Process OpenCV window events in main thread."""
-        if not self.preview_on or not self.preview_window_name_current:
+        """Process OpenCV window events in main thread and auto-reopen if closed."""
+        if not self.preview_on:
+            self.opencv_event_processing_active = False
+            return
+        
+        # If camera is closed, stop preview
+        if not self.cam or not self.cam.is_open():
             self.opencv_event_processing_active = False
             return
         
         try:
-            # Process events and check if window was closed
+            # Check if window exists and is visible
             window_name = self.preview_window_name_current
+            if not window_name:
+                # No window name, try to reopen
+                debug_print("No window name, reopening preview...")
+                self.root.after(100, self.start_preview)
+                self.opencv_event_processing_active = False
+                return
+            
             try:
                 window_visible = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
                 if window_visible < 1:
-                    debug_print("Window closed by user, stopping preview")
-                    self.stop_preview()
+                    # Window was closed, automatically reopen it
+                    debug_print("Window closed by user, auto-reopening preview...")
+                    self.preview_window_name_current = None  # Reset window name
+                    self.root.after(100, self.start_preview)  # Reopen after short delay
+                    self.opencv_event_processing_active = False
                     return
-                # Process events and check for ESC key
-                key = cv2.waitKey(1) & 0xFF
-                if key == 27:  # ESC key
-                    debug_print("ESC key pressed, stopping preview")
-                    print("[INFO] Preview closed by ESC key")
-                    self.stop_preview()
-                    return
+                # Process events and check for ESC key (but don't close, just ignore ESC)
+                cv2.waitKey(1)
             except cv2.error:
-                # Window doesn't exist
-                debug_print("Window no longer exists, stopping preview")
-                self.stop_preview()
+                # Window doesn't exist, try to reopen
+                debug_print("Window no longer exists, auto-reopening preview...")
+                self.preview_window_name_current = None  # Reset window name
+                self.root.after(100, self.start_preview)  # Reopen after short delay
+                self.opencv_event_processing_active = False
                 return
         except Exception as e:
             debug_print(f"Exception in OpenCV event processing: {type(e).__name__}: {e}")
@@ -956,8 +978,9 @@ class CaptureApp:
                                     # Note: waitKey() is handled in main thread via _process_opencv_events()
                                 except cv2.error as e:
                                     debug_print(f"cv2.error in imshow: {e}, window may be closed")
-                                    # Window may have been closed - main thread will detect this
-                                    break
+                                    # Window may have been closed - main thread will detect this and reopen
+                                    # Don't break, just continue - the main thread will handle reopening
+                                    pass
                             except Exception as e:
                                 debug_print(f"Frame processing error: {type(e).__name__}: {e}")
                                 print(f"[WARN] Preview: Frame processing error: {e}")
