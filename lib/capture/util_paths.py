@@ -59,3 +59,13 @@ def make_capture_output_path(width: int, height: int, fps: int) -> str:
     return os.path.join(CAPTURE_OUTPUT_DIR, name)
 
 
+def make_capture_frame_path(width: int, height: int) -> str:
+    """
+    Create output path for captured frame.
+    Returns: capture_output/frame_WxH_YYYYmmdd_HHMMSS.png
+    """
+    ensure_dir(CAPTURE_OUTPUT_DIR)
+    name = ts_name(f"frame_{width}x{height}", "png")
+    return os.path.join(CAPTURE_OUTPUT_DIR, name)
+
+

@@ -175,7 +175,9 @@ class PreviewManager:
                             cv2.putText(display_frame, "REC", (10, 55),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                         
-                        cv2.imshow(window_name, display_frame)
+                        # Resize display frame to 640x480 for preview window
+                        display_resized = cv2.resize(display_frame, (640, 480))
+                        cv2.imshow(window_name, display_resized)
                     
                 except Empty:
                     # No frame available, continue (will show waiting message if camera closes)

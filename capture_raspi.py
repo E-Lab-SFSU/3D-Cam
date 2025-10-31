@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Raspberry Pi UVC Camera GUI with Camera Info Integration
----------------------------------------------------------
-✓ Uses camera_info.py for camera detection and information
+Raspberry Pi Camera Capture GUI
+--------------------------------
+✓ UVC Camera support via camera_info.py
 ✓ Select capture format (YUYV or MJPG) based on camera capabilities
 ✓ Live adjustable brightness, contrast, saturation, gain
-✓ Power line frequency dropdown
+✓ Power line frequency control (auto-set to 60 Hz)
 ✓ MP4 recording
-✓ Live preview with debug info
-✓ Frame capture
+✓ Live preview window (always on, 640x480 display)
+✓ Frame capture (saves to capture_output folder)
+✓ PiCamera support (to be implemented)
 """
 
 import cv2
@@ -29,7 +30,7 @@ from lib.camera_info import (
     list_all_cameras, get_camera_info, CameraInfo,
     set_camera_control, get_camera_control, get_camera_control_range
 )
-from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_output_path
+from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_output_path, make_capture_frame_path
 
 
 # ============ Debug Configuration ============
@@ -79,6 +80,7 @@ class CaptureApp:
         self.cam = None
         self.camera_info = None  # Current CameraInfo object
         self.available_cameras = []  # List of CameraInfo objects
+        self.use_picamera = False  # Flag for PiCamera mode (to be implemented)
         
         # Format and resolution
         self.format_var = tk.StringVar(value="YUYV")
@@ -586,11 +588,11 @@ class CaptureApp:
         else:
             frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
         
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        name = f"frame_{w}x{h}_{ts}.png"
-        cv2.imwrite(name, frame_bgr)
-        print(f"[INFO] Saved {name}")
-        self.status_label.config(text=f"Saved: {name}", foreground="blue")
+        # Save to capture_output directory
+        output_path = make_capture_frame_path(w, h)
+        cv2.imwrite(output_path, frame_bgr)
+        print(f"[INFO] Saved {output_path}")
+        self.status_label.config(text=f"Saved: {os.path.basename(output_path)}", foreground="blue")
     
     def toggle_record(self):
         """Toggle video recording."""
