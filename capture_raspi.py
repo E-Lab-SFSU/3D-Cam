@@ -98,11 +98,11 @@ class CaptureApp:
         main = ttk.Frame(self.root, padding="5")
         main.pack(fill=tk.BOTH, expand=True)
         
-        # Right side: Controls in a scrollable frame if needed
+        # Right side: Controls
         ctrl = ttk.Frame(main)
         ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=3, pady=3)
         
-        # Camera selection (compact)
+        # Camera selection (same)
         cam_frame = ttk.LabelFrame(ctrl, text="Camera", padding="3")
         cam_frame.pack(fill=tk.X, pady=(0, 4))
         
@@ -124,7 +124,7 @@ class CaptureApp:
         )
         self.camera_info_label.pack(fill=tk.X, pady=(2, 0))
         
-        # Format selection (compact)
+        # Format selection (same)
         format_frame = ttk.LabelFrame(ctrl, text="Format", padding="3")
         format_frame.pack(fill=tk.X, pady=(0, 4))
         
@@ -134,73 +134,80 @@ class CaptureApp:
         ttk.Label(fmt_row, text="Format:").pack(side=tk.LEFT, padx=(0, 2))
         self.format_combo = ttk.Combobox(fmt_row, textvariable=self.format_var, width=6, state="readonly")
         self.format_combo.pack(side=tk.LEFT, padx=(0, 8))
-        self.format_combo.bind("<<ComboboxSelected>>", lambda e: None)  # No need to update desc
+        self.format_combo.bind("<<ComboboxSelected>>", self.on_format_changed)
         tooltip(self.format_combo, "YUYV = raw/VGA | MJPG = compressed/HD")
         
         ttk.Label(fmt_row, text="FPS:").pack(side=tk.LEFT, padx=(0, 2))
-        fps_entry = ttk.Entry(fmt_row, textvariable=self.fps_var, width=5)
+        fps_entry = ttk.Entry(fmt_row, textvariable=self.fps_var, width=5, font=("TkDefaultFont", 9))
         fps_entry.pack(side=tk.LEFT)
         tooltip(fps_entry, "0=max speed, 1-60=specific FPS")
         
-        # FPS and Scale status in one compact row
-        status_row = ttk.Frame(format_frame)
-        status_row.pack(fill=tk.X, pady=(2, 0))
-        self.fps_label = ttk.Label(status_row, text="FPS: —", font=("TkDefaultFont", 8))
-        self.fps_label.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Label(status_row, text="Scale:").pack(side=tk.LEFT, padx=(0, 2))
-        scale_entry = ttk.Entry(status_row, textvariable=self.scale_percent, width=4)
+        # Scale in format frame
+        scale_row = ttk.Frame(format_frame)
+        scale_row.pack(fill=tk.X, pady=(2, 0))
+        ttk.Label(scale_row, text="Scale:").pack(side=tk.LEFT, padx=(0, 2))
+        scale_entry = ttk.Entry(scale_row, textvariable=self.scale_percent, width=5, font=("TkDefaultFont", 9))
         scale_entry.pack(side=tk.LEFT, padx=(0, 2))
         tooltip(scale_entry, "Output scale %")
-        self.scale_label = ttk.Label(status_row, text="—", font=("TkDefaultFont", 8))
+        self.scale_label = ttk.Label(scale_row, text="—", font=("TkDefaultFont", 8))
         self.scale_label.pack(side=tk.LEFT)
         
-        # Camera controls (compact, 2 columns)
+        # Status (new section)
+        status_frame = ttk.LabelFrame(ctrl, text="Status", padding="3")
+        status_frame.pack(fill=tk.X, pady=(0, 4))
+        
+        self.status_label = ttk.Label(status_frame, text="Ready", font=("TkDefaultFont", 9))
+        self.status_label.pack(anchor="w", pady=(0, 2))
+        
+        self.fps_label = ttk.Label(status_frame, text="FPS: —", font=("TkDefaultFont", 8))
+        self.fps_label.pack(anchor="w")
+        
+        # Open/Close Camera button
+        self.open_camera_btn = ttk.Button(status_frame, text="Open Camera", command=self.toggle_camera)
+        self.open_camera_btn.pack(fill=tk.X, pady=(4, 0))
+        
+        # Camera controls (stacked sliders for maximum horizontal adjustment)
         self.param_frame = ttk.LabelFrame(ctrl, text="Controls", padding="3")
         self.param_frame.pack(fill=tk.X, pady=(0, 4))
         
         self._build_camera_controls()
         
-        # Action buttons (compact grid)
+        # Actions section
         btn_frame = ttk.LabelFrame(ctrl, text="Actions", padding="3")
         btn_frame.pack(fill=tk.X, pady=(0, 4))
         
-        btn_grid = ttk.Frame(btn_frame)
-        btn_grid.pack()
+        # Open/Close Preview button
+        self.preview_btn = ttk.Button(btn_frame, text="Open Preview", command=self.toggle_preview)
+        self.preview_btn.pack(fill=tk.X, pady=(0, 2))
         
-        ttk.Button(btn_grid, text="Open", command=self.open_camera).grid(row=0, column=0, padx=2, pady=1, sticky="ew")
-        ttk.Button(btn_grid, text="Preview", command=self.start_preview).grid(row=0, column=1, padx=2, pady=1, sticky="ew")
-        ttk.Button(btn_grid, text="Stop", command=self.stop_preview).grid(row=0, column=2, padx=2, pady=1, sticky="ew")
-        ttk.Button(btn_grid, text="Capture", command=self.capture_frame).grid(row=1, column=0, padx=2, pady=1, sticky="ew")
-        ttk.Button(btn_grid, text="Record", command=self.toggle_record).grid(row=1, column=1, padx=2, pady=1, sticky="ew")
-        ttk.Button(btn_grid, text="Reset", command=self.reset_controls).grid(row=1, column=2, padx=2, pady=1, sticky="ew")
-        btn_grid.columnconfigure(0, weight=1)
-        btn_grid.columnconfigure(1, weight=1)
-        btn_grid.columnconfigure(2, weight=1)
+        # Record/Stop Record button
+        self.record_btn = ttk.Button(btn_frame, text="Record", command=self.toggle_record)
+        self.record_btn.pack(fill=tk.X, pady=(0, 2))
         
-        # Status
-        self.status_label = ttk.Label(ctrl, text="Ready", font=("TkDefaultFont", 9, "bold"))
-        self.status_label.pack(pady=(4, 0))
+        # Capture Frame button
+        ttk.Button(btn_frame, text="Capture Frame", command=self.capture_frame).pack(fill=tk.X, pady=(0, 2))
+        
+        # Reset Controls button
+        ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X)
     
     def _build_camera_controls(self):
-        """Build camera control sliders in compact 2-column layout."""
-        # Define controls with defaults
+        """Build camera control sliders stacked vertically for maximum horizontal space."""
+        # Define controls with defaults (removed power line frequency - always 60)
         controls = {
-            "brightness": ("Bright", -64, 64, 0),
+            "brightness": ("Brightness", -64, 64, 0),
             "contrast": ("Contrast", 0, 64, 32),
-            "saturation": ("Sat", 0, 128, 60),
+            "saturation": ("Saturation", 0, 128, 60),
             "gain": ("Gain", 0, 100, 32),
         }
         
         self.control_vars = {}
-        row = 0
-        col = 0
         
         for name, (label, default_min, default_max, default_val) in controls.items():
-            # Create frame for this control (2 columns)
+            # Create frame for this control (stacked vertically)
             frame = ttk.Frame(self.param_frame)
-            frame.grid(row=row, column=col, sticky="ew", padx=2, pady=1)
+            frame.pack(fill=tk.X, pady=1)
             
-            ttk.Label(frame, text=label, width=6, anchor="w", font=("TkDefaultFont", 8)).pack(side=tk.LEFT, padx=(0, 2))
+            ttk.Label(frame, text=label, width=10, anchor="w", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(0, 4))
             
             var = tk.DoubleVar(value=default_val)
             slider = tk.Scale(
@@ -210,12 +217,12 @@ class CaptureApp:
                 orient="horizontal", 
                 variable=var,
                 resolution=1,
-                length=70
+                length=150
             )
-            slider.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
             
-            entry = ttk.Entry(frame, textvariable=var, width=4, font=("TkDefaultFont", 8))
-            entry.pack(side=tk.LEFT, padx=(2, 0))
+            entry = ttk.Entry(frame, textvariable=var, width=6, font=("TkDefaultFont", 9))
+            entry.pack(side=tk.LEFT)
             
             # Update callback
             def update_control(ctrl_name=name, ctrl_var=var):
@@ -230,45 +237,9 @@ class CaptureApp:
             entry.bind("<Return>", lambda e, update=update_control: update())
             
             self.control_vars[name] = var
-            
-            # Move to next row after 2 columns
-            col += 1
-            if col >= 2:
-                col = 0
-                row += 1
         
-        # Power line frequency dropdown (full width)
-        freq_frame = ttk.Frame(self.param_frame)
-        freq_frame.grid(row=row, column=0, columnspan=2, sticky="ew", padx=2, pady=1)
-        
-        ttk.Label(freq_frame, text="Power:", width=6, anchor="w", font=("TkDefaultFont", 8)).pack(side=tk.LEFT, padx=(0, 2))
-        
-        freq_var = tk.IntVar(value=2)
-        freq_combo = ttk.Combobox(
-            freq_frame, 
-            values=["0: Disabled", "1: 50 Hz", "2: 60 Hz"],
-            width=12,
-            state="readonly"
-        )
-        freq_combo.set("2: 60 Hz")
-        freq_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        def update_freq():
-            if self.cam and self.camera_info and self.camera_info.device_path:
-                try:
-                    sel = int(freq_combo.get().split(":")[0])
-                    freq_var.set(sel)
-                    if set_camera_control(self.camera_info.device_path, "power_line_frequency", sel):
-                        print(f"[DEBUG] power_line_frequency = {sel}")
-                except Exception as e:
-                    print(f"[WARN] Power line frequency error: {e}")
-        
-        freq_combo.bind("<<ComboboxSelected>>", lambda e: update_freq())
-        self.control_vars["power_line_frequency"] = freq_var
-        
-        # Configure grid columns
-        self.param_frame.columnconfigure(0, weight=1)
-        self.param_frame.columnconfigure(1, weight=1)
+        # Set power line frequency to 60 Hz automatically when camera opens
+        # (no UI control, always 60 Hz)
     
     def refresh_camera_list(self):
         """Refresh the list of available cameras."""
@@ -318,6 +289,15 @@ class CaptureApp:
                             self.format_combo.current(0)
                 break
     
+    def on_format_changed(self, event=None):
+        """Handle format selection change - reopen camera if already open."""
+        if self.cam and self.cam.is_open():
+            # Camera is open, close and reopen with new format
+            print("[INFO] Format changed, reopening camera with new settings...")
+            self.close_camera()
+            # Small delay then reopen
+            self.root.after(100, self.open_camera)
+    
     def _update_camera_info_display(self):
         """Update the camera info label."""
         if not self.camera_info:
@@ -347,6 +327,31 @@ class CaptureApp:
                    "• Pros: fast preview, low latency.\n"
                    "• Cons: limited to VGA on USB 2.0.")
         self.format_desc.config(text=txt)
+    
+    def toggle_camera(self):
+        """Toggle camera open/close."""
+        if self.cam and self.cam.is_open():
+            self.close_camera()
+        else:
+            self.open_camera()
+    
+    def close_camera(self):
+        """Close the camera."""
+        if self.preview_on:
+            self.stop_preview()
+        
+        if self.recording:
+            self.stop_record()
+        
+        self._stop_frame_grabber()
+        
+        if self.cam:
+            self.cam.release()
+            self.cam = None
+        
+        self.open_camera_btn.config(text="Open Camera")
+        self.status_label.config(text="Camera closed", foreground="black")
+        print("[INFO] Camera closed")
     
     def open_camera(self):
         """Open the selected camera."""
@@ -410,6 +415,8 @@ class CaptureApp:
             self._load_camera_control_ranges()
             # Apply current control values
             self._apply_camera_controls()
+            # Set power line frequency to 60 Hz automatically
+            set_camera_control(self.camera_info.device_path, "power_line_frequency", 2)
         
         # Get actual camera FPS (may be 0 if not set, meaning max speed)
         actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
@@ -432,9 +439,18 @@ class CaptureApp:
         self._start_frame_grabber()
         
         self.update_scale_info()
+        
+        # Update UI
+        self.open_camera_btn.config(text="Close Camera")
         self.status_label.config(text=f"Camera {self.camera_info.index} ready", foreground="green")
+        if actual_fps == 0:
+            self.fps_label.config(text="FPS: Max speed")
+        else:
+            self.fps_label.config(text=f"FPS: {actual_fps:.1f}")
+        
         print("[INFO] Camera opened successfully")
         print(f"[INFO] Using automatic exposure (default)")
+        print(f"[INFO] Power line frequency set to 60 Hz")
         print(f"[INFO] Output video will be recorded at {output_fps:.1f} FPS")
         print(f"[INFO] Format: {format_str}, Resolution: {self.cam.w}x{self.cam.h}")
         if format_str == "MJPG":
@@ -472,8 +488,6 @@ class CaptureApp:
             return
         
         for ctrl_name, var in self.control_vars.items():
-            if ctrl_name == "power_line_frequency":
-                continue  # Handled separately
             val = int(var.get())
             set_camera_control(self.camera_info.device_path, ctrl_name, val)
     
@@ -568,6 +582,13 @@ class CaptureApp:
                 # Shorter sleep on error - don't wait too long between attempts
                 time.sleep(0.05)
     
+    def toggle_preview(self):
+        """Toggle preview on/off."""
+        if self.preview_on:
+            self.stop_preview()
+        else:
+            self.start_preview()
+    
     def start_preview(self):
         """Start live preview in OpenCV window."""
         if not self.cam or not self.cam.is_open():
@@ -581,6 +602,9 @@ class CaptureApp:
             self.last_time = time.time()
             self.fps_est = 0.0
             
+            # Update button
+            self.preview_btn.config(text="Close Preview")
+            
             # Start preview thread
             self.preview_thread = threading.Thread(target=self._preview_loop, daemon=True)
             self.preview_thread.start()
@@ -590,6 +614,9 @@ class CaptureApp:
         if self.preview_on:
             print("[INFO] Stopping preview")
         self.preview_on = False
+        
+        # Update button
+        self.preview_btn.config(text="Open Preview")
         
         # Wait for preview thread to finish
         if self.preview_thread and self.preview_thread.is_alive():
@@ -662,7 +689,14 @@ class CaptureApp:
                                 (0, 255, 0),
                                 2
                             )
-                            if self.recording:
+                            
+                            # Check recording state (thread-safe)
+                            try:
+                                is_recording = self.recording
+                            except:
+                                is_recording = False
+                                
+                            if is_recording:
                                 cv2.putText(
                                     display_frame,
                                     "REC",
@@ -675,9 +709,25 @@ class CaptureApp:
                             
                             cv2.imshow("Preview", display_frame)
                             # CRITICAL: waitKey is needed for OpenCV to process window events
-                            key = cv2.waitKey(1) & 0xFF
-                            if key == 27:  # ESC key
+                            cv2.waitKey(1)
+                            
+                            # Check if window was closed by clicking X
+                            try:
+                                if cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE) < 1:
+                                    self.preview_on = False
+                                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                                    break
+                            except:
+                                # Window might not exist anymore
                                 self.preview_on = False
+                                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                                break
+                            
+                            # Also check for ESC key
+                            key = cv2.waitKey(1) & 0xFF
+                            if key == 27:
+                                self.preview_on = False
+                                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
                                 break
                         else:
                             print(f"[WARN] Preview: Invalid frame shape: {frame.shape if frame is not None else 'None'}")
@@ -692,6 +742,19 @@ class CaptureApp:
                     if not self.frame_grabber_running:
                         print("[INFO] Preview: Frame grabber stopped, exiting preview")
                         break
+                    
+                    # Check if window was closed by clicking X
+                    try:
+                        if cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE) < 1:
+                            self.preview_on = False
+                            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                            break
+                    except:
+                        # Window doesn't exist
+                        self.preview_on = False
+                        self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                        break
+                    
                     # Still process window events to keep window responsive
                     cv2.waitKey(1)
                     continue
@@ -772,18 +835,7 @@ class CaptureApp:
             return
         
         if self.recording:
-            # Stop recording
-            self.stop_flag = True
-            if self.record_thread and self.record_thread.is_alive():
-                self.record_thread.join(timeout=2.0)
-            
-            if self.video_writer:
-                self.video_writer.release()
-                self.video_writer = None
-            
-            self.recording = False
-            self.status_label.config(text="Recording stopped", foreground="black")
-            print("[INFO] Recording stopped")
+            self.stop_record()
         else:
             # Start recording
             w, h = self.scaled_size()
@@ -810,7 +862,29 @@ class CaptureApp:
             self.record_thread = threading.Thread(target=self._record_loop, daemon=True)
             self.record_thread.start()
             
+            # Update button
+            self.record_btn.config(text="Stop Record")
+            
             print(f"[INFO] Recording started: {output_path}")
+    
+    def stop_record(self):
+        """Stop video recording."""
+        if not self.recording:
+            return
+        
+        # Stop recording
+        self.stop_flag = True
+        if self.record_thread and self.record_thread.is_alive():
+            self.record_thread.join(timeout=2.0)
+        
+        if self.video_writer:
+            self.video_writer.release()
+            self.video_writer = None
+        
+        self.recording = False
+        self.record_btn.config(text="Record")
+        self.status_label.config(text="Recording stopped", foreground="black")
+        print("[INFO] Recording stopped")
     
     def _record_loop(self):
         """Recording thread loop with consistent output FPS."""
