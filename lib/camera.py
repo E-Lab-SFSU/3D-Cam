@@ -235,25 +235,37 @@ class Camera:
                     except:
                         pass
                 
+                # Check if we can get valid properties (faster than reading frames)
+                try:
+                    width = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    height = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    properties_valid = width > 0 and height > 0
+                except:
+                    properties_valid = False
+                
                 # Verify we can actually read valid frames (try fewer times with timeout)
+                # But on Linux/V4L2, be more lenient - if properties are valid, accept it
                 valid_frames = 0
-                max_attempts = 3 if is_raspi else 5  # Fewer attempts on Pi to speed up
+                max_attempts = 2 if is_raspi else 3  # Fewer attempts on Pi to speed up
+                
                 for _ in range(max_attempts):
                     try:
                         # Use timeout for frame reads during opening
-                        ret, frame = read_frame_with_timeout(self.cap, timeout=2.0 if is_raspi else 1.0)
+                        ret, frame = read_frame_with_timeout(self.cap, timeout=3.0 if is_raspi else 1.5)
                         if ret and frame is not None:
                             # Validate frame structure
                             if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
                                 valid_frames += 1
-                                if valid_frames >= 1:  # Need at least 1 valid frame (reduced for Pi)
+                                if valid_frames >= 1:  # Need at least 1 valid frame
                                     self.backend = backend_alt
                                     break
                     except (cv2.error, Exception):
                         # Frame read failed, continue trying
                         continue
                 
-                if valid_frames >= 1:
+                # Accept camera if we got valid frames OR if properties are valid (for V4L2 that's slow)
+                if valid_frames >= 1 or (properties_valid and is_linux_os and backend_alt == cv2.CAP_V4L2):
+                    self.backend = backend_alt
                     break
                 else:
                     # Backend didn't work, try next
