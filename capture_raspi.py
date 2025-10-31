@@ -118,6 +118,9 @@ class CaptureApp:
         
         # Detect cameras on startup
         self.refresh_camera_list()
+        
+        # Start preview window immediately (always on)
+        self.root.after(100, self.preview_manager.start)
 
     def _build_ui(self):
         """Build the Tkinter GUI."""
@@ -360,9 +363,6 @@ class CaptureApp:
     
     def close_camera(self):
         """Close the camera."""
-        # Stop preview before closing camera
-        self.preview_manager.stop()
-        
         # Stop recording
         self.recording_manager.stop()
         
@@ -375,7 +375,7 @@ class CaptureApp:
         
         self.open_camera_btn.config(text="Open Camera")
         self.status_label.config(text="Camera closed", foreground="black")
-        print("[INFO] Camera closed")
+        print("[INFO] Camera closed (preview window remains open)")
     
     def open_camera(self):
         """Open the selected camera."""
@@ -479,9 +479,7 @@ class CaptureApp:
         if format_str == "MJPG":
             print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
         
-        # Automatically start preview when camera opens (wait for frames to accumulate)
-        debug_print("Auto-starting preview after camera opened...")
-        self.root.after(300, self.preview_manager.start)  # Delay to let frame grabber start getting frames
+        # Preview is always on, no need to start it here
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
@@ -609,6 +607,7 @@ class CaptureApp:
     def on_close(self):
         """Handle application close."""
         print("[INFO] Closing application")
+        # Stop preview before closing
         self.preview_manager.stop()
         self.recording_manager.stop()
         self.frame_grabber.stop()

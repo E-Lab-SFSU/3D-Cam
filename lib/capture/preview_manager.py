@@ -48,17 +48,10 @@ class PreviewManager:
         self.preview_thread = None
     
     def start(self):
-        """Start preview window."""
-        cam, is_open = self.get_camera()
-        if not cam or not is_open:
-            print("[WARN] Camera not open, cannot start preview")
+        """Start preview window (always on, even without camera)."""
+        # Only start if not already running
+        if self.preview_on and self.preview_thread and self.preview_thread.is_alive():
             return
-        
-        # Always stop previous preview if running (ensures clean restart)
-        if self.preview_on or (self.preview_thread and self.preview_thread.is_alive()):
-            print("[DEBUG] Stopping existing preview before restart")
-            self.stop()
-            time.sleep(0.2)  # Give time for cleanup
         
         # Destroy any existing window to ensure clean start
         try:
@@ -69,7 +62,7 @@ class PreviewManager:
             pass
         
         self.preview_on = True
-        print("[INFO] Starting preview")
+        print("[INFO] Starting preview window")
         
         # Start preview thread (creates window in thread like capture.py)
         try:
@@ -112,7 +105,7 @@ class PreviewManager:
             pass
     
     def _preview_loop(self):
-        """Preview thread loop - simple like capture.py."""
+        """Preview thread loop - always running, shows waiting message when camera closed."""
         # Create window in preview thread (simpler approach)
         window_name = "Preview"
         
@@ -126,6 +119,7 @@ class PreviewManager:
         # Create window - it's safe to call namedWindow even if window exists
         try:
             cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
+            cv2.resizeWindow(window_name, 640, 480)
             print("[INFO] Preview window created")
         except Exception as e:
             print(f"[ERROR] Failed to create preview window: {e}")
@@ -136,13 +130,23 @@ class PreviewManager:
         frame_count = 0
         fps = 0.0
         
+        # Create waiting message frame
+        waiting_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        cv2.putText(waiting_frame, "Waiting for Camera...", (120, 240),
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        
         try:
             while self.preview_on:
                 cam, is_open = self.get_camera()
-                if not cam or not is_open:
-                    print("[INFO] Preview: Camera closed")
-                    break
                 
+                if not cam or not is_open:
+                    # Camera not open - show waiting message
+                    cv2.imshow(window_name, waiting_frame)
+                    cv2.waitKey(1)
+                    time.sleep(0.1)  # Don't spin too fast when waiting
+                    continue
+                
+                # Camera is open - try to get frame
                 try:
                     # Get frame from queue (with timeout)
                     frame = self.frame_queue.get(timeout=0.1)
@@ -174,7 +178,7 @@ class PreviewManager:
                         cv2.imshow(window_name, display_frame)
                     
                 except Empty:
-                    # No frame available, continue
+                    # No frame available, continue (will show waiting message if camera closes)
                     pass
                 
                 # Process window events and check for ESC key
