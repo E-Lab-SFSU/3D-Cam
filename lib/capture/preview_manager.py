@@ -113,9 +113,10 @@ class PreviewManager:
             debug_print(f"Calling cv2.namedWindow('{window_name}', ...) in main thread...")
             cv2.namedWindow(window_name, window_flags)
             cv2.resizeWindow(window_name, 640, 480)
-            for _ in range(3):
-                cv2.waitKey(50)
+            cv2.moveWindow(window_name, 100, 100)  # Position window
+            cv2.waitKey(1)  # Process window events
             
+            # Verify window exists
             verify_prop = cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE)
             if verify_prop < 0:
                 raise cv2.error("Window verification failed")
@@ -273,7 +274,6 @@ class PreviewManager:
         last_time = time.time()
         frame_count = 0
         fps = 0.0
-        no_frame_count = 0
         first_frame = True
         
         try:
@@ -297,30 +297,34 @@ class PreviewManager:
                     if not self.preview_on:
                         break
                     
-                    if frame is not None:
-                        no_frame_count = 0
-                        
-                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
-                            try:
-                                if len(frame.shape) == 3 and frame.shape[2] == 3:
-                                    display_frame = frame.copy()
-                                else:
-                                    display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
-                                
-                                if first_frame:
-                                    format_str = self.get_format()
-                                    print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {format_str}")
-                                    first_frame = False
-                                
-                                frame_count += 1
-                                now = time.time()
-                                if frame_count % 10 == 0:
-                                    elapsed = now - last_time
-                                    fps = 10.0 / elapsed if elapsed > 0 else 0
-                                    last_time = now
-                                
+                    if frame is not None and len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                        # Convert frame to BGR for display
+                        try:
+                            # Check if already BGR (3 channels)
+                            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                                display_frame = frame.copy()
+                            # Check if grayscale (1 channel) - convert to BGR
+                            elif len(frame.shape) == 2:
+                                display_frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                            # Otherwise assume YUYV format
+                            else:
+                                display_frame = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                            
+                            if first_frame:
                                 format_str = self.get_format()
-                                cam, _ = self.get_camera()
+                                print(f"[INFO] Preview: First frame received! Shape: {display_frame.shape}, Format: {format_str}")
+                                first_frame = False
+                            
+                            frame_count += 1
+                            now = time.time()
+                            if frame_count % 10 == 0:
+                                elapsed = now - last_time
+                                fps = 10.0 / elapsed if elapsed > 0 else 0
+                                last_time = now
+                            
+                            format_str = self.get_format()
+                            cam, _ = self.get_camera()
+                            if cam:
                                 cv2.putText(
                                     display_frame,
                                     f"{format_str} {cam.w}x{cam.h}  FPS:{fps:.1f}",
@@ -330,48 +334,33 @@ class PreviewManager:
                                     (0, 255, 0),
                                     2
                                 )
-                                
-                                if self.is_recording():
-                                    cv2.putText(
-                                        display_frame,
-                                        "REC",
-                                        (10, 55),
-                                        cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.7,
-                                        (0, 0, 255),
-                                        2
-                                    )
-                                
-                                try:
-                                    cv2.imshow(window_name, display_frame)
-                                except cv2.error as e:
-                                    debug_print(f"cv2.error in imshow: {e}, window may be closed")
-                                    pass
-                            except Exception as e:
-                                debug_print(f"Frame processing error: {type(e).__name__}: {e}")
-                                print(f"[WARN] Preview: Frame processing error: {e}")
-                                traceback.print_exc()
-                                continue
+                            
+                            if self.is_recording():
+                                cv2.putText(
+                                    display_frame,
+                                    "REC",
+                                    (10, 55),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.7,
+                                    (0, 0, 255),
+                                    2
+                                )
+                            
+                            cv2.imshow(window_name, display_frame)
+                            cv2.waitKey(1)  # Process window events
+                        except Exception as e:
+                            debug_print(f"Frame processing error: {type(e).__name__}: {e}")
+                            continue
                 except Empty:
-                    no_frame_count += 1
-                    if no_frame_count == 1:
-                        debug_print("No frame available, waiting for frames from grabber...")
-                        print("[INFO] Preview: Waiting for frames from grabber...")
                     continue
                 except Exception as e:
                     debug_print(f"Unexpected error in preview loop: {type(e).__name__}: {e}")
-                    print(f"[WARN] Preview: Unexpected error: {e}")
-                    traceback.print_exc()
                     continue
         except Exception as e:
-            debug_print(f"CRITICAL: Exception in preview loop try block: {type(e).__name__}: {e}")
+            debug_print(f"CRITICAL: Exception in preview loop: {type(e).__name__}: {e}")
             print(f"[ERROR] Preview loop error: {e}")
-            traceback.print_exc()
         finally:
-            debug_print("=== Entering finally block for preview cleanup ===")
-            debug_print("Setting preview_on flag to False in finally block")
             self.preview_on = False
-            
-            debug_print(f"_preview_loop() exiting. Total frames displayed: {frame_count}, thread_id={thread_id}")
+            debug_print(f"_preview_loop() exiting. Total frames displayed: {frame_count}")
             print(f"[INFO] Preview: Exited. Total frames displayed: {frame_count}")
 

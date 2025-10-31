@@ -479,9 +479,9 @@ class CaptureApp:
         if format_str == "MJPG":
             print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
         
-        # Automatically start preview when camera opens
+        # Automatically start preview when camera opens (wait for frames to accumulate)
         debug_print("Auto-starting preview after camera opened...")
-        self.root.after(100, self.preview_manager.start)  # Small delay to ensure camera is ready
+        self.root.after(300, self.preview_manager.start)  # Delay to let frame grabber start getting frames
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera."""
