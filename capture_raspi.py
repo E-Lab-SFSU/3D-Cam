@@ -217,37 +217,59 @@ class CaptureApp:
     def _frame_grabber_loop(self):
         """Single thread that reads frames from camera and feeds the queue."""
         consecutive_errors = 0
-        max_errors = 30
+        max_errors = 50  # More lenient for slow cameras
+        frames_sent = 0
+        
+        # Wait a bit for camera to stabilize
+        time.sleep(0.5)
         
         while self.frame_grabber_running and self.cam and self.cam.is_open():
             frame = self.cam.read()
             if frame is not None:
-                consecutive_errors = 0
-                # Put frame in queue (drop old frame if queue is full)
+                # Validate frame is not empty/black
                 try:
-                    if self.frame_queue.full():
+                    # Check frame has valid dimensions and data
+                    if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                        # Accept frame if it has valid dimensions
+                        # (Don't filter black frames - camera might be pointed at dark scene)
+                        consecutive_errors = 0
+                        frames_sent += 1
+                        
+                        # Put frame in queue (drop old frame if queue is full)
                         try:
-                            self.frame_queue.get_nowait()
-                        except Empty:
+                            if self.frame_queue.full():
+                                try:
+                                    self.frame_queue.get_nowait()
+                                except Empty:
+                                    pass
+                            
+                            self.frame_queue.put_nowait(frame)
+                            
+                            # If both preview and recording are active, put a clone
+                            if self.preview_on and self.recording and not self.frame_queue.full():
+                                try:
+                                    frame_clone = frame.copy()
+                                    self.frame_queue.put_nowait(frame_clone)
+                                except:
+                                    pass
+                        except Exception as e:
+                            print(f"[WARN] Frame queue error: {e}")
                             pass
-                    
-                    self.frame_queue.put_nowait(frame)
-                    
-                    # If both preview and recording are active, put a clone
-                    if self.preview_on and self.recording and not self.frame_queue.full():
-                        try:
-                            frame_clone = frame.copy()
-                            self.frame_queue.put_nowait(frame_clone)
-                        except:
-                            pass
-                except Exception:
-                    pass
+                    else:
+                        consecutive_errors += 1
+                except Exception as e:
+                    consecutive_errors += 1
             else:
                 consecutive_errors += 1
                 if consecutive_errors >= max_errors:
-                    print("[WARN] Too many consecutive frame read errors, stopping frame grabber")
+                    print(f"[WARN] Too many consecutive frame read errors ({consecutive_errors}), stopping frame grabber")
                     break
-                time.sleep(0.01)
+                # Longer sleep on error to avoid hammering the camera
+                time.sleep(0.1)
+            
+            # Print status occasionally
+            if frames_sent > 0 and frames_sent % 30 == 0:
+                print(f"[DEBUG] Frame grabber: {frames_sent} frames sent")
 
     def start_record(self):
         """Start recording video to file."""
@@ -359,50 +381,75 @@ class CaptureApp:
         last_time = time.time()
         frame_count = 0
         fps = 0.0
+        no_frame_count = 0
         
         try:
             while self.preview_on and self.cam and self.cam.is_open():
                 try:
-                    # Get frame from queue (with timeout)
-                    frame = self.frame_queue.get(timeout=0.1)
+                    # Get frame from queue (with longer timeout for slow cameras)
+                    frame = self.frame_queue.get(timeout=0.5)
+                    no_frame_count = 0  # Reset counter
+                    
                     if frame is not None:
-                        # Calculate FPS (moving average)
-                        frame_count += 1
-                        now = time.time()
-                        if frame_count % 10 == 0:
-                            elapsed = now - last_time
-                            fps = 10.0 / elapsed if elapsed > 0 else 0
-                            last_time = now
-                        
-                        # Draw FPS overlay
-                        try:
-                            cv2.putText(
-                                frame, 
-                                f"{fps:.1f} FPS", 
-                                (10, 25),
-                                cv2.FONT_HERSHEY_SIMPLEX, 
-                                0.7, 
-                                (0, 255, 0), 
-                                2
-                            )
-                            cv2.imshow("Preview", frame)
-                            # CRITICAL: waitKey is needed for OpenCV to process window events
-                            # Use 1ms timeout to keep it responsive
-                            key = cv2.waitKey(1) & 0xFF
-                            if key == 27:  # ESC key
-                                self.preview_on = False
+                        # Validate frame before displaying
+                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                            # Calculate FPS (moving average)
+                            frame_count += 1
+                            now = time.time()
+                            if frame_count % 10 == 0:
+                                elapsed = now - last_time
+                                fps = 10.0 / elapsed if elapsed > 0 else 0
+                                last_time = now
+                            
+                            # Draw FPS overlay and frame count
+                            try:
+                                display_frame = frame.copy()
+                                cv2.putText(
+                                    display_frame, 
+                                    f"{fps:.1f} FPS", 
+                                    (10, 25),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 
+                                    0.7, 
+                                    (0, 255, 0), 
+                                    2
+                                )
+                                cv2.putText(
+                                    display_frame,
+                                    f"Frame: {frame_count}",
+                                    (10, 50),
+                                    cv2.FONT_HERSHEY_SIMPLEX,
+                                    0.5,
+                                    (0, 255, 0),
+                                    1
+                                )
+                                cv2.imshow("Preview", display_frame)
+                                # CRITICAL: waitKey is needed for OpenCV to process window events
+                                key = cv2.waitKey(1) & 0xFF
+                                if key == 27:  # ESC key
+                                    self.preview_on = False
+                                    break
+                            except Exception as e:
+                                print(f"[WARN] Preview display error: {e}")
                                 break
-                        except Exception as e:
-                            print(f"[WARN] Preview display error: {e}")
-                            break
+                        else:
+                            print(f"[WARN] Invalid frame shape: {frame.shape if frame is not None else 'None'}")
                 except Empty:
+                    no_frame_count += 1
+                    if no_frame_count > 10:
+                        # Haven't gotten a frame in 5 seconds, might be an issue
+                        if no_frame_count == 11:
+                            print("[WARN] Preview: No frames received, waiting...")
+                    
                     if not self.frame_grabber_running:
+                        print("[INFO] Preview: Frame grabber stopped, exiting preview")
                         break
                     # Still process window events even when no frame
                     cv2.waitKey(1)
                     continue
         except Exception as e:
             print(f"[ERROR] Preview loop error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             try:
                 cv2.destroyWindow("Preview")
