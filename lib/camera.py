@@ -8,6 +8,7 @@ Supports UVC (Linux), DirectShow (Windows), and other backends
 import cv2
 import time
 import platform
+import threading
 
 
 def get_camera_backend():
@@ -21,6 +22,34 @@ def get_camera_backend():
         return cv2.CAP_AVFOUNDATION
     else:
         return cv2.CAP_ANY  # Auto-detect
+
+
+def read_frame_with_timeout(cap, timeout=2.0):
+    """
+    Try to read a frame from VideoCapture with a timeout.
+    Returns (success, frame) or (False, None) if timeout.
+    """
+    result = [None, None]  # [ret, frame]
+    exception = [None]
+    
+    def read_thread():
+        try:
+            result[0], result[1] = cap.read()
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=read_thread, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout)
+    
+    if thread.is_alive():
+        # Thread is still running, timeout occurred
+        return False, None
+    
+    if exception[0]:
+        return False, None
+    
+    return result[0], result[1]
 
 
 def detect_cameras(max_test=10, suppress_warnings=True):
@@ -50,10 +79,17 @@ def detect_cameras(max_test=10, suppress_warnings=True):
         else:
             yield
     
+    # On Linux, check if /dev/video* devices exist to speed up detection
+    def check_v4l2_device_exists(idx):
+        """Check if /dev/video{idx} exists on Linux."""
+        if platform.system() != "Linux":
+            return True  # Can't check on other platforms
+        dev_path = f"/dev/video{idx}"
+        return os.path.exists(dev_path)
+    
     available = []
     preferred_backend = get_camera_backend()
     # On Windows, try MSMF first (more reliable than DSHOW for some cameras)
-    import platform
     if platform.system() == "Windows":
         backends_to_try = [cv2.CAP_MSMF, preferred_backend, cv2.CAP_DSHOW, cv2.CAP_V4L2, cv2.CAP_ANY]
     else:
@@ -62,30 +98,53 @@ def detect_cameras(max_test=10, suppress_warnings=True):
     print("[INFO] Detecting cameras...")
     with suppress_stderr():
         for idx in range(max_test):
+            # On Linux, skip if device doesn't exist
+            if platform.system() == "Linux" and preferred_backend == cv2.CAP_V4L2:
+                if not check_v4l2_device_exists(idx):
+                    continue  # Skip this index
+            
             found = False
             for backend in backends_to_try:
+                cap = None
                 try:
                     cap = cv2.VideoCapture(idx, backend)
                     if cap.isOpened():
-                        # Try to read a frame to verify it works
-                        ret, _ = cap.read()
-                        if ret:
-                            # Get camera info (without suppressing stderr for this)
-                            backend_name = cap.getBackendName()
-                            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                            print(f"[INFO] Camera {idx} found: {width}×{height} (backend: {backend_name})")
-                            available.append(idx)
-                            found = True
-                    cap.release()
+                        # Check if we can get properties (faster than reading frame)
+                        width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                        height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                        
+                        # Only validate with frame read if properties look valid
+                        # Otherwise skip frame read to avoid long timeouts
+                        if width > 0 and height > 0:
+                            # Try to read a frame with timeout to verify it works
+                            # Use short timeout to avoid long delays during detection
+                            ret, frame = read_frame_with_timeout(cap, timeout=1.5)
+                            if ret and frame is not None:
+                                # Get camera info (without suppressing stderr for this)
+                                backend_name = cap.getBackendName()
+                                print(f"[INFO] Camera {idx} found: {int(width)}×{int(height)} (backend: {backend_name})")
+                                available.append(idx)
+                                found = True
+                            # If frame read timed out but properties are valid, still add it
+                            # (camera might be busy but still exists)
+                            elif width > 0 and height > 0:
+                                # Add without frame verification if properties are valid
+                                # This helps detect cameras that are slow to respond
+                                backend_name = cap.getBackendName()
+                                print(f"[INFO] Camera {idx} found: {int(width)}×{int(height)} (backend: {backend_name}, not verified with frame read)")
+                                available.append(idx)
+                                found = True
+                    if cap:
+                        cap.release()
                     if found:
                         break
                 except Exception:
                     # Silently continue if backend fails
-                    try:
-                        cap.release()
-                    except:
-                        pass
+                    if cap:
+                        try:
+                            cap.release()
+                        except:
+                            pass
                     continue
     
     return available
