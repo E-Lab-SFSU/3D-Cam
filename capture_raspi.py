@@ -613,16 +613,31 @@ class CaptureApp:
         self.preview_on = False
         
         # Clean up any existing window and reset OpenCV state
+        # Check if window exists first
+        try:
+            window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+            if window_prop >= 0:
+                # Window exists, destroy it
+                cv2.destroyWindow("Preview")
+                cv2.waitKey(1)
+        except cv2.error:
+            # Window doesn't exist, which is fine
+            pass
+        except Exception:
+            # Any other error, try to destroy anyway
+            pass
+        
+        # Additional cleanup attempts with delays
         for _ in range(5):
             try:
                 cv2.destroyWindow("Preview")
-                # Process OpenCV events to ensure window is actually destroyed
                 cv2.waitKey(1)
             except:
                 pass
+            time.sleep(0.02)
         
         # Small delay to let OpenCV fully release the window
-        time.sleep(0.05)
+        time.sleep(0.1)
         
         # Now set flag to True and start thread
         self.preview_on = True
@@ -656,15 +671,31 @@ class CaptureApp:
             self.preview_thread.join(timeout=0.5)  # Short timeout
         
         # Force cleanup of window (thread should have done it, but be sure)
-        for _ in range(3):
+        # Check if window exists first
+        try:
+            window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+            if window_prop >= 0:
+                # Window exists, destroy it
+                cv2.destroyWindow("Preview")
+                cv2.waitKey(1)
+        except cv2.error:
+            # Window doesn't exist, which is fine
+            pass
+        except Exception:
+            # Any other error, try to destroy anyway
+            pass
+        
+        # Additional cleanup attempts with delays
+        for _ in range(5):
             try:
                 cv2.destroyWindow("Preview")
                 cv2.waitKey(1)  # Process events
             except:
                 pass
+            time.sleep(0.02)
         
         # Small delay to ensure cleanup completes
-        time.sleep(0.05)
+        time.sleep(0.1)
         
         # Reset thread reference
         self.preview_thread = None
@@ -679,25 +710,74 @@ class CaptureApp:
         window_created = False
         
         try:
-            # Clean up any existing window first (multiple attempts)
-            for _ in range(3):
+            # More aggressive cleanup: check if window exists and destroy it properly
+            try:
+                # Check if window exists by trying to get its property
+                window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                if window_prop >= 0:
+                    # Window exists, destroy it
+                    cv2.destroyWindow("Preview")
+                    cv2.waitKey(1)
+            except cv2.error:
+                # Window doesn't exist, which is fine
+                pass
+            except Exception:
+                # Any other error, try to destroy anyway
                 try:
                     cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)  # Process events
+                    cv2.waitKey(1)
                 except:
                     pass
             
-            # Small delay to ensure previous window is fully destroyed
-            time.sleep(0.05)
+            # Additional cleanup attempts with delays
+            for _ in range(3):
+                try:
+                    cv2.destroyWindow("Preview")
+                    cv2.waitKey(1)
+                except:
+                    pass
+                time.sleep(0.02)
             
-            # Create new window
+            # Small delay to ensure previous window is fully destroyed
+            time.sleep(0.1)
+            
+            # Create new window - check if it already exists first
             try:
-                cv2.namedWindow("Preview", cv2.WINDOW_NORMAL)
+                # Try to get window property to see if it exists
+                try:
+                    _ = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                    # If we get here, window exists - destroy it first
+                    cv2.destroyWindow("Preview")
+                    cv2.waitKey(1)
+                    time.sleep(0.05)
+                except cv2.error:
+                    # Window doesn't exist, which is what we want
+                    pass
+                
+                # Now create the window (use WINDOW_GUI_EXPANDED if available, fallback to WINDOW_NORMAL)
+                try:
+                    window_flags = cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED
+                except AttributeError:
+                    # WINDOW_GUI_EXPANDED not available in this OpenCV version
+                    window_flags = cv2.WINDOW_NORMAL
+                
+                cv2.namedWindow("Preview", window_flags)
                 cv2.resizeWindow("Preview", 640, 480)
                 # Process events to ensure window is actually created
                 cv2.waitKey(1)
-                window_created = True
-                print("[INFO] Preview window created successfully")
+                
+                # Verify window was created successfully
+                try:
+                    _ = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                    window_created = True
+                    print("[INFO] Preview window created successfully")
+                except cv2.error:
+                    print("[ERROR] Window creation verification failed")
+                    window_created = False
+                    self.preview_on = False
+                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                    return
+                    
             except Exception as e:
                 print(f"[ERROR] Failed to create preview window: {e}")
                 import traceback
