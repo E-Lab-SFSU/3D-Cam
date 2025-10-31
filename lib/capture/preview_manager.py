@@ -54,10 +54,17 @@ class PreviewManager:
             print("[WARN] Camera not open, cannot start preview")
             return
         
-        # Stop previous preview if running
-        if self.preview_on and self.preview_thread and self.preview_thread.is_alive():
+        # Always stop previous preview if running (ensures clean restart)
+        if self.preview_on or (self.preview_thread and self.preview_thread.is_alive()):
             self.stop()
-            time.sleep(0.1)
+            time.sleep(0.2)  # Give time for cleanup
+        
+        # Destroy any existing window to ensure clean start
+        try:
+            cv2.destroyWindow("Preview")
+            cv2.waitKey(1)
+        except:
+            pass
         
         self.preview_on = True
         print("[INFO] Starting preview")
@@ -74,7 +81,7 @@ class PreviewManager:
     
     def stop(self):
         """Stop preview window."""
-        if not self.preview_on:
+        if not self.preview_on and (not self.preview_thread or not self.preview_thread.is_alive()):
             return
         
         print("[INFO] Stopping preview")
@@ -85,6 +92,13 @@ class PreviewManager:
             self.preview_thread.join(timeout=2.0)
         
         self.preview_thread = None
+        
+        # Ensure window is destroyed
+        try:
+            cv2.destroyWindow("Preview")
+            cv2.waitKey(1)  # Process window events
+        except:
+            pass
     
     def _preview_loop(self):
         """Preview thread loop - simple like capture.py."""
