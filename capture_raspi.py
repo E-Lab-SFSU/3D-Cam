@@ -34,6 +34,14 @@ from lib.util_paths import make_capture_output_path
 # ============ Debug Configuration ============
 DEBUG_PREVIEW = True  # Set to False to disable detailed preview debug messages
 
+# Force OpenCV to prefer GTK backend over Qt (more reliable on Raspberry Pi)
+# Note: cv2 is already imported above, so this may not take effect,
+# but we also set it in the thread as a backup
+# Try to prefer GTK, but don't fail if it's not available
+# (os is already imported at the top of the file)
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_GTK', '1')
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_MSMF', '0')
+
 
 def debug_print(message, force=False):
     """Print debug message if DEBUG_PREVIEW is enabled."""
@@ -647,47 +655,21 @@ class CaptureApp:
         debug_print("Flag set to False before cleanup")
         
         # Clean up any existing window and reset OpenCV state
-        debug_print("Starting window cleanup...")
-        # Check if window exists first
+        debug_print("Starting window cleanup in start_preview()...")
+        # Use destroyAllWindows to fully reset OpenCV's window state
+        debug_print("Calling cv2.destroyAllWindows() to reset OpenCV state...")
         try:
-            debug_print("Checking if window exists using getWindowProperty...")
-            window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-            debug_print(f"Window property returned: {window_prop}")
-            if window_prop >= 0:
-                debug_print("Window exists, destroying it...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)
-                debug_print("Window destroyed, processed events")
-        except cv2.error as e:
-            debug_print(f"Window doesn't exist (cv2.error): {e}")
-            # Window doesn't exist, which is fine
-            pass
+            cv2.destroyAllWindows()
+            # Process events multiple times to ensure cleanup
+            for _ in range(5):
+                cv2.waitKey(10)
+            debug_print("destroyAllWindows() succeeded, processed events")
         except Exception as e:
-            debug_print(f"Exception checking window: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            # Any other error, try to destroy anyway
-            try:
-                debug_print("Attempting to destroy window anyway...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)
-            except Exception as e2:
-                debug_print(f"Failed to destroy window: {type(e2).__name__}: {e2}")
+            debug_print(f"Exception in destroyAllWindows: {type(e).__name__}: {e}")
         
-        # Additional cleanup attempts with delays
-        debug_print("Starting additional cleanup attempts (5 iterations)...")
-        for i in range(5):
-            try:
-                debug_print(f"Cleanup attempt {i+1}/5: destroying window...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)
-                debug_print(f"Cleanup attempt {i+1}/5: success")
-            except Exception as e:
-                debug_print(f"Cleanup attempt {i+1}/5: failed: {type(e).__name__}: {e}")
-            time.sleep(0.02)
-        
-        # Small delay to let OpenCV fully release the window
-        debug_print("Waiting 0.1s for OpenCV to fully release window...")
-        time.sleep(0.1)
+        # Small delay to let OpenCV fully reset
+        debug_print("Waiting 0.15s for OpenCV to fully reset...")
+        time.sleep(0.15)
         debug_print("Cleanup complete")
         
         # Now set flag to True and start thread
@@ -736,12 +718,12 @@ class CaptureApp:
         self.preview_btn.config(text="Open Preview")
         debug_print("Button text updated to 'Open Preview'")
         
-        # Wait briefly for thread to exit (non-blocking timeout)
+        # Wait for thread to exit with longer timeout
         if self.preview_thread and self.preview_thread.is_alive():
-            debug_print(f"Waiting for preview thread to exit (timeout=0.5)... thread_id={self.preview_thread.ident}")
-            self.preview_thread.join(timeout=0.5)  # Short timeout
+            debug_print(f"Waiting for preview thread to exit (timeout=2.0)... thread_id={self.preview_thread.ident}")
+            self.preview_thread.join(timeout=2.0)  # Longer timeout to allow cleanup
             if self.preview_thread.is_alive():
-                debug_print("WARN: Preview thread did not exit in time")
+                debug_print("WARN: Preview thread did not exit in time, but continuing cleanup")
             else:
                 debug_print("Preview thread exited successfully")
         else:
@@ -749,46 +731,20 @@ class CaptureApp:
         
         # Force cleanup of window (thread should have done it, but be sure)
         debug_print("Starting window cleanup in stop_preview()...")
-        # Check if window exists first
+        # Use destroyAllWindows to fully reset OpenCV state
+        debug_print("Calling cv2.destroyAllWindows() in stop_preview()...")
         try:
-            debug_print("Checking if window exists using getWindowProperty...")
-            window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-            debug_print(f"Window property returned: {window_prop}")
-            if window_prop >= 0:
-                debug_print("Window exists, destroying it...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)
-                debug_print("Window destroyed, processed events")
-        except cv2.error as e:
-            debug_print(f"Window doesn't exist (cv2.error): {e}")
-            # Window doesn't exist, which is fine
-            pass
+            cv2.destroyAllWindows()
+            # Process events multiple times to ensure cleanup
+            for _ in range(5):
+                cv2.waitKey(10)
+            debug_print("destroyAllWindows() succeeded in stop_preview()")
         except Exception as e:
-            debug_print(f"Exception checking window: {type(e).__name__}: {e}")
-            traceback.print_exc()
-            # Any other error, try to destroy anyway
-            try:
-                debug_print("Attempting to destroy window anyway...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)
-            except Exception as e2:
-                debug_print(f"Failed to destroy window: {type(e2).__name__}: {e2}")
-        
-        # Additional cleanup attempts with delays
-        debug_print("Starting additional cleanup attempts (5 iterations)...")
-        for i in range(5):
-            try:
-                debug_print(f"Cleanup attempt {i+1}/5: destroying window...")
-                cv2.destroyWindow("Preview")
-                cv2.waitKey(1)  # Process events
-                debug_print(f"Cleanup attempt {i+1}/5: success")
-            except Exception as e:
-                debug_print(f"Cleanup attempt {i+1}/5: failed: {type(e).__name__}: {e}")
-            time.sleep(0.02)
+            debug_print(f"Exception in destroyAllWindows (stop_preview): {type(e).__name__}: {e}")
         
         # Small delay to ensure cleanup completes
-        debug_print("Waiting 0.1s for cleanup to complete...")
-        time.sleep(0.1)
+        debug_print("Waiting 0.15s for cleanup to complete...")
+        time.sleep(0.15)
         
         # Reset thread reference
         self.preview_thread = None
@@ -807,114 +763,121 @@ class CaptureApp:
         os.environ['DISPLAY'] = display
         debug_print(f"DISPLAY set to: {display}")
         
+        # Force OpenCV to use GTK backend instead of Qt (more reliable on Raspberry Pi)
+        # This must be set before any cv2 window operations
+        os.environ['OPENCV_VIDEOIO_PRIORITY_GTK'] = '1'
+        os.environ['OPENCV_VIDEOIO_PRIORITY_MSMF'] = '0'
+        os.environ['OPENCV_VIDEOIO_PRIORITY_INTEL_MFX'] = '0'
+        debug_print("OpenCV backend environment variables set (preferring GTK)")
+        
         window_created = False
         
         try:
             debug_print("Starting window cleanup in _preview_loop()...")
-            # More aggressive cleanup: check if window exists and destroy it properly
+            # Use destroyAllWindows to fully reset OpenCV's window state
+            # This is more reliable than trying to destroy individual windows
+            debug_print("Calling cv2.destroyAllWindows() to reset OpenCV state...")
             try:
-                debug_print("Checking if window exists using getWindowProperty...")
-                window_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-                debug_print(f"Window property returned: {window_prop}")
-                if window_prop >= 0:
-                    debug_print("Window exists, destroying it...")
-                    cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)
-                    debug_print("Window destroyed, processed events")
-            except cv2.error as e:
-                debug_print(f"Window doesn't exist (cv2.error): {e}")
-                # Window doesn't exist, which is fine
-                pass
+                cv2.destroyAllWindows()
+                # Process events multiple times to ensure cleanup
+                for _ in range(5):
+                    cv2.waitKey(10)
+                debug_print("destroyAllWindows() succeeded, processed events")
             except Exception as e:
-                debug_print(f"Exception checking window: {type(e).__name__}: {e}")
-                traceback.print_exc()
-                # Any other error, try to destroy anyway
-                try:
-                    debug_print("Attempting to destroy window anyway...")
-                    cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)
-                    debug_print("Window destroyed (fallback)")
-                except Exception as e2:
-                    debug_print(f"Failed to destroy window (fallback): {type(e2).__name__}: {e2}")
+                debug_print(f"Exception in destroyAllWindows: {type(e).__name__}: {e}")
             
-            # Additional cleanup attempts with delays
-            debug_print("Starting additional cleanup attempts (3 iterations)...")
-            for i in range(3):
-                try:
-                    debug_print(f"Cleanup attempt {i+1}/3: destroying window...")
-                    cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)
-                    debug_print(f"Cleanup attempt {i+1}/3: success")
-                except Exception as e:
-                    debug_print(f"Cleanup attempt {i+1}/3: failed: {type(e).__name__}: {e}")
-                time.sleep(0.02)
-            
-            # Small delay to ensure previous window is fully destroyed
-            debug_print("Waiting 0.1s for previous window to be fully destroyed...")
-            time.sleep(0.1)
+            # Additional delay to ensure OpenCV backend is fully reset
+            debug_print("Waiting 0.2s for OpenCV backend to fully reset...")
+            time.sleep(0.2)
             debug_print("Cleanup complete, starting window creation...")
             
-            # Create new window - check if it already exists first
-            try:
-                debug_print("Pre-creation check: verifying window doesn't exist...")
-                # Try to get window property to see if it exists
+            # Create new window with retry logic
+            max_retries = 3
+            for retry in range(max_retries):
                 try:
-                    existing_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-                    debug_print(f"WARN: Window still exists! Property: {existing_prop}, destroying it...")
-                    # If we get here, window exists - destroy it first
-                    cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)
-                    time.sleep(0.05)
-                    debug_print("Existing window destroyed")
-                except cv2.error as e:
-                    debug_print(f"Good: Window doesn't exist (cv2.error): {e}")
-                    # Window doesn't exist, which is what we want
-                    pass
-                
-                debug_print("Determining window flags...")
-                # Now create the window (use WINDOW_GUI_EXPANDED if available, fallback to WINDOW_NORMAL)
-                try:
-                    window_flags = cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED
-                    debug_print(f"Using window flags: WINDOW_NORMAL | WINDOW_GUI_EXPANDED = {window_flags}")
-                except AttributeError as e:
-                    debug_print(f"WINDOW_GUI_EXPANDED not available: {e}, using WINDOW_NORMAL only")
-                    # WINDOW_GUI_EXPANDED not available in this OpenCV version
-                    window_flags = cv2.WINDOW_NORMAL
-                
-                debug_print("Calling cv2.namedWindow('Preview', ...)...")
-                cv2.namedWindow("Preview", window_flags)
-                debug_print("cv2.namedWindow() succeeded")
-                
-                debug_print("Calling cv2.resizeWindow('Preview', 640, 480)...")
-                cv2.resizeWindow("Preview", 640, 480)
-                debug_print("cv2.resizeWindow() succeeded")
-                
-                debug_print("Processing events with cv2.waitKey(1)...")
-                cv2.waitKey(1)
-                debug_print("Events processed")
-                
-                # Verify window was created successfully
-                debug_print("Verifying window was created successfully...")
-                try:
-                    verify_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
-                    debug_print(f"Window verification: property = {verify_prop}")
-                    window_created = True
-                    print("[INFO] Preview window created successfully")
-                    debug_print("Window creation verified successfully")
-                except cv2.error as e:
-                    debug_print(f"ERROR: Window creation verification failed: {e}")
-                    print("[ERROR] Window creation verification failed")
-                    window_created = False
-                    self.preview_on = False
-                    self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
-                    return
+                    debug_print(f"Window creation attempt {retry + 1}/{max_retries}...")
                     
-            except Exception as e:
-                debug_print(f"ERROR: Exception during window creation: {type(e).__name__}: {e}")
-                print(f"[ERROR] Failed to create preview window: {e}")
-                traceback.print_exc()
-                self.preview_on = False
-                self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                    debug_print("Determining window flags...")
+                    # Now create the window (use WINDOW_GUI_EXPANDED if available, fallback to WINDOW_NORMAL)
+                    try:
+                        window_flags = cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED
+                        debug_print(f"Using window flags: WINDOW_NORMAL | WINDOW_GUI_EXPANDED = {window_flags}")
+                    except AttributeError as e:
+                        debug_print(f"WINDOW_GUI_EXPANDED not available: {e}, using WINDOW_NORMAL only")
+                        # WINDOW_GUI_EXPANDED not available in this OpenCV version
+                        window_flags = cv2.WINDOW_NORMAL
+                    
+                    debug_print("Calling cv2.namedWindow('Preview', ...)...")
+                    cv2.namedWindow("Preview", window_flags)
+                    debug_print("cv2.namedWindow() succeeded")
+                    
+                    # Process events to ensure window is created
+                    for _ in range(3):
+                        cv2.waitKey(50)
+                    debug_print("Events processed after namedWindow")
+                    
+                    debug_print("Calling cv2.resizeWindow('Preview', 640, 480)...")
+                    cv2.resizeWindow("Preview", 640, 480)
+                    debug_print("cv2.resizeWindow() succeeded")
+                    
+                    debug_print("Processing events with cv2.waitKey(1)...")
+                    for _ in range(3):
+                        cv2.waitKey(50)
+                    debug_print("Events processed")
+                    
+                    # Verify window was created successfully
+                    debug_print("Verifying window was created successfully...")
+                    try:
+                        verify_prop = cv2.getWindowProperty("Preview", cv2.WND_PROP_VISIBLE)
+                        debug_print(f"Window verification: property = {verify_prop}")
+                        if verify_prop >= 0:
+                            window_created = True
+                            print("[INFO] Preview window created successfully")
+                            debug_print("Window creation verified successfully")
+                            break  # Success, exit retry loop
+                        else:
+                            debug_print(f"Window property invalid: {verify_prop}, retrying...")
+                            raise cv2.error("Window property invalid")
+                    except cv2.error as e:
+                        debug_print(f"Window creation verification failed: {e}")
+                        if retry < max_retries - 1:
+                            debug_print(f"Retrying window creation... (attempt {retry + 2}/{max_retries})")
+                            try:
+                                cv2.destroyWindow("Preview")
+                                cv2.waitKey(10)
+                            except:
+                                pass
+                            time.sleep(0.1)
+                            continue
+                        else:
+                            debug_print("ERROR: Window creation verification failed after all retries")
+                            print("[ERROR] Window creation verification failed")
+                            window_created = False
+                            self.preview_on = False
+                            self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                            return
+                            
+                except Exception as e:
+                    debug_print(f"Exception during window creation (attempt {retry + 1}): {type(e).__name__}: {e}")
+                    if retry < max_retries - 1:
+                        debug_print(f"Retrying after exception... (attempt {retry + 2}/{max_retries})")
+                        try:
+                            cv2.destroyAllWindows()
+                            cv2.waitKey(10)
+                        except:
+                            pass
+                        time.sleep(0.2)
+                        continue
+                    else:
+                        debug_print(f"ERROR: Exception during window creation after all retries: {type(e).__name__}: {e}")
+                        print(f"[ERROR] Failed to create preview window: {e}")
+                        traceback.print_exc()
+                        self.preview_on = False
+                        self.root.after(0, lambda: self.preview_btn.config(text="Open Preview"))
+                        return
+            
+            if not window_created:
+                debug_print("ERROR: Failed to create window after all retries")
                 return
             
             last_time = time.time()
@@ -1067,16 +1030,19 @@ class CaptureApp:
             traceback.print_exc()
         finally:
             debug_print("=== Entering finally block for preview cleanup ===")
-            # Cleanup: ensure window is closed (multiple attempts)
-            debug_print("Starting window cleanup in finally block (3 iterations)...")
-            for i in range(3):
-                try:
-                    debug_print(f"Finally cleanup attempt {i+1}/3: destroying window...")
-                    cv2.destroyWindow("Preview")
-                    cv2.waitKey(1)  # Process events
-                    debug_print(f"Finally cleanup attempt {i+1}/3: success")
-                except Exception as e:
-                    debug_print(f"Finally cleanup attempt {i+1}/3: failed: {type(e).__name__}: {e}")
+            # Cleanup: use destroyAllWindows to fully reset OpenCV state
+            debug_print("Calling cv2.destroyAllWindows() in finally block...")
+            try:
+                cv2.destroyAllWindows()
+                # Process events multiple times to ensure cleanup
+                for _ in range(5):
+                    try:
+                        cv2.waitKey(10)
+                    except:
+                        pass
+                debug_print("destroyAllWindows() succeeded in finally block")
+            except Exception as e:
+                debug_print(f"Exception in destroyAllWindows (finally): {type(e).__name__}: {e}")
             
             # Reset flag (don't use lock, avoid deadlocks)
             debug_print("Setting preview_on flag to False in finally block")
