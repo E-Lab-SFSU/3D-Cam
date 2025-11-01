@@ -119,7 +119,7 @@ class PreviewManager:
         # Create window - it's safe to call namedWindow even if window exists
         try:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-            cv2.resizeWindow(window_name, 640, 480)  # Initial size, will adjust based on content
+            cv2.resizeWindow(window_name, 853, 480)  # Initial size (~1/3 of 1080p width, will adjust based on content)
             print("[INFO] Preview window created")
         except Exception as e:
             print(f"[ERROR] Failed to create preview window: {e}")
@@ -130,11 +130,13 @@ class PreviewManager:
         frame_count = 0
         fps = 0.0
         
-        # Create waiting message frame
-        waiting_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-        cv2.putText(waiting_frame, "Waiting for Camera...", (120, 240),
+        # Create waiting message frame - larger size for better visibility
+        # Target is about 1/3 of 1080p (1920x1080) = ~640x360, but make it slightly larger
+        default_width, default_height = 853, 480  # Wider than 640x480, maintains 16:9-ish ratio
+        waiting_frame = np.zeros((default_height, default_width, 3), dtype=np.uint8)
+        cv2.putText(waiting_frame, "Waiting for Camera...", (200, 240),
                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        current_window_size = (640, 480)  # Track current window size
+        current_window_size = (default_width, default_height)  # Track current window size
         
         try:
             while self.preview_on:
@@ -142,9 +144,10 @@ class PreviewManager:
                 
                 if not cam or not is_open:
                     # Camera not open - show waiting message
-                    if current_window_size != (640, 480):
-                        cv2.resizeWindow(window_name, 640, 480)
-                        current_window_size = (640, 480)
+                    default_size = (853, 480)
+                    if current_window_size != default_size:
+                        cv2.resizeWindow(window_name, default_size[0], default_size[1])
+                        current_window_size = default_size
                     cv2.imshow(window_name, waiting_frame)
                     cv2.waitKey(1)
                     time.sleep(0.1)  # Don't spin too fast when waiting
@@ -179,9 +182,9 @@ class PreviewManager:
                             cv2.putText(display_frame, "REC", (10, 55),
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                         
-                        # Resize display frame maintaining aspect ratio, target width ~640px
+                        # Resize display frame maintaining aspect ratio, target width ~853px (larger for better visibility)
                         src_h, src_w = display_frame.shape[:2]
-                        target_width = 640
+                        target_width = 853
                         scale = target_width / src_w
                         target_height = int(src_h * scale)
                         display_resized = cv2.resize(display_frame, (target_width, target_height))
