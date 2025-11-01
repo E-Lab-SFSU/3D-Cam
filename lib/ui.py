@@ -302,7 +302,7 @@ def build_gui(
     widgets["cmb_label_mode"] = cmb_label
     
     # Text labels checkbox
-    add_check(2, 2, "Text Labels (#A/#B)", "show_text_labels")
+    add_check(2, 2, "Text Labels (#A/#C)", "show_text_labels")
 
     # Preview Overlay section
     frm_preview_ov = ttk.LabelFrame(content_frame, text="Preview Overlay")

@@ -62,8 +62,8 @@ DEFAULT_PARAMS = {
     "maxW":         100,   # Maximum width/height (px) for blob bounding box (rejects very large blobs)
 
     # --- Candidate gating for pairing ---
-    "maxRadGap":    120,   # Max |rA - rB| (pixels) between two blobs’ radial distances from center
-    "maxDMR":        3,   # Max |θA - θB| (degrees) to consider blobs as potential pair
+    "maxRadGap":    120,   # Max |rA - rC| (pixels) between two blobs' radial distances from center
+    "maxDMR":        3,   # Max |θA - θC| (degrees) to consider blobs as potential pair
 
     # --- Colinearity constraint relative to center ---
     "maxCenterOff":  15,   # Scale (pixels). Pair-line distance to optical center is mapped to a 0..1 score via this scale
@@ -97,9 +97,9 @@ DEFAULT_OVERLAYS = {
     "show_center":  1,     # Draw yellow crosshair at the optical center
     "show_pair_center": 0, # Draw small circle at pair midpoint (for tracking visualization)
     "show_lines":   1,     # Draw white line between paired blobs
-    "show_rays":    1,     # Extend pair line (white) in the AB direction toward/past the center
+    "show_rays":    1,     # Extend pair line (white) in the AC direction toward/past the center
     "label_mode":   "Red/Blue",   # Label mode: "None", "Red/Blue", "Random"
-    "show_text_labels": 1,         # Show #A/#B text labels on pairs
+    "show_text_labels": 1,         # Show #A/#C text labels on pairs
     "show_current_stats": 0,  # Show current frame stats overlay
     "show_total_stats": 0,    # Show total stats overlay
 }

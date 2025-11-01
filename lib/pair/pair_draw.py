@@ -75,27 +75,27 @@ def draw_pair_centers(dst, pairs: List[Tuple], label_mode: str = "Red/Blue", vid
 def draw_pair_lines(dst, pairs: List[Tuple], show_labels: bool = False, label_mode: str = "Red/Blue", video_path: Optional[str] = None):
     """
     label_mode: "None", "Red/Blue", "Random"
-    show_labels: if True, show #A/#B text labels
+    show_labels: if True, show #A/#C text labels
     """
     for (pid, xi, yi, xj, yj, *_rest) in pairs:
         line_color = (255, 255, 255)
-        colA = colB = (255, 255, 255)
+        colA = colC = (255, 255, 255)
 
         if label_mode == "Red/Blue":
             colA = (0, 0, 255)  # Red
-            colB = (255, 0, 0)  # Blue
+            colC = (255, 0, 0)  # Blue
             line_color = (255, 255, 255)
         elif label_mode == "Random":
             pair_col = _get_pair_color(pid, video_path)
             line_color = pair_col
-            colA = colB = pair_col
+            colA = colC = pair_col
 
         cv2.line(dst, (xi, yi), (xj, yj), line_color, 1)
         cv2.circle(dst, (xi, yi), 3, colA, -1)
-        cv2.circle(dst, (xj, yj), 3, colB, -1)
+        cv2.circle(dst, (xj, yj), 3, colC, -1)
         if show_labels:
             cv2.putText(dst, f"{pid}A", (xi + 4, yi - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colA, 1)
-            cv2.putText(dst, f"{pid}B", (xj + 4, yj - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colB, 1)
+            cv2.putText(dst, f"{pid}C", (xj + 4, yj - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, colC, 1)
 
 
 def draw_pair_rays_toward_center(dst, pairs: List[Tuple], frame_width: int, xCenter: int, yCenter: int, label_mode: str = "Red/Blue", video_path: Optional[str] = None):
@@ -114,11 +114,11 @@ def draw_pair_rays_toward_center(dst, pairs: List[Tuple], frame_width: int, xCen
         sgn = np.sign((P - mid).dot(u)) or 1.0
 
         endA = np.array([xi, yi], dtype=float)
-        endB = np.array([xj, yj], dtype=float)
-        if (endA - P).dot(u) * sgn > (endB - P).dot(u) * sgn:
+        endC = np.array([xj, yj], dtype=float)
+        if (endA - P).dot(u) * sgn > (endC - P).dot(u) * sgn:
             anchor = endA
         else:
-            anchor = endB
+            anchor = endC
 
         end = (anchor + sgn * ray_len * u).astype(int)
         ray_color = (255, 255, 255)

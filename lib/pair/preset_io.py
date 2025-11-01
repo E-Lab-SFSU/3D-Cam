@@ -52,7 +52,7 @@ def load_preset_file(
                     out_overlays[k] = v
             # Migration: convert old "color_ab" to "label_mode"
             if "color_ab" in data["overlays"] and "label_mode" not in data["overlays"]:
-                out_overlays["label_mode"] = "Color A/B" if data["overlays"]["color_ab"] else "None"
+                out_overlays["label_mode"] = "Red/Blue" if data["overlays"]["color_ab"] else "None"
         if "overlay_targets" in data:
             for k, v in data["overlay_targets"].items():
                 if k in out_targets:

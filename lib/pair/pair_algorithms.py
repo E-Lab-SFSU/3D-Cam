@@ -78,7 +78,7 @@ def pair_scored(blobs: List[Dict], params: Dict, xCenter: int, yCenter: int, cen
             S_theta = 1.0 - (dθ / dmr)
             S_area = min(b1["area"], b2["area"]) / max(b1["area"], b2["area"])
             d_center = line_distance_to_point(b1["xc"], b1["yc"], b2["xc"], b2["yc"], xCenter, yCenter)
-            # Hard gate: reject pairs whose AB-to-center distance exceeds pixel threshold
+            # Hard gate: reject pairs whose AC-to-center distance exceeds pixel threshold
             if d_center > coff:
                 continue
             S_center = 1.0 - (d_center / coff)
@@ -92,6 +92,9 @@ def pair_scored(blobs: List[Dict], params: Dict, xCenter: int, yCenter: int, cen
 
         if best_j >= 0 and best_score >= smin:
             b2 = blobs[best_j]
+            # Ensure first point has smaller r value (A), second point has larger r value (C)
+            if b1["r"] > b2["r"]:
+                b1, b2 = b2, b1
             pairs.append((pid, b1["xc"], b1["yc"], b2["xc"], b2["yc"],
                           b1["theta"], b1["r"], b2["theta"], b2["r"], best_score,
                           b1["area"], b2["area"]))
@@ -139,6 +142,9 @@ def pair_scored_symmetric(blobs: List[Dict], params: Dict, xCenter: int, yCenter
         if j >= 0 and best_match[j] == i and i not in used and j not in used:
             if best_score[i] >= params["Smin"]:
                 b1, b2 = blobs[i], blobs[j]
+                # Ensure first point has smaller r value (A), second point has larger r value (C)
+                if b1["r"] > b2["r"]:
+                    b1, b2 = b2, b1
                 pairs.append((pid, b1["xc"], b1["yc"], b2["xc"], b2["yc"],
                               b1["theta"], b1["r"], b2["theta"], b2["r"], best_score[i],
                               b1["area"], b2["area"]))
@@ -195,6 +201,9 @@ def pair_scored_hungarian(blobs: List[Dict], params: Dict, xCenter: int, yCenter
         score = float(S[i, j])
         if score >= smin and score > 0:
             b1, b2 = blobs[i], blobs[j]
+            # Ensure first point has smaller r value (A), second point has larger r value (C)
+            if b1["r"] > b2["r"]:
+                b1, b2 = b2, b1
             pairs.append((pid, b1["xc"], b1["yc"], b2["xc"], b2["yc"],
                           b1["theta"], b1["r"], b2["theta"], b2["r"], round(score, 4),
                           b1["area"], b2["area"]))
