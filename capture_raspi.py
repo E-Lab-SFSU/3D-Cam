@@ -406,6 +406,11 @@ class CaptureApp:
             print(f"[INFO] Camera FPS: {actual_fps:.1f}")
             output_fps = actual_fps
         
+        # Small delay to let camera stabilize before starting frame grabber
+        # This helps prevent initial read failures on V4L2
+        import time
+        time.sleep(0.2)
+        
         # Start frame grabber (after camera is fully initialized)
         self.frame_grabber.start(self.cam)
         
@@ -429,11 +434,22 @@ class CaptureApp:
     
     def close_camera(self):
         """Close the camera."""
+        # Stop recording first
         self.recording_manager.stop()
+        
+        # Stop frame grabber and wait for it to finish
         self.frame_grabber.stop()
         
+        # Small delay to ensure frame grabber thread has exited
+        import time
+        time.sleep(0.1)
+        
+        # Release camera
         if self.cam:
-            self.cam.release()
+            try:
+                self.cam.release()
+            except:
+                pass
             self.cam = None
         
         self.open_camera_btn.config(text="Open Camera")

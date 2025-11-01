@@ -60,9 +60,30 @@ class FrameGrabber:
         
         print("[INFO] Frame grabber: Starting frame capture...")
         
-        while self.running and self.camera and self.camera.is_open():
-            # Use latest frame mode if camera has it enabled (for MJPEG high-res)
-            frame = self.camera.read(max_retries=1, use_latest=getattr(self.camera, 'use_latest_frames', False))
+        while self.running:
+            # Check if camera is still valid and open
+            if not self.camera:
+                break
+            try:
+                if not self.camera.is_open():
+                    break
+            except:
+                # Camera object might be invalid
+                break
+            
+            # Read frame
+            try:
+                frame = self.camera.read(max_retries=1)
+            except Exception as e:
+                print(f"[WARN] Frame read exception: {e}")
+                frame = None
+                consecutive_errors += 1
+                if consecutive_errors >= max_errors:
+                    print(f"[ERROR] Too many errors, stopping frame grabber")
+                    break
+                time.sleep(0.1)
+                continue
+            
             if frame is not None:
                 consecutive_errors = 0
                 frames_read += 1
