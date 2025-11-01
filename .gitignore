@@ -1,21 +1,4 @@
-# Output folders - ignore all contents except sample datasets
-pair_detect_output/*
-!pair_detect_output/.gitkeep
-# Uncomment and modify the lines below to preserve a specific sample dataset folder
-# !pair_detect_output/sample_dataset/
-# !pair_detect_output/sample_dataset/**
-# Or use a pattern like:
-# !pair_detect_output/*sample*/
-
-capture_output/*
-!capture_output/.gitkeep
-# Preserve specific captured videos
-!capture_output/video_640x480_30fps_20251031_182254.mp4
-!capture_output/video_640x480_30fps_20251031_182412.mp4
-# Uncomment to preserve specific captured videos
-# !capture_output/*sample*/
-
-# Python
+# Python bytecode - ignore .pyc files
 *.pyc
 *.pyo
 *.pyd
