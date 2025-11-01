@@ -205,7 +205,13 @@ class BaseCaptureApp:
             self.on_camera_selected()
         else:
             self.camera_info_label.config(text="No cameras found")
-            print("[WARN] No cameras found - check camera connections and permissions")
+            print("[WARN] No cameras found")
+            print("[INFO] Troubleshooting tips:")
+            print("[INFO]   1. Check that cameras are connected")
+            print("[INFO]   2. On Linux, verify permissions: ls -l /dev/video*")
+            print("[INFO]   3. If permission denied, try: sudo usermod -a -G video $USER (then logout/login)")
+            print("[INFO]   4. Check if cameras are in use by another process: lsof /dev/video*")
+            print("[INFO]   5. Verify cameras are capture devices (not video output): v4l2-ctl --list-devices")
     
     def on_camera_selected(self, event=None):
         """Handle camera selection change."""

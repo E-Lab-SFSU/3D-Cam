@@ -117,8 +117,8 @@ def detect_cameras(max_test=10, suppress_warnings=True):
     if platform.system() == "Windows":
         backends_to_try = [cv2.CAP_MSMF, preferred_backend, cv2.CAP_DSHOW, cv2.CAP_V4L2, cv2.CAP_ANY]
     else:
-        # On Linux, prefer V4L2 and limit backends to try
-        backends_to_try = [preferred_backend]
+        # On Linux, try V4L2 first, then CAP_ANY as fallback
+        backends_to_try = [preferred_backend, cv2.CAP_ANY]
     
     print(f"[INFO] Detecting cameras... (OS: {platform.system()}, Raspberry Pi: {is_raspi})")
     if available_devices:
@@ -134,7 +134,20 @@ def detect_cameras(max_test=10, suppress_warnings=True):
             for backend in backends_to_try:
                 cap = None
                 try:
-                    cap = cv2.VideoCapture(idx, backend)
+                    # On Linux/V4L2, try device path first (more reliable)
+                    if is_linux() and backend == cv2.CAP_V4L2:
+                        dev_path = f"/dev/video{idx}"
+                        if os.path.exists(dev_path):
+                            # Try opening by device path first
+                            cap = cv2.VideoCapture(dev_path, backend)
+                            if not cap.isOpened():
+                                # Fallback to index
+                                cap = cv2.VideoCapture(idx, backend)
+                        else:
+                            cap = cv2.VideoCapture(idx, backend)
+                    else:
+                        cap = cv2.VideoCapture(idx, backend)
+                    
                     if cap.isOpened():
                         # Check if we can get properties (faster than reading frame)
                         width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
