@@ -124,6 +124,7 @@ overlay_targets = DEFAULT_OVERLAY_TARGETS.copy()
 params       = DEFAULT_PARAMS.copy()   # numeric tuning variables
 overlays     = DEFAULT_OVERLAYS.copy() # overlay visibility toggles
 video_path   = ""                      # last opened video path
+last_video_path = ""                   # previous video path to detect new video loads
 xCenter      = None                    # optical center x-coordinate (int pixels)
 yCenter      = None                    # optical center y-coordinate (int pixels)
 center_valid = False                   # True once user clicked in preview
@@ -186,11 +187,13 @@ def save_preset():
         print("[WARN] Preset save failed")
 
 def load_preset():
-    global params, overlays, xCenter, yCenter, center_valid, video_path, overlay_targets
+    global params, overlays, xCenter, yCenter, center_valid, video_path, overlay_targets, last_video_path
     params, overlays, overlay_targets, center, video_path, ok = load_preset_file(
         PRESET_PATH, params, overlays, overlay_targets, video_path
     )
     xCenter, yCenter, center_valid = center
+    # Initialize last_video_path to empty so first video load will be treated as new
+    last_video_path = ""
     if ok:
         print(f"[INFO] Preset loaded ← {PRESET_PATH}")
     else:
@@ -301,17 +304,116 @@ def set_centerxy(x, y):
 # --------------------------------------------------------------------------------------
 # Open / Export / Reset / Exit
 # --------------------------------------------------------------------------------------
+def prompt_optical_center_choice():
+    """Show a custom dialog asking if user wants to choose a new optical center."""
+    global root
+    if root is None:
+        # Fallback to simple messagebox if root doesn't exist yet
+        return messagebox.askyesno(
+            "Choose New Optical Center?",
+            "Would you like to choose a new optical center for this video?\n\n"
+            "Yes - choose new optical center\n"
+            "No - the last optical center hasn't moved - the setup is the same"
+        )
+    
+    dialog = tk.Toplevel(root)
+    dialog.title("Choose New Optical Center?")
+    dialog.geometry("600x150")
+    dialog.resizable(False, False)
+    dialog.transient(root)  # Make it modal relative to main window
+    dialog.grab_set()  # Make it modal
+    
+    # Center the dialog on screen
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
+    y = (dialog.winfo_screenheight() // 2) - (150 // 2)
+    dialog.geometry(f"600x150+{x}+{y}")
+    
+    result = [None]  # Use list to store result from nested function
+    
+    # Message label
+    msg_label = tk.Label(
+        dialog,
+        text="Would you like to choose a new optical center for this video?",
+        font=("Arial", 10),
+        wraplength=580,
+        justify="center",
+        pady=10
+    )
+    msg_label.pack()
+    
+    # Button frame
+    button_frame = tk.Frame(dialog, pady=10)
+    button_frame.pack()
+    
+    def choose_new():
+        result[0] = True
+        dialog.destroy()
+    
+    def keep_existing():
+        result[0] = False
+        dialog.destroy()
+    
+    # Buttons with exact labels requested by user
+    btn_yes = ttk.Button(
+        button_frame,
+        text="Yes - choose new optical center",
+        command=choose_new,
+        width=35
+    )
+    btn_yes.pack(side="left", padx=5)
+    
+    btn_no = ttk.Button(
+        button_frame,
+        text="No - the last optical center hasn't moved - the setup is the same",
+        command=keep_existing,
+        width=55
+    )
+    btn_no.pack(side="left", padx=5)
+    
+    # Wait for dialog to close
+    dialog.wait_window()
+    
+    return result[0]
+
 def open_video():
     """Open a video file and start/restart preview."""
-    global video_path
+    global video_path, last_video_path, center_valid, xCenter, yCenter
     fp = filedialog.askopenfilename(
         title="Open Video",
         filetypes=[("Video", "*.mp4;*.avi;*.mov;*.mkv;*.m4v;*.mpg;*.mpeg"), ("All files", "*.*")]
     )
     if not fp:
         return
+    
+    # Normalize paths for comparison (handle Windows path case sensitivity)
+    fp_normalized = os.path.normpath(os.path.abspath(fp))
+    current_video_normalized = os.path.normpath(os.path.abspath(video_path)) if video_path else ""
+    
+    # Check if this is a new video (different from the currently loaded one)
+    is_new_video = (current_video_normalized != "" and fp_normalized != current_video_normalized)
+    
+    print(f"[INFO] Opened video: {fp}")
+    if is_new_video:
+        print(f"[INFO] New video detected (previous: {video_path})")
+    
+    # If this is a new video and we have a valid center, prompt user
+    if is_new_video and center_valid and xCenter is not None and yCenter is not None:
+        # Show dialog asking if user wants to choose a new optical center
+        response = prompt_optical_center_choice()
+        
+        if response:  # Yes - choose new optical center
+            # Reset center validity so user can choose a new one
+            center_valid = False
+            print("[INFO] User chose to set a new optical center")
+        else:  # No - keep existing center
+            # Keep the existing center, just proceed
+            print(f"[INFO] User chose to keep existing optical center -> ({xCenter},{yCenter})")
+    
+    # Update video path
     video_path = fp
-    print(f"[INFO] Opened video: {video_path}")
+    last_video_path = fp
+    
     reopen_video()
 
 def reopen_video():
@@ -357,21 +459,22 @@ def reopen_video():
     total_pairs_count = 0  # Reset total pairs count when video reopens
     max_pair_count = 0  # Reset max pair count when video reopens
     
-    # Only reset center if it's not already valid (preserve existing center)
+    # Handle center setup based on validity
     if not center_valid:
-        # If we have a last known center location from preset, automatically use it
+        # If we have a last known center location from preset, use it as default but still show setup
         if xCenter is not None and yCenter is not None:
-            # Center coordinates exist from preset, automatically validate them
-            center_valid = True
-            showing_center_setup = False
-            print(f"[INFO] Using preset optical center -> ({xCenter},{yCenter})")
+            # Center coordinates exist from preset, use them as default but allow user to change
+            showing_center_setup = True
+            print(f"[INFO] Showing center setup with preset default -> ({xCenter},{yCenter})")
         else:
             # No previous center exists, default to frame center and show setup
             xCenter, yCenter = W // 2, H // 2
             showing_center_setup = True
     else:
-        # Center is already valid, don't prompt again
+        # Center is already valid (user chose to keep existing), don't show setup
         showing_center_setup = False
+        if xCenter is not None and yCenter is not None:
+            print(f"[INFO] Using existing optical center -> ({xCenter},{yCenter})")
     
     # Set video seed for persistent colors based on filename
     set_video_seed_ext(video_path)
@@ -1530,6 +1633,9 @@ def main():
         print("[INFO] No video calibration file found in calibrations folder.")
     
     if video_path and os.path.exists(video_path):
+        # Set last_video_path when loading from preset so we can detect new videos later
+        global last_video_path
+        last_video_path = video_path
         reopen_video()  # This will resize windows to native video resolution
     else:
         print("[INFO] No video in preset — use 'Open Video' in the GUI.")
