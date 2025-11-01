@@ -93,7 +93,11 @@ python pair_detect.py
 
 **Procedure:**
 1. Open a video file from `capture_output/` or `input/`
-2. Click to set the optical center (where particles align along radial lines from the mirror edge)
+2. Set the optical center (where particles align along radial lines from the mirror edge):
+   - **Initial estimate**: Click in the preview window to set a rough optical center
+   - **Optimize**: Click "Optimize Optical Center" button to analyze all frames and find the optimal center using ray intersection voting
+   - **Iterate**: Repeat the optimization step until the center position stops changing (converges)
+   - **Manual refinement**: You can still manually click to adjust if needed, then re-optimize
 3. Tune detection parameters:
    - **Threshold**: Binary threshold for particle detection (0-255)
    - **Blur**: Gaussian blur kernel size to reduce noise
@@ -350,14 +354,31 @@ Three pairing algorithms are available, each with different characteristics:
 
 ### Optical Center Detection
 
-The optical center is the point where particle pairs align along radial lines. Two methods:
+The optical center is the point where particle pairs align along radial lines. The system supports iterative refinement:
 
-1. **Manual**: Click in the preview window to set center
-2. **Automatic**: Uses ray intersection voting
+1. **Initial Estimate**: 
+   - Manual click in the preview window to set rough center
+   - Or uses center from previous video/session if available
+   - Defaults to frame center if no prior estimate exists
+
+2. **Automatic Optimization**: Uses ray intersection voting
    - Analyzes all pair lines across all frames
-   - Finds intersections between pair lines
+   - Finds intersections between pair lines (where lines through A and C points meet)
    - Votes for grid cells where intersections cluster
    - Selects cell with most votes as optimal center
+   - This optimization should be run iteratively until convergence
+
+3. **Iterative Refinement**:
+   - After initial optimization, pair detection improves (better center = better pairs)
+   - Re-run optimization with improved pair detections
+   - Repeat until the center position stabilizes (stops moving between iterations)
+   - Typically converges in 2-3 iterations
+
+**Why Iteration is Important**: 
+- The optimization uses detected pairs to find the center
+- With a better center, pair detection improves (higher quality pairs)
+- Improved pairs lead to better center estimation
+- This feedback loop converges to the true optical center
 
 ### Background Subtraction
 
