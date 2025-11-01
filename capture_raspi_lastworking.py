@@ -1,29 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Base Capture App - Modular base class for platform-specific capture applications
-Contains all common functionality for camera capture GUI
-
-This base class is cross-platform and works on:
-- Windows (via capture_windows.py)
-- Linux / Raspberry Pi (via capture_raspi.py)
-
-Platform-specific implementations should:
-1. Set environment variables BEFORE importing this module (if needed)
-2. Override _build_camera_controls() for platform-specific controls
-3. Override open_camera() for platform-specific camera opening
-4. Override _load_camera_control_ranges() for platform-specific control loading
-5. Override _apply_camera_controls() for platform-specific control application
-6. Override reset_controls() for platform-specific control reset
+Raspberry Pi Camera Capture GUI
+--------------------------------
+✓ UVC Camera support via camera_info.py
+✓ Select capture format (YUYV or MJPG) based on camera capabilities
+✓ Live adjustable brightness, contrast, saturation, gain
+✓ Power line frequency control (auto-set to 60 Hz)
+✓ MP4 recording
+✓ Live preview window (always on, 640x480 display)
+✓ Frame capture (saves to capture_output folder)
+✓ PiCamera support (to be implemented)
 """
 
 import cv2
+import time
+import threading
 import os
 from queue import Queue, Empty
+import subprocess
+import traceback
+import signal
+
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_frame_path
+from lib.camera import Camera, get_camera_backend, is_linux, is_raspberry_pi
+from lib.camera_info import (
+    list_all_cameras, get_camera_info, CameraInfo,
+    set_camera_control, get_camera_control, get_camera_control_range
+)
+from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_output_path, make_capture_frame_path
+
+
+# ============ Debug Configuration ============
+DEBUG_PREVIEW = True  # Set to False to disable detailed preview debug messages
+
+# Force OpenCV to prefer GTK backend over Qt (more reliable on Raspberry Pi)
+# Note: cv2 is already imported above, so this may not take effect,
+# but we also set it in the thread as a backup
+# Try to prefer GTK, but don't fail if it's not available
+# (os is already imported at the top of the file)
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_GTK', '1')
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_MSMF', '0')
+
+
+def debug_print(message, force=False):
+    """Print debug message if DEBUG_PREVIEW is enabled."""
+    if DEBUG_PREVIEW or force:
+        print(f"[DEBUG] {message}")
 
 
 # ============ Utilities ============
@@ -43,35 +68,24 @@ def tooltip(widget, text):
     widget.bind("<Leave>", hide)
 
 
-class BaseCaptureApp:
-    """
-    Base class for camera capture applications - platform-specific implementations inherit from this.
+# ============ GUI Application ============
+class CaptureApp:
+    """Raspberry Pi UVC Camera GUI with full camera control."""
     
-    This class is fully cross-platform and works on Windows, Linux, and Raspberry Pi.
-    All platform-specific logic (camera backends, control mechanisms) is implemented
-    in subclasses via method overrides.
-    
-    Platform-specific methods that subclasses must override:
-    - _build_camera_controls() - Build UI for camera controls
-    - open_camera() - Open camera with platform-specific backend
-    - _load_camera_control_ranges() - Load control ranges from camera
-    - _apply_camera_controls() - Apply control values to camera
-    - reset_controls() - Reset controls to defaults
-    """
-    
-    def __init__(self, root, title="Camera Capture", default_format="YUYV"):
+    def __init__(self, root):
         self.root = root
-        self.root.title(title)
+        self.root.title("UVC Camera Capture — Raspberry Pi")
         
-        # Camera state (to be set by platform-specific implementation)
+        # Camera state
         self.cam = None
         self.camera_info = None  # Current CameraInfo object
         self.available_cameras = []  # List of CameraInfo objects
+        self.use_picamera = False  # Flag for PiCamera mode (to be implemented)
         
         # Format and resolution
-        self.format_var = tk.StringVar(value=default_format)
+        self.format_var = tk.StringVar(value="YUYV")
         self.scale_percent = tk.DoubleVar(value=100.0)
-        self.fps_var = tk.DoubleVar(value=30.0)
+        self.fps_var = tk.DoubleVar(value=30.0)  # Framerate
         
         # Frame queue (shared by preview and recording)
         self.frame_queue = Queue(maxsize=10)
@@ -97,6 +111,10 @@ class BaseCaptureApp:
         self.control_vars = {}
         self.control_ranges = {}  # Store ranges for each control
         
+        # Debug state tracking
+        self.preview_start_count = 0
+        self.preview_stop_count = 0
+        
         # Build UI
         self._build_ui()
         
@@ -105,9 +123,10 @@ class BaseCaptureApp:
         
         # Start preview window immediately (always on)
         self.root.after(100, self.preview_manager.start)
-    
+
     def _build_ui(self):
-        """Build the common Tkinter GUI elements."""
+        """Build the Tkinter GUI."""
+        # No canvas - preview will be in OpenCV window
         main = ttk.Frame(self.root, padding="5")
         main.pack(fill=tk.BOTH, expand=True)
 
@@ -115,7 +134,7 @@ class BaseCaptureApp:
         ctrl = ttk.Frame(main)
         ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=3, pady=3)
         
-        # Camera selection
+        # Camera selection (same)
         cam_frame = ttk.LabelFrame(ctrl, text="Camera", padding="3")
         cam_frame.pack(fill=tk.X, pady=(0, 4))
         
@@ -137,7 +156,7 @@ class BaseCaptureApp:
         )
         self.camera_info_label.pack(fill=tk.X, pady=(2, 0))
         
-        # Format selection
+        # Format selection (same)
         format_frame = ttk.LabelFrame(ctrl, text="Format", padding="3")
         format_frame.pack(fill=tk.X, pady=(0, 4))
         
@@ -165,7 +184,7 @@ class BaseCaptureApp:
         self.scale_label = ttk.Label(scale_row, text="—", font=("TkDefaultFont", 8))
         self.scale_label.pack(side=tk.LEFT)
         
-        # Status section
+        # Status (new section)
         status_frame = ttk.LabelFrame(ctrl, text="Status", padding="3")
         status_frame.pack(fill=tk.X, pady=(0, 4))
         
@@ -179,9 +198,10 @@ class BaseCaptureApp:
         self.open_camera_btn = ttk.Button(status_frame, text="Open Camera", command=self.toggle_camera)
         self.open_camera_btn.pack(fill=tk.X, pady=(4, 0))
         
-        # Platform-specific controls (override in subclass)
+        # Camera controls (stacked sliders for maximum horizontal adjustment)
         self.param_frame = ttk.LabelFrame(ctrl, text="Controls", padding="3")
         self.param_frame.pack(fill=tk.X, pady=(0, 4))
+        
         self._build_camera_controls()
         
         # Actions section
@@ -199,21 +219,60 @@ class BaseCaptureApp:
         ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X)
     
     def _build_camera_controls(self):
-        """Build camera control sliders - override in platform-specific implementation."""
-        pass
+        """Build camera control sliders stacked vertically for maximum horizontal space."""
+        # Define controls with defaults (removed power line frequency - always 60)
+        controls = {
+            "brightness": ("Brightness", -64, 64, 0),
+            "contrast": ("Contrast", 0, 64, 32),
+            "saturation": ("Saturation", 0, 128, 60),
+            "gain": ("Gain", 0, 100, 32),
+        }
+        
+        self.control_vars = {}
+        
+        for name, (label, default_min, default_max, default_val) in controls.items():
+            # Create frame for this control (stacked vertically)
+            frame = ttk.Frame(self.param_frame)
+            frame.pack(fill=tk.X, pady=1)
+            
+            ttk.Label(frame, text=label, width=10, anchor="w", font=("TkDefaultFont", 9)).pack(side=tk.LEFT, padx=(0, 4))
+            
+            var = tk.DoubleVar(value=default_val)
+            slider = tk.Scale(
+                frame, 
+                from_=default_min, 
+                to=default_max, 
+                orient="horizontal", 
+                variable=var,
+                resolution=1,
+                length=150
+            )
+            slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+            
+            entry = ttk.Entry(frame, textvariable=var, width=6, font=("TkDefaultFont", 9))
+            entry.pack(side=tk.LEFT)
+            
+            # Update callback
+            def update_control(ctrl_name=name, ctrl_var=var):
+                if self.cam and self.camera_info and self.camera_info.device_path:
+                    val = int(ctrl_var.get())
+                    if set_camera_control(self.camera_info.device_path, ctrl_name, val):
+                        print(f"[DEBUG] {ctrl_name} = {val}")
+                    else:
+                        print(f"[WARN] Failed to set {ctrl_name}")
+            
+            var.trace_add("write", lambda *a, update=update_control: update())
+            entry.bind("<Return>", lambda e, update=update_control: update())
+            
+            self.control_vars[name] = var
+        
+        # Set power line frequency to 60 Hz automatically when camera opens
+        # (no UI control, always 60 Hz)
     
     def refresh_camera_list(self):
-        """Refresh the list of available cameras - uses platform-specific list_all_cameras."""
-        from lib.camera_info import list_all_cameras
-        
+        """Refresh the list of available cameras."""
         print("[INFO] Refreshing camera list...")
-        try:
-            self.available_cameras = list_all_cameras(max_test=10, detailed=False, test_resolutions=False)
-        except Exception as e:
-            print(f"[ERROR] Failed to refresh camera list: {e}")
-            import traceback
-            traceback.print_exc()
-            self.available_cameras = []
+        self.available_cameras = list_all_cameras(max_test=10, detailed=False, test_resolutions=False)
         
         # Update combo box
         values = []
@@ -284,12 +343,18 @@ class BaseCaptureApp:
         
         self.camera_info_label.config(text=info_text)
     
-    def scaled_size(self):
-        """Get scaled output size."""
-        if not self.cam:
-            return 640, 480
-        p = max(1, min(100, float(self.scale_percent.get())))
-        return int(self.cam.w * p / 100), int(self.cam.h * p / 100)
+    def _update_format_desc(self):
+        """Update format description."""
+        fmt = self.format_var.get()
+        if fmt == "MJPG":
+            txt = ("MJPG: JPEG-compressed frames.\n"
+                   "• Pros: supports 720p/1080p, lower USB load.\n"
+                   "• Cons: slight latency, compression artifacts.")
+        else:
+            txt = ("YUYV: uncompressed 4:2:2 stream.\n"
+                   "• Pros: fast preview, low latency.\n"
+                   "• Cons: limited to VGA on USB 2.0.")
+        self.format_desc.config(text=txt)
     
     def toggle_camera(self):
         """Toggle camera open/close."""
@@ -298,15 +363,68 @@ class BaseCaptureApp:
         else:
             self.open_camera()
     
-    def open_camera(self):
-        """Platform-specific camera opening - must be implemented by subclass.
-        Subclass should call _finalize_camera_open() after creating and opening the camera."""
-        raise NotImplementedError("Subclass must implement open_camera()")
+    def close_camera(self):
+        """Close the camera."""
+        # Stop recording
+        self.recording_manager.stop()
+        
+        # Stop frame grabber
+        self.frame_grabber.stop()
+        
+        if self.cam:
+            self.cam.release()
+            self.cam = None
+        
+        self.open_camera_btn.config(text="Open Camera")
+        self.status_label.config(text="Camera closed", foreground="black")
+        print("[INFO] Camera closed (preview window remains open)")
     
-    def _finalize_camera_open(self, format_str):
-        """Helper method to finalize camera opening - common logic after camera is created."""
-        if not self.cam or not self.cam.is_open():
-            return False
+    def open_camera(self):
+        """Open the selected camera."""
+        if self.cam:
+            self.cam.release()
+            self.cam = None
+        
+        if not self.camera_info:
+            messagebox.showerror("Camera Error", "Please select a camera first.")
+            return
+        
+        format_str = self.format_var.get()
+        if format_str not in self.camera_info.supported_fourcc:
+            messagebox.showwarning(
+                "Format Warning", 
+                f"Format {format_str} may not be supported. Using default format."
+            )
+            format_str = self.camera_info.default_fourcc
+        
+        # Determine resolution based on format
+        if format_str == "MJPG":
+            width, height = 1920, 1080
+        else:
+            width, height = 640, 480
+        
+        # Get framerate from input (0 = maximum speed, >0 = specific FPS)
+        try:
+            fps_value = float(self.fps_var.get())
+            # Clamp between 0 (max speed) and 60
+            fps_value = max(0.0, min(60.0, fps_value))
+            self.fps_var.set(fps_value)
+        except (ValueError, tk.TclError):
+            fps_value = 30.0  # Default to 30 FPS if invalid
+            self.fps_var.set(fps_value)
+        
+        self.cam = Camera(
+            index=self.camera_info.index,
+            fps=int(fps_value) if fps_value > 0 else 0,  # 0 = max speed, >0 = specific FPS
+            fourcc=format_str,
+            width=width,
+            height=height,
+            backend=cv2.CAP_V4L2
+        )
+        
+        if not self.cam.open():
+            messagebox.showerror("Camera Error", f"Failed to open camera {self.camera_info.index}")
+            return
         
         # Stop frame grabber if running
         self.frame_grabber.stop()
@@ -318,10 +436,13 @@ class BaseCaptureApp:
             except Empty:
                 break
         
-        # Load camera control ranges (platform-specific)
-        self._load_camera_control_ranges()
-        # Apply current control values (platform-specific)
-        self._apply_camera_controls()
+        # Load camera control ranges
+        if self.camera_info.device_path:
+            self._load_camera_control_ranges()
+            # Apply current control values
+            self._apply_camera_controls()
+            # Set power line frequency to 60 Hz automatically
+            set_camera_control(self.camera_info.device_path, "power_line_frequency", 2)
         
         # Get actual camera FPS (may be 0 if not set, meaning max speed)
         actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
@@ -337,6 +458,8 @@ class BaseCaptureApp:
             print(f"[INFO] Camera FPS: {actual_fps:.1f}")
             output_fps = actual_fps
         
+        # No delay - start immediately
+        
         # Start frame grabber (after camera is fully initialized)
         self.frame_grabber.start(self.cam)
         
@@ -351,36 +474,49 @@ class BaseCaptureApp:
             self.fps_label.config(text=f"FPS: {actual_fps:.1f}")
         
         print("[INFO] Camera opened successfully")
+        print(f"[INFO] Using automatic exposure (default)")
+        print(f"[INFO] Power line frequency set to 60 Hz")
         print(f"[INFO] Output video will be recorded at {output_fps:.1f} FPS")
         print(f"[INFO] Format: {format_str}, Resolution: {self.cam.w}x{self.cam.h}")
         if format_str == "MJPG":
             print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
         
-        return True
-    
-    def close_camera(self):
-        """Close the camera - common implementation."""
-        # Stop recording
-        self.recording_manager.stop()
-        
-        # Stop frame grabber
-        self.frame_grabber.stop()
-        
-        if self.cam:
-            self.cam.release()
-            self.cam = None
-        
-        self.open_camera_btn.config(text="Open Camera")
-        self.status_label.config(text="Camera closed", foreground="black")
-        print("[INFO] Camera closed (preview window remains open)")
+        # Preview is always on, no need to start it here
     
     def _load_camera_control_ranges(self):
-        """Load control ranges from camera - platform-specific implementation."""
-        pass
+        """Load control ranges from camera."""
+        if not self.camera_info or not self.camera_info.device_path:
+            return
+        
+        controls_to_check = ["brightness", "contrast", "saturation", "gain"]
+        for ctrl_name in controls_to_check:
+            range_info = get_camera_control_range(self.camera_info.device_path, ctrl_name)
+            if range_info:
+                self.control_ranges[ctrl_name] = range_info
+                # Update slider range if found
+                if ctrl_name in self.control_vars:
+                    # Find the slider widget
+                    for widget in self.param_frame.winfo_children():
+                        if isinstance(widget, ttk.Frame):
+                            for child in widget.winfo_children():
+                                if isinstance(child, tk.Scale):
+                                    # Check if this is the right control by checking label
+                                    prev_widget = None
+                                    for w in widget.winfo_children():
+                                        if isinstance(w, ttk.Label):
+                                            if ctrl_name.lower() in w.cget("text").lower():
+                                                child.config(from_=range_info['min'], to=range_info['max'])
+                                                self.control_vars[ctrl_name].set(range_info.get('default', 0))
+                                                break
     
     def _apply_camera_controls(self):
-        """Apply current control values to camera - platform-specific implementation."""
-        pass
+        """Apply current control values to camera."""
+        if not self.camera_info or not self.camera_info.device_path:
+            return
+        
+        for ctrl_name, var in self.control_vars.items():
+            val = int(var.get())
+            set_camera_control(self.camera_info.device_path, ctrl_name, val)
     
     def update_scale_info(self):
         """Update scale information display."""
@@ -392,12 +528,38 @@ class BaseCaptureApp:
         self.scale_label.config(text=f"{sw}×{sh}")
         print(f"[INFO] {self.format_var.get()} {self.cam.w}×{self.cam.h} → {sw}×{sh} ({p:.1f}%)")
     
+    def scaled_size(self):
+        """Get scaled output size."""
+        if not self.cam:
+            return 640, 480
+        p = max(1, min(100, float(self.scale_percent.get())))
+        return int(self.cam.w * p / 100), int(self.cam.h * p / 100)
+    
     def reset_controls(self):
-        """Reset camera controls to defaults - platform-specific implementation."""
-        pass
+        """Reset camera controls to defaults."""
+        if not self.cam or not self.camera_info:
+            return
+        
+        defaults = {
+            "brightness": 0,
+            "contrast": 32,
+            "saturation": 60,
+            "gain": 32
+        }
+        
+        for name, default_val in defaults.items():
+            if name in self.control_vars:
+                # Use range default if available
+                if name in self.control_ranges:
+                    default_val = self.control_ranges[name].get('default', default_val)
+                self.control_vars[name].set(default_val)
+                if self.camera_info.device_path:
+                    set_camera_control(self.camera_info.device_path, name, default_val)
+        
+        print("[INFO] Controls reset to defaults")
     
     def capture_frame(self):
-        """Capture a single frame - common implementation."""
+        """Capture a single frame."""
         if not self.cam or not self.cam.is_open():
             messagebox.showinfo("Camera", "Open camera first.")
             return
@@ -433,7 +595,7 @@ class BaseCaptureApp:
         self.status_label.config(text=f"Saved: {os.path.basename(output_path)}", foreground="blue")
     
     def toggle_record(self):
-        """Toggle video recording - common implementation."""
+        """Toggle video recording."""
         if not self.cam or not self.cam.is_open():
             messagebox.showinfo("Camera", "Open camera first.")
             return
@@ -443,9 +605,11 @@ class BaseCaptureApp:
         else:
             self.recording_manager.start()
     
+
     def on_close(self):
-        """Handle application close - common implementation."""
+        """Handle application close."""
         print("[INFO] Closing application")
+        # Stop preview before closing
         self.preview_manager.stop()
         self.recording_manager.stop()
         self.frame_grabber.stop()
@@ -455,3 +619,24 @@ class BaseCaptureApp:
         
         cv2.destroyAllWindows()
         self.root.destroy()
+
+
+# ============ Main ============
+def main():
+    """Main entry point."""
+    print(f"[INFO] UVC Camera Capture GUI starting...")
+    print(f"[INFO] Preview debug mode: {'ENABLED' if DEBUG_PREVIEW else 'DISABLED'}")
+    if DEBUG_PREVIEW:
+        print("[INFO] Detailed debug messages will be printed for preview operations")
+    
+    root = tk.Tk()
+    app = CaptureApp(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.bind("<Escape>", lambda e: app.on_close())
+    
+    print("[INFO] UVC Camera Capture GUI ready")
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
