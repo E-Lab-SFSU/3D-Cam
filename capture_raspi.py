@@ -15,12 +15,13 @@ from queue import Queue, Empty
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from lib.camera import Camera
-from lib.camera_info import (
+from lib.capture import (
+    Camera,
     list_all_cameras, get_camera_info, CameraInfo,
-    set_camera_control, get_camera_control, get_camera_control_range
+    set_camera_control, get_camera_control, get_camera_control_range,
+    PreviewManager, FrameGrabber, RecordingManager,
+    make_capture_output_path, make_capture_frame_path
 )
-from lib.capture import PreviewManager, FrameGrabber, RecordingManager, make_capture_output_path, make_capture_frame_path
 
 
 # ============ Debug Configuration ============

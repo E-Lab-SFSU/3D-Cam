@@ -49,7 +49,7 @@ from lib.pair.pair_draw import (
 )
 from lib.capture.util_paths import ts_name, path_stem, export_paths_for
 from lib.pair.preset_io import save_preset_file, load_preset_file
-from lib.ui import build_gui as ui_build_gui, set_controls_enabled as ui_set_controls_enabled, reset_defaults_ui as ui_reset_defaults_ui
+from lib.pair.ui import build_gui as ui_build_gui, set_controls_enabled as ui_set_controls_enabled, reset_defaults_ui as ui_reset_defaults_ui
 from lib.pair.pair_tracker import PairTracker
 
 # ============ Persistent preset file ============

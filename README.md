@@ -541,13 +541,21 @@ The system builds an averaged background model from the entire video before proc
 ├── visualize3d.py             # 3D trajectory visualization
 ├── z_histogram.py             # Z height distribution histogram
 ├── lib/                       # Library modules
-│   ├── camera.py              # Camera abstraction
-│   ├── pair/                  # Pair detection algorithms
+│   ├── pair/                  # Pair detection and tracking
 │   │   ├── pair_algorithms.py # Detection and pairing logic
 │   │   ├── pair_draw.py       # Visualization overlays
 │   │   ├── pair_tracker.py    # Multi-frame tracking
-│   │   └── preset_io.py       # Settings persistence
-│   └── capture/               # Video capture utilities
+│   │   ├── preset_io.py       # Settings persistence
+│   │   └── ui.py              # GUI for pair detection
+│   ├── capture/               # Video capture and camera
+│   │   ├── camera.py          # Camera abstraction
+│   │   ├── camera_info.py     # Camera information and controls
+│   │   ├── frame_grabber.py   # Frame acquisition thread
+│   │   ├── preview_manager.py # Preview window manager
+│   │   ├── recording_manager.py # Video recording manager
+│   │   └── util_paths.py      # Path utilities
+│   └── visualizing/           # Visualization components
+│       └── base_visualizer.py # Base 3D visualizer class
 ├── calibrations/              # Calibration JSON files
 ├── inputs_outputs/            # All video and data outputs organized by capture
 │   └── video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/

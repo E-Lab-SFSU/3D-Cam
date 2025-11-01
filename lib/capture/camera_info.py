@@ -37,7 +37,7 @@ _parent_dir = os.path.dirname(_script_dir)
 if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
-from lib.camera import detect_cameras, get_camera_backend, is_linux, is_raspberry_pi, read_frame_with_timeout
+from lib.capture.camera import detect_cameras, get_camera_backend, is_linux, is_raspberry_pi, read_frame_with_timeout
 
 
 def fourcc_int_to_string(fourcc_int: int) -> str:
