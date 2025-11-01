@@ -547,7 +547,19 @@ class Camera:
         # Optimized path for single read (most common case in frame grabber)
         if max_retries == 1:
             try:
-                ok, frame = self.cap.read()
+                # On V4L2, use timeout to avoid blocking indefinitely (prevents "select() timeout" errors)
+                is_linux_os = is_linux()
+                using_v4l2 = is_linux_os and (
+                    self.backend == cv2.CAP_V4L2 or 
+                    (self.actual_backend and 'V4L2' in str(self.actual_backend))
+                )
+                
+                if using_v4l2:
+                    # Use timeout wrapper for V4L2 to prevent blocking
+                    ok, frame = read_frame_with_timeout(self.cap, timeout=1.0)
+                else:
+                    ok, frame = self.cap.read()
+                
                 if ok and frame is not None:
                     # Quick validation - just check basic structure
                     try:
@@ -560,9 +572,20 @@ class Camera:
                 return None
         
         # Retry logic for reading frames (when max_retries > 1)
+        # On V4L2, use timeout to avoid blocking indefinitely (prevents "select() timeout" errors)
+        is_linux_os = is_linux()
+        using_v4l2 = is_linux_os and (
+            self.backend == cv2.CAP_V4L2 or 
+            (self.actual_backend and 'V4L2' in str(self.actual_backend))
+        )
+        
         for attempt in range(max_retries):
             try:
-                ok, frame = self.cap.read()
+                if using_v4l2:
+                    # Use timeout wrapper for V4L2 to prevent blocking
+                    ok, frame = read_frame_with_timeout(self.cap, timeout=1.0)
+                else:
+                    ok, frame = self.cap.read()
                 
                 # Check if read was successful
                 if not ok:
