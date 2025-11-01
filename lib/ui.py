@@ -168,6 +168,19 @@ def build_gui(
     row = 0
     add_slider(row, "Binary Threshold", "threshold", 0, 255); row += 1
     add_slider(row, "Gaussian Blur Size (odd)", "blur", 1, 25); row += 1
+    
+    # Invert threshold checkbox (for black particles on white background)
+    def add_param_check(row, label, key):
+        var = tk.IntVar(value=int(params.get(key, 0)))
+        chk = ttk.Checkbutton(
+            frm_params, text=label, variable=var,
+            command=lambda k=key, v=var: params.__setitem__(k, int(v.get()))
+        )
+        chk.grid(row=row, column=0, columnspan=3, sticky="w", padx=4, pady=2)
+        widgets[f"chk_{key}"] = chk
+        gui_vars_check[key] = var  # Store in check vars for reset functionality
+    
+    add_param_check(row, "Black particles on white background", "invert_threshold"); row += 1
     add_slider_contrast(row); row += 1
     add_slider(row, "Min Blob Area (px²)", "minArea", 0, 200); row += 1
     add_slider(row, "Max Blob Area (px²)", "maxArea", 100, 200); row += 1
@@ -375,7 +388,11 @@ def reset_defaults_ui(
     # Reflect in GUI checkboxes
     for key, var in gui_vars_check.items():
         try:
-            var.set(overlays[key])
+            # Check if it's an overlay or a parameter
+            if key in overlays:
+                var.set(overlays[key])
+            elif key in params:
+                var.set(params[key])
         except Exception:
             pass
 

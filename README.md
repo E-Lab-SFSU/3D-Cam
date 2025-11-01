@@ -124,6 +124,9 @@ python pair_detect.py
 3. Tune detection parameters:
    - **Threshold**: Binary threshold for particle detection (0-255)
    - **Blur**: Gaussian blur kernel size to reduce noise
+   - **Invert Threshold**: Checkbox to enable inverted threshold mode
+     - Unchecked (default): For **white particles on black background**
+     - Checked: For **black particles on white background**
    - **Min/Max Area**: Size constraints for valid particles (px²)
    - **Pairing constraints**: Maximum radial gap, angle difference, center offset
 4. Adjust pairing weights:
@@ -136,12 +139,36 @@ python pair_detect.py
    - **Hungarian**: Optimal global matching (recommended)
 6. Export the processed video with tracked pairs
 
-**Detection Method:**
+**Image Processing Pipeline:**
 
-1. **Binary Thresholding**: Convert grayscale to binary using adaptive threshold
-2. **Background Subtraction**: Remove static background using running average
-3. **Blob Detection**: Find connected components that meet size constraints
-4. **Pair Matching**: Score candidate pairs based on:
+The detection system processes each video frame through the following pipeline:
+
+1. **Frame Loading**: Load BGR color frame from video
+2. **Grayscale Conversion**: Convert to single-channel grayscale image
+3. **Background Subtraction**: Remove static background using pre-computed averaged background model
+   - Background model is built once from the entire video at the start
+   - Uses stationary pixel averaging: only pixels with low temporal variation contribute
+   - Subtracts background: `result = |frame - background|`
+4. **Contrast Enhancement**: Adjust contrast to improve particle visibility
+   - Formula: `result = (pixel - 128) × contrast_factor + 128`
+   - Default contrast factor: 100% (no change), adjustable 0-200%
+5. **Gaussian Blur**: Smooth the image to reduce noise before thresholding
+   - Kernel size: adjustable (1, 3, 5, 7, ... pixels)
+   - Larger kernels = more smoothing but less detail
+6. **Binary Thresholding**: Convert grayscale to binary (black/white) image
+   - **Normal mode** (default): pixels above threshold → white (255), below → black (0)
+     - Use for **white particles on black background**
+   - **Inverted mode**: pixels above threshold → black (0), below → white (255)
+     - Enable via checkbox: "Black particles on white background"
+     - Use for **black particles on white background**
+   - Threshold value: adjustable (0-255)
+7. **Blob Detection**: Find connected components (blobs) in binary image
+   - Uses contour detection to identify particle candidates
+   - Filters by size constraints: `minArea ≤ area ≤ maxArea`
+   - Filters by dimensions: width/height ≤ `maxW`
+   - Extracts blob properties: center position (xc, yc), bounding box, area
+   - Converts to polar coordinates (theta, radius) relative to optical center
+8. **Pair Matching**: Score candidate pairs based on:
    - **Angular Similarity** (`S_theta`): How close are the angles from center?
      ```
      S_theta = 1 - (|θ_A - θ_C| / maxDMR)
@@ -437,11 +464,37 @@ The optical center is the point where particle pairs align along radial lines. T
 
 ### Background Subtraction
 
-Averaged background model built from stationary pixels:
-- Running average: `background = α × background + (1-α) × frame`
-- Only pixels with small temporal variation contribute
-- Threshold: `diff < static_thresh` (default 6 pixels)
-- Minimum static ratio: `min_static_ratio` of frame must be static
+The system builds an averaged background model from the entire video before processing:
+
+**Background Model Construction:**
+1. **Two-Pass Analysis**: 
+   - First pass: Running average to identify stationary regions
+   - Second pass: Averaged accumulation of only stationary pixels
+
+2. **Running Average** (for motion detection):
+   ```
+   bg_run = α × bg_run + (1-α) × frame
+   ```
+   - `α = 0.95` (default): Higher values = slower adaptation
+   - Tracks overall scene brightness changes
+
+3. **Stationary Pixel Detection**:
+   ```
+   diff = |frame - bg_run|
+   stationary_mask = (diff < static_thresh)
+   ```
+   - `static_thresh = 6` (default): Pixels with variation < 6 are considered static
+   - Only frames where ≥80% of pixels are static contribute to background
+
+4. **Accumulated Averaging** (for final background):
+   - Only stationary pixels from qualifying frames are averaged
+   - Final background: `background = accumulated_sum / pixel_count`
+   - Results in a clean background model free of moving objects
+
+**Background Subtraction Application**:
+- Applied to each frame during detection: `result = |frame_gray - background|`
+- Highlights moving objects (particles) while suppressing static scene elements
+- Critical for detecting small particles against complex backgrounds
 
 ## File Structure
 
@@ -491,6 +544,7 @@ Averaged background model built from stationary pixels:
 
 ### Poor Pair Detection
 - Adjust threshold and blur parameters
+- **Check threshold mode**: Enable "Black particles on white background" if your particles are dark on a light background
 - Ensure good lighting and contrast
 - Check that optical center is correctly set
 - Try different pairing algorithm (Hungarian recommended)

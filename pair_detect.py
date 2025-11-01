@@ -60,6 +60,7 @@ DEFAULT_PARAMS = {
     # --- Binarization ---
     "threshold":     70,   # [0..255] Binary threshold applied after blur
     "blur":           1,   # Odd kernel size for Gaussian blur (1,3,5,7...). Smooths noise before threshold
+    "invert_threshold": 0, # 0 = white particles on black background, 1 = black particles on white background
 
     # --- Blob constraints ---
     "minArea":       20,   # Minimum area (px^2) for valid blob bounding box (w*h)
@@ -560,7 +561,8 @@ def optimize_optical_center():
         gray_contrast = apply_contrast(gray_bgsub)
         
         blur = cv2.GaussianBlur(gray_contrast, (max(1, int(p["blur"])|1), max(1, int(p["blur"])|1)), 0)
-        _, binary = cv2.threshold(blur, int(p["threshold"]), 255, cv2.THRESH_BINARY)
+        thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
         
         blobs = alg_detect(binary, test_cx, test_cy, p)
         method = p.get("pair_method", "Hungarian")
@@ -726,7 +728,8 @@ def export_video():
         
         # Use contrast-enhanced bg-subtracted image for detection and display
         blur = cv2.GaussianBlur(gray_contrast, (max(1, int(p["blur"])|1), max(1, int(p["blur"])|1)), 0)  # ensure odd ksize
-        _, binary = cv2.threshold(blur, int(p["threshold"]), 255, cv2.THRESH_BINARY)
+        thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
 
         # Detection + pairing
         blobs = alg_detect(binary, xCenter, yCenter, p)
@@ -1432,7 +1435,9 @@ def preview_loop():
         ksize = max(1, int(params["blur"]))
         if ksize % 2 == 0: ksize += 1
         blur = cv2.GaussianBlur(gray_contrast, (ksize, ksize), 0)
-        _, binary = cv2.threshold(blur, int(params["threshold"]), 255, cv2.THRESH_BINARY)
+        # Use inverted threshold for black particles on white background
+        thresh_type = cv2.THRESH_BINARY_INV if params.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        _, binary = cv2.threshold(blur, int(params["threshold"]), 255, thresh_type)
 
         # Default center if user hasn't clicked yet
         if not center_valid or xCenter is None or yCenter is None:
