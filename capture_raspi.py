@@ -130,58 +130,16 @@ class CaptureApp(BaseCaptureApp):
             messagebox.showerror("Camera Error", f"Failed to open camera {self.camera_info.index}")
             return
         
-        # Stop frame grabber if running
-        self.frame_grabber.stop()
+        # Finalize camera opening (common logic in base class)
+        if not self._finalize_camera_open(format_str):
+            return
         
-        # Clear frame queue
-        while not self.frame_queue.empty():
-            try:
-                self.frame_queue.get_nowait()
-            except Empty:
-                break
-        
-        # Load camera control ranges
+        # Set power line frequency to 60 Hz automatically (Raspberry Pi specific)
         if self.camera_info.device_path:
-            self._load_camera_control_ranges()
-            # Apply current control values
-            self._apply_camera_controls()
-            # Set power line frequency to 60 Hz automatically
             set_camera_control(self.camera_info.device_path, "power_line_frequency", 2)
         
-        # Get actual camera FPS (may be 0 if not set, meaning max speed)
-        actual_fps = self.cam.cap.get(cv2.CAP_PROP_FPS) if self.cam.cap else 0
-        
-        # Update FPS display
-        if actual_fps == 0:
-            self.fps_label.config(text="FPS: Max speed")
-            print("[INFO] Camera set to capture at maximum speed (FPS not limited)")
-            # Use 30 FPS for output if capturing at max speed
-            output_fps = 30.0
-        else:
-            self.fps_label.config(text=f"FPS: {actual_fps:.1f}")
-            print(f"[INFO] Camera FPS: {actual_fps:.1f}")
-            output_fps = actual_fps
-        
-        # Start frame grabber (after camera is fully initialized)
-        self.frame_grabber.start(self.cam)
-        
-        self.update_scale_info()
-        
-        # Update UI
-        self.open_camera_btn.config(text="Close Camera")
-        self.status_label.config(text=f"Camera {self.camera_info.index} ready", foreground="green")
-        if actual_fps == 0:
-            self.fps_label.config(text="FPS: Max speed")
-        else:
-            self.fps_label.config(text=f"FPS: {actual_fps:.1f}")
-        
-        print("[INFO] Camera opened successfully")
-        print(f"[INFO] Using automatic exposure (default)")
-        print(f"[INFO] Power line frequency set to 60 Hz")
-        print(f"[INFO] Output video will be recorded at {output_fps:.1f} FPS")
-        print(f"[INFO] Format: {format_str}, Resolution: {self.cam.w}x{self.cam.h}")
-        if format_str == "MJPG":
-            print("[INFO] Note: MJPG at 1920x1080 may require more processing time")
+        print("[INFO] Using automatic exposure (default)")
+        print("[INFO] Power line frequency set to 60 Hz")
     
     def _load_camera_control_ranges(self):
         """Load control ranges from camera using V4L2."""
