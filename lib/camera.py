@@ -547,19 +547,9 @@ class Camera:
         # Optimized path for single read (most common case in frame grabber)
         if max_retries == 1:
             try:
-                # On V4L2, use timeout wrapper to avoid blocking (prevents "select() timeout" errors)
-                # Note: grab()+retrieve() is only for Windows MJPEG high-res, NOT for V4L2
-                is_linux_os = is_linux()
-                using_v4l2 = is_linux_os and (
-                    self.backend == cv2.CAP_V4L2 or 
-                    (self.actual_backend and 'V4L2' in str(self.actual_backend))
-                )
-                
-                if using_v4l2:
-                    # Use timeout wrapper for V4L2 to prevent blocking indefinitely
-                    ok, frame = read_frame_with_timeout(self.cap, timeout=2.0)
-                else:
-                    ok, frame = self.cap.read()
+                # Just use cap.read() directly - V4L2 will handle its own timeouts
+                # The "select() timeout" warnings are harmless and frames will still be read
+                ok, frame = self.cap.read()
                 
                 if ok and frame is not None:
                     # Quick validation - just check basic structure
@@ -573,20 +563,9 @@ class Camera:
                 return None
         
         # Retry logic for reading frames (when max_retries > 1)
-        # On V4L2, use timeout wrapper to avoid blocking
-        is_linux_os = is_linux()
-        using_v4l2 = is_linux_os and (
-            self.backend == cv2.CAP_V4L2 or 
-            (self.actual_backend and 'V4L2' in str(self.actual_backend))
-        )
-        
         for attempt in range(max_retries):
             try:
-                if using_v4l2:
-                    # Use timeout wrapper for V4L2 to prevent blocking indefinitely
-                    ok, frame = read_frame_with_timeout(self.cap, timeout=2.0)
-                else:
-                    ok, frame = self.cap.read()
+                ok, frame = self.cap.read()
                 
                 # Check if read was successful
                 if not ok:
