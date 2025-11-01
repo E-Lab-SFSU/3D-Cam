@@ -21,6 +21,29 @@ The system consists of several components:
 3. **Pair Detection** (`pair_detect.py`): Detect and track particle pairs in video
 4. **Video Calibration** (`calibrate_video.py`): Calibrate Z-height measurements using known heights
 5. **3D Visualization** (`visualize3d.py`): Visualize 3D trajectories interactively
+6. **Z Height Histogram** (`z_histogram.py`): Analyze and visualize Z height distribution
+
+## Tools Summary
+
+### Core Processing Tools
+
+- **`pair_detect.py`** - Main pair detection and tracking tool. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata.
+
+- **`calibrate_image.py`** - Image scale calibration tool. Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements.
+
+- **`calibrate_video.py`** - Z-height calibration tool. Uses videos of objects at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights.
+
+### Visualization Tools
+
+- **`visualize3d.py`** - Interactive 3D trajectory visualizer. Displays particle trajectories in 3D space with time scrubbing, track selection, trail visualization, and video export capabilities.
+
+- **`z_histogram.py`** - Z height distribution analyzer. Creates histograms showing the frequency distribution of Z heights with logarithmic scale, adjustable bins, and statistical summaries (mean, median, standard deviation).
+
+### Capture Tools
+
+- **`capture_raspi.py`** - Raspberry Pi video capture application for recording videos from UVC cameras.
+
+- **`capture_windows.py`** - Windows video capture application for recording videos from USB cameras.
 
 ## Usage
 
@@ -328,6 +351,38 @@ Once calibrated, full 3D coordinates are computed:
 
 **Output:** Video file saved to `3dvis_output/` directory
 
+### Step 6: Z Height Histogram Analysis
+
+```bash
+python z_histogram.py
+```
+
+**Purpose:** Analyze and visualize the distribution of Z heights in your tracked data.
+
+**Procedure:**
+1. The tool automatically loads the latest CSV file from `pair_detect_output` (or manually load a different CSV)
+2. View the histogram showing Z height distribution:
+   - **X-axis**: Z Height (mm)
+   - **Y-axis**: Frequency (Count) - logarithmic scale
+3. Adjust histogram settings:
+   - **Bins**: Slider to control number of histogram bins (10-200)
+4. View statistics panel showing:
+   - Mean Z height
+   - Median Z height
+   - Standard deviation
+   - Minimum and maximum values
+5. Export histogram as image (PNG, PDF, or SVG)
+
+**Use Cases:**
+- Analyze height distribution of particles in your video
+- Verify calibration quality (should see expected height clusters)
+- Detect anomalies or outliers in height measurements
+- Compare distributions across different experimental conditions
+
+**Requirements:** CSV file must contain `Z_mm` column (requires calibration data during export from `pair_detect.py`)
+
+**Output:** Histogram image file (optional export)
+
 ## Methods and Algorithms
 
 ### Pair Detection Algorithms
@@ -398,6 +453,7 @@ Averaged background model built from stationary pixels:
 ├── calibrate_video.py         # Z-height calibration
 ├── pair_detect.py             # Main pair detection and tracking
 ├── visualize3d.py             # 3D trajectory visualization
+├── z_histogram.py             # Z height distribution histogram
 ├── lib/                       # Library modules
 │   ├── camera.py              # Camera abstraction
 │   ├── pair/                  # Pair detection algorithms
