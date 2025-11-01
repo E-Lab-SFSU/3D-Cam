@@ -45,5 +45,11 @@
     "y": 217,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/capture_output/z4mm_objects.mp4"
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z3mm_objects\\z3mm_objects.mp4",
+  "calibration": {
+    "magic_constant": 2.9572531996025875,
+    "magic_offset": 0.5250562897609641,
+    "working_distance_mm": 21.74,
+    "pixels_per_mm": null
+  }
 }

@@ -37,12 +37,30 @@ def make_session_output_dir(video_path: str) -> str:
 
 def export_paths_for(video_path: str) -> dict:
     """Return dict with session dir and standard file paths inside it."""
-    out_dir = make_session_output_dir(video_path)
+    # Get the folder containing the video
+    video_dir = os.path.dirname(video_path)
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    
+    # Generate filenames with counter suffix if multiple exports exist
+    def get_unique_path(base_suffix: str, ext: str) -> str:
+        """Get unique path by appending -1, -2, etc. if file already exists."""
+        base_path = os.path.join(video_dir, f"{base_name}{base_suffix}.{ext}")
+        if not os.path.exists(base_path):
+            return base_path
+        
+        counter = 1
+        while True:
+            numbered_path = os.path.join(video_dir, f"{base_name}{base_suffix}-{counter}.{ext}")
+            if not os.path.exists(numbered_path):
+                return numbered_path
+            counter += 1
+    
+    # Use the same folder as the video for all outputs
     return {
-        "dir": out_dir,
-        "tracked_mp4": os.path.join(out_dir, "tracked_export.mp4"),
-        "binary_mp4": os.path.join(out_dir, "binary_overlay_export.mp4"),
-        "pairs_csv": os.path.join(out_dir, "pairs.csv"),
+        "dir": video_dir,
+        "tracked_mp4": get_unique_path("-grayscale", "mp4"),  # Grayscale output
+        "binary_mp4": get_unique_path("-binary", "mp4"),  # Binary output
+        "pairs_csv": get_unique_path("-paired-tracked", "csv"),
     }
 
 
@@ -56,31 +74,37 @@ def get_script_dir():
         # If running as script
         return os.path.dirname(os.path.abspath(sys.argv[0]))
 
-# Get script directory and create capture_output path relative to it
+# Get script directory and create inputs_outputs/videos path relative to it
 _script_dir = get_script_dir()
-CAPTURE_OUTPUT_DIR = os.path.join(_script_dir, "capture_output")
+CAPTURE_OUTPUT_DIR = os.path.join(_script_dir, "inputs_outputs/videos")
 
 
 def make_capture_output_path(width: int, height: int, fps: int) -> str:
     """
-    Create output path for captured video.
-    Returns: capture_output/video_WxH_YYYYmmdd_HHMMSS.mp4
+    Create output path for captured video in its own folder.
+    Returns: inputs_outputs/video_WxH_YYYYmmdd_HHMMSS/video_WxH_YYYYmmdd_HHMMSS.mp4
     """
-    ensure_dir(CAPTURE_OUTPUT_DIR)
-    name = ts_name(f"video_{width}x{height}_{fps}fps", "mp4")
-    path = os.path.join(CAPTURE_OUTPUT_DIR, name)
+    base_name = ts_name(f"video_{width}x{height}_{fps}fps", "")
+    folder_path = os.path.join("inputs_outputs", base_name)
+    ensure_dir(folder_path)
+    
+    video_filename = base_name + ".mp4"
+    path = os.path.join(folder_path, video_filename)
     print(f"[DEBUG] Video will be saved to: {os.path.abspath(path)}")
     return path
 
 
 def make_capture_frame_path(width: int, height: int) -> str:
     """
-    Create output path for captured frame.
-    Returns: capture_output/frame_WxH_YYYYmmdd_HHMMSS.png
+    Create output path for captured frame in its own folder.
+    Returns: inputs_outputs/frame_WxH_YYYYmmdd_HHMMSS/frame_WxH_YYYYmmdd_HHMMSS.png
     """
-    ensure_dir(CAPTURE_OUTPUT_DIR)
-    name = ts_name(f"frame_{width}x{height}", "png")
-    path = os.path.join(CAPTURE_OUTPUT_DIR, name)
+    base_name = ts_name(f"frame_{width}x{height}", "")
+    folder_path = os.path.join("inputs_outputs", base_name)
+    ensure_dir(folder_path)
+    
+    frame_filename = base_name + ".png"
+    path = os.path.join(folder_path, frame_filename)
     print(f"[DEBUG] Frame will be saved to: {os.path.abspath(path)}")
     return path
 

@@ -21,6 +21,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from typing import List, Optional
+from datetime import datetime
 import os
 
 
@@ -36,6 +37,7 @@ class ZHistogramViewer:
         
         # Histogram settings
         self.bin_count = 50
+        self.log_y_scale = True  # Default to logarithmic Y-axis
         
         # Setup UI
         self.setup_ui()
@@ -85,6 +87,16 @@ class ZHistogramViewer:
         bin_scale.pack(side="left", fill="x", expand=True, padx=5)
         self.bin_label = ttk.Label(bin_frame, text="50")
         self.bin_label.pack(side="left")
+        
+        # Logarithmic Y-axis checkbox
+        self.log_y_var = tk.BooleanVar(value=True)
+        log_y_check = ttk.Checkbutton(
+            settings_frame,
+            text="Logarithmic Y-axis",
+            variable=self.log_y_var,
+            command=self.on_log_y_changed
+        )
+        log_y_check.pack(fill="x", pady=5)
         
         # Statistics display
         stats_frame = ttk.LabelFrame(left_panel, text="Statistics", padding="10")
@@ -140,14 +152,19 @@ class ZHistogramViewer:
         self.bin_label.config(text=str(self.bin_count))
         self.update_histogram()
     
+    def on_log_y_changed(self):
+        """Handle logarithmic Y-axis toggle."""
+        self.log_y_scale = self.log_y_var.get()
+        self.update_histogram()
+    
     def auto_load_latest_csv(self):
-        """Automatically load the latest CSV file from pair_detect_output."""
-        output_dir = Path("pair_detect_output")
+        """Automatically load the latest CSV file from inputs_outputs."""
+        output_dir = Path("inputs_outputs")
         if not output_dir.exists():
             return
         
-        # Find all CSV files
-        csv_files = list(output_dir.rglob("pairs.csv"))
+        # Find all CSV files in inputs_outputs subdirectories
+        csv_files = list(output_dir.rglob("*.csv"))
         if not csv_files:
             return
         
@@ -164,8 +181,9 @@ class ZHistogramViewer:
     def load_csv(self):
         """Open file dialog to load CSV file."""
         file_path = filedialog.askopenfilename(
-            title="Load Pair CSV File",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            title="Load CSV File",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialdir="inputs_outputs"
         )
         if file_path:
             self.load_csv_file(file_path)
@@ -276,8 +294,11 @@ class ZHistogramViewer:
         self.ax.set_ylabel('Frequency (Count)', fontsize=12)
         self.ax.set_title(f'Z Height Distribution (n={len(self.z_values)})', fontsize=14, fontweight='bold')
         
-        # Set Y-axis to logarithmic scale
-        self.ax.set_yscale('log')
+        # Set Y-axis scale (logarithmic or linear) based on checkbox
+        if self.log_y_scale:
+            self.ax.set_yscale('log')
+        else:
+            self.ax.set_yscale('linear')
         
         # Add grid
         self.ax.grid(True, alpha=0.3, axis='y')
@@ -306,23 +327,30 @@ class ZHistogramViewer:
             messagebox.showwarning("No Data", "Please load a CSV file first.")
             return
         
-        file_path = filedialog.asksaveasfilename(
-            title="Save Histogram Image",
-            defaultextension=".png",
-            filetypes=[
-                ("PNG files", "*.png"),
-                ("PDF files", "*.pdf"),
-                ("SVG files", "*.svg"),
-                ("All files", "*.*")
-            ]
-        )
+        # Generate filename based on CSV filename and save in same folder as CSV
+        if self.csv_path:
+            csv_path_obj = Path(self.csv_path)
+            csv_dir = csv_path_obj.parent
+            csv_name = csv_path_obj.stem  # Full filename without extension
+            # Output: *csvname*-histogram.png, or *csvname*-histogram-N.png if multiple exist
+            base_output = csv_dir / f"{csv_name}-histogram.png"
+            counter = 1
+            file_path = base_output
+            while file_path.exists():
+                file_path = csv_dir / f"{csv_name}-histogram-{counter}.png"
+                counter += 1
+        else:
+            # Fallback: use histogram_output folder
+            output_dir = Path("histogram_output")
+            output_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_path = output_dir / f"histogram_{timestamp}.png"
         
-        if file_path:
-            try:
-                self.fig.savefig(file_path, dpi=300, bbox_inches='tight')
-                messagebox.showinfo("Success", f"Histogram saved to:\n{file_path}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to save image:\n{e}")
+        try:
+            self.fig.savefig(str(file_path), dpi=300, bbox_inches='tight')
+            messagebox.showinfo("Success", f"Histogram saved to:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save image:\n{e}")
 
 
 def main():

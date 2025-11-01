@@ -10,6 +10,7 @@ def save_preset_file(
     overlay_targets: Dict,
     center: Tuple[int, int, bool],
     video_path: str,
+    calibration_data: Dict = None,
 ) -> bool:
     data = {
         "params": params,
@@ -18,6 +19,9 @@ def save_preset_file(
         "center": {"x": center[0], "y": center[1], "valid": bool(center[2])},
         "video_path": video_path,
     }
+    # Add calibration data if provided
+    if calibration_data:
+        data["calibration"] = calibration_data
     try:
         with open(preset_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -34,7 +38,7 @@ def load_preset_file(
     video_path: str,
 ):
     if not os.path.exists(preset_path):
-        return params, overlays, overlay_targets, (None, None, False), video_path, False
+        return params, overlays, overlay_targets, (None, None, False), video_path, False, None
     try:
         with open(preset_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -67,8 +71,9 @@ def load_preset_file(
             valid = bool(c.get("valid", False) and cx is not None and cy is not None)
 
         new_video_path = data.get("video_path", video_path)
-        return out_params, out_overlays, out_targets, (cx, cy, valid), new_video_path, True
+        calibration_data = data.get("calibration", None)
+        return out_params, out_overlays, out_targets, (cx, cy, valid), new_video_path, True, calibration_data
     except Exception:
-        return params, overlays, overlay_targets, (None, None, False), video_path, False
+        return params, overlays, overlay_targets, (None, None, False), video_path, False, None
 
 

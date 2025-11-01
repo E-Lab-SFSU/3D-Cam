@@ -53,21 +53,21 @@ class VideoEntry:
     def __init__(self, frame, row):
         self.frame = frame
         self.row = row
-        self.folder_var = tk.StringVar()
+        self.csv_var = tk.StringVar()
         self.height_var = tk.StringVar()
-        self.folder_path = ""
+        self.csv_path = ""
         self.mm_height: Optional[float] = None
         
         # Create widgets
-        ttk.Label(frame, text=f"Video {row + 1}:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+        ttk.Label(frame, text=f"CSV {row + 1}:").grid(row=0, column=0, sticky="w", padx=(0, 5))
         
-        folder_label = ttk.Label(frame, text="No folder selected", foreground="gray")
-        folder_label.grid(row=0, column=1, sticky="w", padx=5)
-        self.folder_label = folder_label
+        csv_label = ttk.Label(frame, text="No CSV selected", foreground="gray")
+        csv_label.grid(row=0, column=1, sticky="w", padx=5)
+        self.csv_label = csv_label
         
-        folder_btn = ttk.Button(frame, text="📂 Browse", 
-                               command=lambda: self.select_folder())
-        folder_btn.grid(row=0, column=2, padx=5)
+        csv_btn = ttk.Button(frame, text="📂 Browse", 
+                            command=lambda: self.select_csv())
+        csv_btn.grid(row=0, column=2, padx=5)
         
         ttk.Label(frame, text="Height (mm):").grid(row=1, column=0, sticky="w", padx=(0, 5), pady=(5, 0))
         height_entry = ttk.Entry(frame, textvariable=self.height_var, width=15)
@@ -86,35 +86,28 @@ class VideoEntry:
         """Set reference to main app."""
         self.app = app
     
-    def select_folder(self):
-        """Open folder dialog to select pair_detect_output folder."""
-        folder = filedialog.askdirectory(
-            title=f"Select pair_detect_output Folder for Video {self.row + 1}",
-            initialdir="pair_detect_output" if os.path.exists("pair_detect_output") else "."
+    def select_csv(self):
+        """Open file dialog to select CSV file."""
+        csv_file = filedialog.askopenfilename(
+            title=f"Select CSV File for Calibration {self.row + 1}",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialdir="inputs_outputs" if os.path.exists("inputs_outputs") else "."
         )
         
-        if folder:
-            pairs_csv = os.path.join(folder, "pairs.csv")
-            if not os.path.exists(pairs_csv):
-                messagebox.showerror(
-                    "Error",
-                    f"pairs.csv not found in:\n{folder}\n\n"
-                    "Please select a valid pair_detect_output folder."
-                )
-                return
-            
-            self.folder_path = folder
-            folder_name = os.path.basename(folder)
-            self.folder_label.config(text=folder_name, foreground="black")
-            print(f"[INFO] Video {self.row + 1}: Selected folder {folder}")
+        if csv_file:
+            self.csv_path = csv_file
+            csv_name = os.path.basename(csv_file)
+            self.csv_label.config(text=csv_name, foreground="black")
+            print(f"[INFO] CSV {self.row + 1}: Selected {csv_name}")
     
-    def get_data(self) -> Optional[Tuple[str, float, float, float, float]]:
+    def get_data(self) -> Optional[Tuple[str, float, float, float, float, Dict, Dict]]:
         """
-        Get folder path, mm height, working distance, average Zprime, and average B from highest quality pairs.
+        Get CSV path, mm height, working distance, average Zprime, and average B from highest quality pairs.
+        Also returns metrics for input and chosen datasets.
         Returns None if invalid.
-        Returns: (folder_path, mm_height, working_distance_mm, avg_zprime, avg_b)
+        Returns: (csv_path, mm_height, working_distance_mm, avg_zprime, avg_b, input_metrics, chosen_metrics)
         """
-        if not self.folder_path or not os.path.exists(self.folder_path):
+        if not self.csv_path or not os.path.exists(self.csv_path):
             return None
         
         if not self.app:
@@ -132,14 +125,13 @@ class VideoEntry:
         except (ValueError, tk.TclError):
             return None
         
-        # Load pairs from pairs.csv and calculate Zprime for highest quality pairs
-        pairs_csv = os.path.join(self.folder_path, "pairs.csv")
-        if not os.path.exists(pairs_csv):
+        # Load pairs from the selected CSV file
+        if not os.path.exists(self.csv_path):
             return None
         
         try:
             pairs_data = []
-            with open(pairs_csv, 'r', encoding='utf-8') as f:
+            with open(self.csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
@@ -162,18 +154,29 @@ class VideoEntry:
             if len(pairs_data) == 0:
                 return None
             
-            # Filter for highest quality pairs (top 20% by score, or pairs with score > 0.9)
+            # Filter for highest quality pairs based on Pair_Score (S) only
+            # B is NOT used in filtering - it's calculated later for metrics only
+            # High S (score) is desirable for better calibration quality and R²
+            # We accept ALL pairs meeting the threshold - many high-quality points is good
             scores = [p["score"] for p in pairs_data]
             if len(scores) > 0:
-                # Use top 20% by score, but at least use score > 0.8 threshold
-                score_threshold = max(0.8, np.percentile(scores, 80))
+                # Primary filter: Accept ALL pairs with score >= 0.9
+                # Many high-quality points improves calibration statistics and R²
+                score_threshold = 0.9
                 quality_pairs = [p for p in pairs_data if p["score"] >= score_threshold]
                 
-                # If we don't have enough, use top 50%
+                # Fallback 1: If we don't have enough pairs (< 10), use score >= 0.85
+                # Still maintains high quality while ensuring sufficient data
                 if len(quality_pairs) < 10:
-                    score_threshold = np.percentile(scores, 50)
+                    score_threshold = 0.85
                     quality_pairs = [p for p in pairs_data if p["score"] >= score_threshold]
                 
+                # Fallback 2: If still not enough, use score >= 0.8
+                if len(quality_pairs) < 10:
+                    score_threshold = 0.8
+                    quality_pairs = [p for p in pairs_data if p["score"] >= score_threshold]
+                
+                # Final fallback: If still no pairs, use all pairs (for robustness)
                 if len(quality_pairs) == 0:
                     quality_pairs = pairs_data  # Fallback to all pairs
             
@@ -197,10 +200,70 @@ class VideoEntry:
             
             avg_zprime = np.mean(zprimes)
             avg_b = np.mean(b_values)
-            return (self.folder_path, mm_val, working_dist_val, avg_zprime, avg_b)
+            
+            # Calculate metrics for chosen/quality pairs
+            chosen_metrics = {
+                "count": len(quality_pairs),
+                "zprime": {
+                    "mean": float(np.mean(zprimes)),
+                    "std": float(np.std(zprimes)),
+                    "min": float(np.min(zprimes)),
+                    "max": float(np.max(zprimes))
+                },
+                "b": {
+                    "mean": float(np.mean(b_values)),
+                    "std": float(np.std(b_values)),
+                    "min": float(np.min(b_values)),
+                    "max": float(np.max(b_values))
+                },
+                "score": {
+                    "mean": float(np.mean([p["score"] for p in quality_pairs])),
+                    "std": float(np.std([p["score"] for p in quality_pairs])),
+                    "min": float(np.min([p["score"] for p in quality_pairs])),
+                    "max": float(np.max([p["score"] for p in quality_pairs]))
+                }
+            }
+            
+            # Calculate metrics for all input pairs
+            all_zprimes = []
+            all_b_values = []
+            all_scores = []
+            for p in pairs_data:
+                r_a = p["r_a"]
+                r_c = p["r_c"]
+                if r_a + r_c > 0:
+                    zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                    all_zprimes.append(zprime)
+                    b_val = (2 * r_a * r_c) / (r_a + r_c)
+                    all_b_values.append(b_val)
+                    all_scores.append(p["score"])
+            
+            input_metrics = {
+                "count": len(pairs_data),
+                "zprime": {
+                    "mean": float(np.mean(all_zprimes)) if all_zprimes else 0.0,
+                    "std": float(np.std(all_zprimes)) if all_zprimes else 0.0,
+                    "min": float(np.min(all_zprimes)) if all_zprimes else 0.0,
+                    "max": float(np.max(all_zprimes)) if all_zprimes else 0.0
+                },
+                "b": {
+                    "mean": float(np.mean(all_b_values)) if all_b_values else 0.0,
+                    "std": float(np.std(all_b_values)) if all_b_values else 0.0,
+                    "min": float(np.min(all_b_values)) if all_b_values else 0.0,
+                    "max": float(np.max(all_b_values)) if all_b_values else 0.0
+                },
+                "score": {
+                    "mean": float(np.mean(all_scores)) if all_scores else 0.0,
+                    "std": float(np.std(all_scores)) if all_scores else 0.0,
+                    "min": float(np.min(all_scores)) if all_scores else 0.0,
+                    "max": float(np.max(all_scores)) if all_scores else 0.0
+                }
+            }
+            
+            return (self.csv_path, mm_val, working_dist_val, avg_zprime, avg_b, input_metrics, chosen_metrics)
         
         except Exception as e:
-            print(f"[ERROR] Failed to read {pairs_csv}: {e}")
+            print(f"[ERROR] Failed to read {self.csv_path}: {e}")
             return None
     
     def remove(self):
@@ -234,7 +297,8 @@ class VideoCalibrationApp:
     def setup_gui(self):
         """Create the GUI layout."""
         self.root.title("Video Calibration Tool")
-        self.root.geometry("700x600")
+        self.root.geometry("850x700")
+        self.root.minsize(700, 500)
         
         style = ttk.Style(self.root)
         try:
@@ -242,16 +306,47 @@ class VideoCalibrationApp:
         except:
             pass
         
-        # Main frame
-        main_frame = ttk.Frame(self.root, padding="15")
-        main_frame.pack(fill="both", expand=True)
+        # Create scrollable container
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill="both", expand=True)
+        
+        # Canvas and scrollbar for main content
+        main_canvas = tk.Canvas(main_container, highlightthickness=0)
+        main_scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=main_canvas.yview)
+        main_frame = ttk.Frame(main_canvas, padding="15")
+        
+        main_frame.bind(
+            "<Configure>",
+            lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+        )
+        
+        main_window = main_canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        main_canvas.configure(yscrollcommand=main_scrollbar.set)
+        
+        main_canvas.pack(side="left", fill="both", expand=True)
+        main_scrollbar.pack(side="right", fill="y")
+        
+        # Update main canvas window width when canvas resizes
+        def update_main_window_width(event):
+            canvas_width = event.width
+            main_canvas.itemconfig(main_window, width=canvas_width)
+        main_canvas.bind('<Configure>', update_main_window_width)
+        
+        # Bind mousewheel to main canvas (for scrolling main content)
+        def on_mousewheel_main(event):
+            main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        main_canvas.bind("<MouseWheel>", on_mousewheel_main)
+        
+        # Store reference for later updates
+        self.main_canvas = main_canvas
+        self.main_frame = main_frame
         
         # Instructions
         instructions = ttk.Label(
             main_frame,
-            text="1. Enter working distance (mm) - applies to all videos\n"
-                 "2. Select pair_detect_output folders\n"
-                 "3. Enter mm height for each video\n"
+            text="1. Enter working distance (mm) - applies to all CSVs\n"
+                 "2. Select CSV files from pair detection\n"
+                 "3. Enter mm height for each CSV\n"
                  "4. Click Calculate to compute magic offset and magic constant\n"
                  "5. Save the calibration data",
             justify="left"
@@ -277,15 +372,21 @@ class VideoCalibrationApp:
                                     command=self.load_calibration_from_file)
         load_manual_btn.pack(side="left", padx=5)
         
-        # Add video button
-        add_btn = ttk.Button(main_frame, text="➕ Add Video", command=self.add_video_entry)
+        # Add CSV button
+        add_btn = ttk.Button(main_frame, text="➕ Add CSV", command=self.add_video_entry)
         add_btn.pack(pady=5)
         
-        # Scrollable frame for video entries
-        canvas_frame = ttk.Frame(main_frame)
-        canvas_frame.pack(fill="both", expand=True, pady=10)
+        # Scrollable frame for CSV entries (fixed height container)
+        video_entries_container = ttk.LabelFrame(main_frame, text="Calibration CSVs", padding="10")
+        video_entries_container.pack(fill="x", pady=10)
         
-        self.canvas = tk.Canvas(canvas_frame, bg="white")
+        # Use a fixed-height canvas for video entries (can scroll if many videos)
+        canvas_frame = ttk.Frame(video_entries_container)
+        canvas_frame.pack(fill="both", expand=True)
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
+        
+        self.canvas = tk.Canvas(canvas_frame, bg="white", height=200)
         self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
         
@@ -294,28 +395,53 @@ class VideoCalibrationApp:
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
         
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        canvas_window = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.scrollbar.grid(row=0, column=1, sticky="ns")
         
-        # Bind mousewheel
-        def on_mousewheel(event):
+        # Update canvas width when scrollable_frame changes
+        def update_canvas_width(event):
+            canvas_width = event.width
+            self.canvas.itemconfig(canvas_window, width=canvas_width)
+        self.canvas.bind('<Configure>', update_canvas_width)
+        
+        # Bind mousewheel to video entries canvas
+        def on_mousewheel_videos(event):
             self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        self.canvas.bind_all("<MouseWheel>", on_mousewheel)
+        self.canvas.bind("<MouseWheel>", on_mousewheel_videos)
+        self.scrollable_frame.bind("<MouseWheel>", on_mousewheel_videos)
         
         # Calculate button
         calc_btn = ttk.Button(main_frame, text="Calculate", command=self.calculate)
         calc_btn.pack(pady=10)
         
-        # Result label
+        # Result label (with max width to prevent excessive expansion)
+        result_container = ttk.Frame(main_frame)
+        result_container.pack(fill="x", pady=10)
+        
         self.result_label = ttk.Label(
-            main_frame,
+            result_container,
             text="Calibration: Not calculated",
-            justify="left"
+            justify="left",
+            wraplength=750
         )
-        self.result_label.pack(pady=10)
+        self.result_label.pack(fill="x")
+        
+        # Metrics display frame (scrollable, fixed height)
+        metrics_frame = ttk.LabelFrame(main_frame, text="Data Metrics", padding="10")
+        metrics_frame.pack(fill="both", expand=False, pady=5)
+        metrics_frame.grid_rowconfigure(0, weight=1)
+        metrics_frame.grid_columnconfigure(0, weight=1)
+        
+        # Create scrollable text widget for metrics (fixed height)
+        self.metrics_text = tk.Text(metrics_frame, wrap="none", font=("Courier", 8), state="disabled", height=12, width=90)
+        self.metrics_text_scrollbar = ttk.Scrollbar(metrics_frame, orient="vertical", command=self.metrics_text.yview)
+        self.metrics_text.configure(yscrollcommand=self.metrics_text_scrollbar.set)
+        
+        self.metrics_text.grid(row=0, column=0, sticky="nsew")
+        self.metrics_text_scrollbar.grid(row=0, column=1, sticky="ns")
         
         # Save button
         save_btn = ttk.Button(main_frame, text="💾 Save Calibration", command=self.save_calibration)
@@ -437,10 +563,10 @@ class VideoCalibrationApp:
             messagebox.showerror("Error", f"Failed to load calibration file: {e}")
     
     def add_video_entry(self):
-        """Add a new video entry row."""
+        """Add a new CSV entry row."""
         entry_frame = ttk.LabelFrame(
             self.scrollable_frame,
-            text=f"Video {len(self.video_entries) + 1}",
+            text=f"CSV {len(self.video_entries) + 1}",
             padding="10"
         )
         entry_frame.pack(fill="x", padx=10, pady=5)
@@ -453,13 +579,16 @@ class VideoCalibrationApp:
         # Update canvas scroll region
         self.root.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        # Update main canvas scroll region
+        if hasattr(self, 'main_canvas'):
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
     
     def remove_video_entry(self, entry: VideoEntry):
-        """Remove a video entry."""
+        """Remove a CSV entry."""
         if len(self.video_entries) <= 2:
             messagebox.showwarning(
                 "Warning",
-                "You need at least 2 videos for calibration.\n"
+                "You need at least 2 CSVs for calibration.\n"
                 "Cannot remove this entry."
             )
             return
@@ -470,21 +599,29 @@ class VideoCalibrationApp:
             # Renumber remaining entries
             for i, e in enumerate(self.video_entries):
                 e.row = i
-                e.frame.config(text=f"Video {i + 1}")
+                e.frame.config(text=f"CSV {i + 1}")
             # Update canvas scroll region
             self.root.update_idletasks()
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            # Update main canvas scroll region
+            if hasattr(self, 'main_canvas'):
+                self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
     
     def calculate(self):
         """Calculate magic offset and magic constant using linear regression on Zprime values."""
-        # Collect valid data points
+        # Collect valid data points with metrics
         data_points = []
+        all_input_metrics = []
+        all_chosen_metrics = []
+        
         for entry in self.video_entries:
             result = entry.get_data()
             if result:
-                folder, mm_height, working_dist, avg_zprime, avg_b = result
-                data_points.append((folder, mm_height, working_dist, avg_zprime, avg_b))
-                print(f"[INFO] Video: {os.path.basename(folder)}, "
+                csv_path, mm_height, working_dist, avg_zprime, avg_b, input_metrics, chosen_metrics = result
+                data_points.append((csv_path, mm_height, working_dist, avg_zprime, avg_b))
+                all_input_metrics.append((os.path.basename(csv_path), input_metrics))
+                all_chosen_metrics.append((os.path.basename(csv_path), chosen_metrics))
+                print(f"[INFO] CSV: {os.path.basename(csv_path)}, "
                       f"Height: {mm_height:.2f} mm, "
                       f"Working Dist: {working_dist:.2f} mm, "
                       f"Avg Zprime: {avg_zprime:.4f}, "
@@ -493,8 +630,8 @@ class VideoCalibrationApp:
         if len(data_points) < 2:
             messagebox.showerror(
                 "Error",
-                f"Need at least 2 valid videos with:\n"
-                "- Selected pair_detect_output folder\n"
+                f"Need at least 2 valid CSVs with:\n"
+                "- Selected CSV file\n"
                 "- Valid mm height > 0\n"
                 "- Valid global working distance > 0\n"
                 f"Currently have: {len(data_points)} valid entries"
@@ -524,24 +661,79 @@ class VideoCalibrationApp:
         working_distances = [wd for _, _, wd, _, _ in data_points]
         avg_working_distance_mm = np.mean(working_distances) if len(working_distances) > 0 else None
         
+        # Calculate aggregate metrics
+        total_input_count = sum(m["count"] for _, m in all_input_metrics)
+        total_chosen_count = sum(m["count"] for _, m in all_chosen_metrics)
+        
+        # Create dictionary for looking up input metrics by video name (for percentage calculation)
+        input_video_dict = {name: m for name, m in all_input_metrics}
+        
         self.calibration_data = {
             "magic_constant": float(self.magic_constant),
             "magic_offset": float(self.magic_offset),
             "r_squared": float(r_squared),
             "data_points": [
                 {
-                    "folder": folder,
+                    "csv_path": csv_path,
                     "z_mm": float(h),  # Z = calibrated input value
                     "working_distance_mm": float(wd),
                     "avg_zprime": float(z),
                     "avg_b": float(b)
                 }
-                for folder, h, wd, z, b in data_points
+                for csv_path, h, wd, z, b in data_points
             ],
             "formula": "Z = Zprime * magic_constant + magic_offset",
             "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
             "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
-            "b_formula": "B = (2*A*C)/(A+C)"
+            "b_formula": "B = (2*A*C)/(A+C)",
+            "metrics": {
+                "input_dataset": {
+                    "total_pairs": total_input_count,
+                    "per_video": [
+                        {
+                            "video": name,
+                            "count": m["count"],
+                            "zprime_mean": m["zprime"]["mean"],
+                            "zprime_std": m["zprime"]["std"],
+                            "zprime_min": m["zprime"]["min"],
+                            "zprime_max": m["zprime"]["max"],
+                            "b_mean": m["b"]["mean"],
+                            "b_std": m["b"]["std"],
+                            "b_min": m["b"]["min"],
+                            "b_max": m["b"]["max"],
+                            "score_mean": m["score"]["mean"],
+                            "score_std": m["score"]["std"],
+                            "score_min": m["score"]["min"],
+                            "score_max": m["score"]["max"]
+                        }
+                        for name, m in all_input_metrics
+                    ]
+                },
+                "chosen_dataset": {
+                    "total_pairs": total_chosen_count,
+                    "percent_of_input": float(100 * total_chosen_count / max(1, total_input_count)),
+                    "per_video": [
+                        {
+                            "video": name,
+                            "count": m["count"],
+                            "percent_of_input": float(100 * m["count"] / max(1, input_video_dict.get(name, {}).get("count", 0))) if name in input_video_dict else 0.0,
+                            "zprime_mean": m["zprime"]["mean"],
+                            "zprime_std": m["zprime"]["std"],
+                            "zprime_min": m["zprime"]["min"],
+                            "zprime_max": m["zprime"]["max"],
+                            "b_mean": m["b"]["mean"],
+                            "b_std": m["b"]["std"],
+                            "b_min": m["b"]["min"],
+                            "b_max": m["b"]["max"],
+                            "score_mean": m["score"]["mean"],
+                            "score_std": m["score"]["std"],
+                            "score_min": m["score"]["min"],
+                            "score_max": m["score"]["max"]
+                        }
+                        for name, m in all_chosen_metrics
+                    ]
+                }
+            }
         }
         
         # Add average working distance to calibration data if available
@@ -562,18 +754,79 @@ class VideoCalibrationApp:
             f"where:\n"
             f"  Z = calibrated mm height (input)\n"
             f"  Zprime = working_distance * (C-A)/(A+C)\n"
-            f"  B = (2*A*C)/(A+C)"
+            f"  B = (2*A*C)/(A+C)\n\n"
+            f"Input Dataset: {total_input_count} pairs | "
+            f"Chosen Dataset: {total_chosen_count} pairs ({100*total_chosen_count/max(1,total_input_count):.1f}%)"
         )
         self.result_label.config(text=result_text)
+        
+        # Display detailed metrics
+        self.display_metrics(all_input_metrics, all_chosen_metrics, total_input_count, total_chosen_count)
         
         print(f"[INFO] Calibration calculated:")
         print(f"  Formula: Z = Zprime * magic_constant + magic_offset")
         print(f"  Magic Constant: {self.magic_constant:.6f}")
         print(f"  Magic Offset: {self.magic_offset:.6f} mm")
         print(f"  R²: {r_squared:.4f}")
+        print(f"  Input Dataset: {total_input_count} pairs")
+        print(f"  Chosen Dataset: {total_chosen_count} pairs ({100*total_chosen_count/max(1,total_input_count):.1f}%)")
         
         # Automatically save to calibrations folder
         self._auto_save_calibration()
+    
+    def display_metrics(self, input_metrics_list, chosen_metrics_list, total_input, total_chosen):
+        """Display detailed metrics for input and chosen datasets."""
+        self.metrics_text.config(state="normal")
+        self.metrics_text.delete(1.0, tk.END)
+        
+        # Calculate percentages for each video
+        input_video_dict = {name: m for name, m in input_metrics_list}
+        
+        # Header
+        self.metrics_text.insert(tk.END, "="*80 + "\n")
+        self.metrics_text.insert(tk.END, "DATASET METRICS\n")
+        self.metrics_text.insert(tk.END, "="*80 + "\n\n")
+        
+        # Input dataset totals
+        self.metrics_text.insert(tk.END, f"INPUT DATASET (Total: {total_input} pairs)\n")
+        self.metrics_text.insert(tk.END, "-"*80 + "\n")
+        
+        # Per-video input metrics
+        for name, m in input_metrics_list:
+            self.metrics_text.insert(tk.END, f"\n  {name}:\n")
+            self.metrics_text.insert(tk.END, f"    Pairs: {m['count']}\n")
+            self.metrics_text.insert(tk.END, f"    Zprime: mean={m['zprime']['mean']:.4f}, std={m['zprime']['std']:.4f}, "
+                                           f"range=[{m['zprime']['min']:.4f}, {m['zprime']['max']:.4f}]\n")
+            self.metrics_text.insert(tk.END, f"    B:      mean={m['b']['mean']:.4f}, std={m['b']['std']:.4f}, "
+                                           f"range=[{m['b']['min']:.4f}, {m['b']['max']:.4f}]\n")
+            self.metrics_text.insert(tk.END, f"    Score:  mean={m['score']['mean']:.4f}, std={m['score']['std']:.4f}, "
+                                           f"range=[{m['score']['min']:.4f}, {m['score']['max']:.4f}]\n")
+        
+        # Chosen dataset totals
+        overall_percent = 100 * total_chosen / max(1, total_input)
+        self.metrics_text.insert(tk.END, f"\n{'='*80}\n")
+        self.metrics_text.insert(tk.END, f"CHOSEN DATASET (Total: {total_chosen} pairs, {overall_percent:.1f}% of input)\n")
+        self.metrics_text.insert(tk.END, "-"*80 + "\n")
+        
+        # Per-video chosen metrics with percentages
+        for name, m in chosen_metrics_list:
+            input_count = input_video_dict.get(name, {}).get("count", 0)
+            video_percent = 100 * m['count'] / max(1, input_count) if input_count > 0 else 0.0
+            self.metrics_text.insert(tk.END, f"\n  {name}:\n")
+            self.metrics_text.insert(tk.END, f"    Pairs: {m['count']} ({video_percent:.1f}% of input)\n")
+            self.metrics_text.insert(tk.END, f"    Zprime: mean={m['zprime']['mean']:.4f}, std={m['zprime']['std']:.4f}, "
+                                           f"range=[{m['zprime']['min']:.4f}, {m['zprime']['max']:.4f}]\n")
+            self.metrics_text.insert(tk.END, f"    B:      mean={m['b']['mean']:.4f}, std={m['b']['std']:.4f}, "
+                                           f"range=[{m['b']['min']:.4f}, {m['b']['max']:.4f}]\n")
+            self.metrics_text.insert(tk.END, f"    Score:  mean={m['score']['mean']:.4f}, std={m['score']['std']:.4f}, "
+                                           f"range=[{m['score']['min']:.4f}, {m['score']['max']:.4f}]\n")
+        
+        self.metrics_text.config(state="disabled")
+        
+        # Update main canvas scroll region after adding metrics
+        if hasattr(self, 'main_canvas'):
+            self.root.update_idletasks()
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
     
     def _auto_save_calibration(self):
         """Automatically save calibration data to the calibrations folder."""
@@ -584,9 +837,16 @@ class VideoCalibrationApp:
         calibrations_dir = Path("calibrations")
         calibrations_dir.mkdir(exist_ok=True)
         
-        # Generate timestamped filename
+        # Generate timestamped filename with prefix from first data point
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"video_calibration_{timestamp}.json"
+        prefix = ""
+        if self.calibration_data.get("data_points"):
+            first_csv = self.calibration_data["data_points"][0].get("csv_path", "")
+            if first_csv:
+                # Extract CSV filename without extension
+                csv_name = os.path.splitext(os.path.basename(first_csv))[0]
+                prefix = csv_name + "_"
+        filename = f"{prefix}video_calibration_{timestamp}.json"
         file_path = calibrations_dir / filename
         
         try:

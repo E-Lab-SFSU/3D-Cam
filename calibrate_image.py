@@ -173,9 +173,13 @@ def save_calibration():
     calibrations_dir = "calibrations"
     os.makedirs(calibrations_dir, exist_ok=True)
     
-    # Generate timestamped filename
+    # Generate timestamped filename with prefix from image filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"image_calibration_{timestamp}.json"
+    prefix = ""
+    if image_path:
+        # Extract filename without extension
+        prefix = os.path.splitext(os.path.basename(image_path))[0] + "_"
+    filename = f"{prefix}image_calibration_{timestamp}.json"
     file_path = os.path.join(calibrations_dir, filename)
     
     # Calculate working distance for saving

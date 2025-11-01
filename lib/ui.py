@@ -22,6 +22,7 @@ def build_gui(
     on_exit,
     on_toggle_play_pause=None,  # Optional, not used in main window anymore
     on_load_calibration=None,  # Optional, for loading calibration data
+    on_load_process=None,  # Optional, for loading process from folder
 ):
     widgets: dict = {}
     gui_vars_numeric: dict = {}
@@ -57,8 +58,15 @@ def build_gui(
     widgets["btn_optimize"].grid(row=0, column=2, padx=2, sticky="ew")
     widgets["btn_reset"].grid(row=0, column=3, padx=2, sticky="ew")
     
-    # Add calibration button if callback is provided
-    if on_load_calibration:
+    # Add calibration and load process buttons if callbacks are provided
+    if on_load_calibration and on_load_process:
+        widgets["btn_calibration"] = ttk.Button(frm_btn, text="📐 Calibration", command=on_load_calibration)
+        widgets["btn_calibration"].grid(row=1, column=0, padx=2, pady=(2, 0), sticky="ew")
+        widgets["btn_load_process"] = ttk.Button(frm_btn, text="📁 Load Process", command=on_load_process)
+        widgets["btn_load_process"].grid(row=1, column=1, padx=2, pady=(2, 0), sticky="ew")
+        widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)
+        widgets["btn_exit"].grid(row=1, column=2, columnspan=2, padx=2, pady=(2, 0), sticky="ew")
+    elif on_load_calibration:
         widgets["btn_calibration"] = ttk.Button(frm_btn, text="📐 Load Calibration", command=on_load_calibration)
         widgets["btn_calibration"].grid(row=1, column=0, padx=2, pady=(2, 0), sticky="ew")
         widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)

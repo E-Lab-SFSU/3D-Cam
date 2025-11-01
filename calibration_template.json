@@ -1,0 +1,26 @@
+{
+  "image_path": null,
+  "point1": {
+    "x": null,
+    "y": null
+  },
+  "point2": {
+    "x": null,
+    "y": null
+  },
+  "pixel_distance": null,
+  "mm_measurement": null,
+  "pixels_per_mm": 39.85,
+  "working_distance_mm": 21.74,
+  "working_distance_m": 0.02174,
+  "camera_parameters": {
+    "focal_length_mm": 16.0,
+    "pixel_size_microns": 3.0,
+    "pixel_size_m": 0.000003,
+    "sensor_x_mm": 5.76,
+    "sensor_y_mm": 3.24,
+    "sensor_x_m": 0.00576,
+    "sensor_y_m": 0.00324
+  }
+}
+

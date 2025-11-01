@@ -174,6 +174,15 @@ def angdiff(a, b):    return abs(((a - b + 180) % 360) - 180)
 # Preset I/O (JSON)
 # --------------------------------------------------------------------------------------
 def save_preset():
+    global calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
+    calibration_data = None
+    if calibration_loaded:
+        calibration_data = {
+            "magic_constant": calibration_magic_constant,
+            "magic_offset": calibration_magic_offset,
+            "working_distance_mm": calibration_working_distance_mm,
+            "pixels_per_mm": calibration_pixels_per_mm,
+        }
     ok = save_preset_file(
         PRESET_PATH,
         params,
@@ -181,6 +190,7 @@ def save_preset():
         overlay_targets,
         (xCenter, yCenter, center_valid),
         video_path,
+        calibration_data,
     )
     if ok:
         print(f"[INFO] Preset saved → {PRESET_PATH}")
@@ -189,7 +199,7 @@ def save_preset():
 
 def load_preset():
     global params, overlays, xCenter, yCenter, center_valid, video_path, overlay_targets, last_video_path
-    params, overlays, overlay_targets, center, video_path, ok = load_preset_file(
+    params, overlays, overlay_targets, center, video_path, ok, calib_data = load_preset_file(
         PRESET_PATH, params, overlays, overlay_targets, video_path
     )
     xCenter, yCenter, center_valid = center
@@ -197,8 +207,109 @@ def load_preset():
     last_video_path = ""
     if ok:
         print(f"[INFO] Preset loaded ← {PRESET_PATH}")
+        # Note: calibration_data from preset not used - users load calibration separately
     else:
         print("[INFO] No preset found, using defaults.")
+
+
+def load_process_from_folder():
+    """Load process configuration from a JSON preset file."""
+    global params, overlays, xCenter, yCenter, center_valid, video_path, overlay_targets, last_video_path
+    global calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
+    
+    # Ask user to select a JSON preset file
+    preset_path = filedialog.askopenfilename(
+        title="Load Process Preset",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        initialdir="inputs_outputs"
+    )
+    if not preset_path:
+        return
+    
+    # Load the preset
+    params, overlays, overlay_targets, center, preset_video_path, ok, calib_data = load_preset_file(
+        preset_path, params, overlays, overlay_targets, video_path
+    )
+    
+    if not ok:
+        messagebox.showerror("Load Failed", "Failed to load preset file.")
+        return
+    
+    # Update global state
+    xCenter, yCenter, center_valid = center
+    last_video_path = ""
+    
+    # Apply calibration data if present
+    if calib_data:
+        calibration_magic_constant = calib_data.get("magic_constant")
+        calibration_magic_offset = calib_data.get("magic_offset")
+        calibration_working_distance_mm = calib_data.get("working_distance_mm")
+        calibration_pixels_per_mm = calib_data.get("pixels_per_mm")
+        calibration_loaded = True
+        print(f"[INFO] Calibration data loaded from preset")
+    else:
+        calibration_loaded = False
+    
+    # Update GUI
+    update_ui_from_preset()
+    
+    # Optionally reload the video from the preset
+    if preset_video_path and os.path.exists(preset_video_path):
+        response = messagebox.askyesno(
+            "Load Video?", 
+            f"Preset contains video path:\n{preset_video_path}\n\nLoad this video?"
+        )
+        if response:
+            video_path = preset_video_path
+            last_video_path = preset_video_path
+            reopen_video()
+    else:
+        messagebox.showinfo("Process Loaded", f"Process configuration loaded from:\n{preset_path}")
+    
+    print(f"[INFO] Process loaded from: {preset_path}")
+
+
+def update_ui_from_preset():
+    """Update UI sliders and checkboxes to match current preset values."""
+    global widgets, gui_vars_numeric, gui_vars_check, overlays, params, ui_set_controls_enabled, reset_defaults_ui
+    
+    # Update numeric sliders
+    for key, var in gui_vars_numeric.items():
+        try:
+            if key in params:
+                var.set(params[key])
+        except Exception:
+            pass
+    
+    # Update checkboxes
+    for key, var in gui_vars_check.items():
+        try:
+            if key in overlays:
+                var.set(overlays[key])
+        except Exception:
+            pass
+    
+    # Update pairing method combobox if present
+    try:
+        if "cmb_pair_method" in widgets:
+            pair_method = params.get("pair_method", "Hungarian")
+            display_names = {
+                "Greedy": "Greedy (local best)",
+                "Symmetric": "Symmetric (mutual best)",
+                "Hungarian": "Hungarian (global best)",
+            }
+            widgets["cmb_pair_method"].set(display_names.get(pair_method, "Hungarian (global best)"))
+    except Exception:
+        pass
+    
+    # Update label mode combobox if present
+    try:
+        if "cmb_label_mode" in widgets:
+            current_mode = overlays.get("label_mode", "Red/Blue")
+            display_mode = "White" if current_mode == "None" else current_mode
+            widgets["cmb_label_mode"].set(display_mode)
+    except Exception:
+        pass
 
 # --------------------------------------------------------------------------------------
 # Background subtraction and contrast enhancement
@@ -378,14 +489,44 @@ def prompt_optical_center_choice():
     return result[0]
 
 def open_video():
-    """Open a video file and start/restart preview."""
+    """Open a video folder and auto-detect video file."""
     global video_path, last_video_path, center_valid, xCenter, yCenter
-    fp = filedialog.askopenfilename(
-        title="Open Video",
-        filetypes=[("Video", "*.mp4;*.avi;*.mov;*.mkv;*.m4v;*.mpg;*.mpeg"), ("All files", "*.*")]
-    )
-    if not fp:
+    
+    # Ask user to select a folder
+    folder_path = filedialog.askdirectory(title="Select Video Folder")
+    if not folder_path:
         return
+    
+    # Auto-detect video file in the folder
+    video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.m4v', '.mpg', '.mpeg']
+    video_files = []
+    for file in os.listdir(folder_path):
+        if os.path.splitext(file.lower())[1] in video_extensions:
+            video_files.append(file)
+    
+    if not video_files:
+        messagebox.showerror("No Video Found", f"No video files found in the selected folder:\n{folder_path}")
+        return
+    
+    if len(video_files) > 1:
+        # Multiple videos found - prefer base video over processed versions
+        # Ignore files with -binary, -grayscale, -bin&gray suffixes (processed exports)
+        base_videos = [v for v in video_files if '-binary' not in v and '-grayscale' not in v and '-bin&gray' not in v]
+        
+        if len(base_videos) > 1:
+            messagebox.showerror("Multiple Videos", f"Multiple base video files found in folder:\n{chr(10).join(base_videos)}\n\nPlease ensure only one base video file per folder.")
+            return
+        
+        if len(base_videos) == 1:
+            # Found a base video, use it
+            fp = os.path.join(folder_path, base_videos[0])
+        else:
+            # No base video found, use the first processed video and warn
+            messagebox.showwarning("No Base Video", f"No base video found (found only processed videos).\n\nUsing first video: {video_files[0]}")
+            fp = os.path.join(folder_path, video_files[0])
+    else:
+        # Single video file found
+        fp = os.path.join(folder_path, video_files[0])
     
     # Normalize paths for comparison (handle Windows path case sensitivity)
     fp_normalized = os.path.normpath(os.path.abspath(fp))
@@ -394,7 +535,8 @@ def open_video():
     # Check if this is a new video (different from the currently loaded one)
     is_new_video = (current_video_normalized != "" and fp_normalized != current_video_normalized)
     
-    print(f"[INFO] Opened video: {fp}")
+    print(f"[INFO] Opened video folder: {folder_path}")
+    print(f"[INFO] Auto-detected video: {video_files[0]}")
     if is_new_video:
         print(f"[INFO] New video detected (previous: {video_path})")
     
@@ -416,6 +558,23 @@ def open_video():
     last_video_path = fp
     
     reopen_video()
+    
+    # If center setup is showing, try to give focus to OpenCV window after dialog closes
+    if showing_center_setup:
+        # Schedule a delayed focus attempt after the GUI updates
+        def try_focus_opencv_window():
+            try:
+                # Try to bring OpenCV window to front
+                cv2.setWindowProperty("Tracked", cv2.WND_PROP_TOPMOST, 1)
+                cv2.setWindowProperty("Tracked", cv2.WND_PROP_TOPMOST, 0)
+                cv2.waitKey(1)  # Process window events
+                print("[INFO] Attempted to give focus to Tracked window for Enter key detection")
+            except:
+                pass
+        
+        # Schedule focus attempt after a short delay to let GUI settle
+        if root:
+            root.after(100, try_focus_opencv_window)
 
 def reopen_video():
     """(Re)create VideoCapture for preview loop and resize OpenCV windows to frame size."""
@@ -496,8 +655,10 @@ def reopen_video():
         if ret:
             # Display raw first frame (unprocessed) for center placement
             first_frame_display = first_frame.copy()  # Original BGR frame
-            cv2.putText(first_frame_display, "Click to set optical center (Press Enter to confirm)", 
+            cv2.putText(first_frame_display, "Click to set optical center", 
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(first_frame_display, "Click this window, then Press Enter to confirm", 
+                       (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             # Show default/previous center location if available
             if xCenter is not None and yCenter is not None:
                 cv2.circle(first_frame_display, (xCenter, yCenter), 10, (0, 255, 255), 2)
@@ -673,7 +834,6 @@ def export_video():
     root.update_idletasks()
 
     paths = export_paths_for(video_path)
-    out_dir = paths["dir"]
     out_color = paths["tracked_mp4"]
     out_bin   = paths["binary_mp4"]
     out_csv   = paths["pairs_csv"]
@@ -689,17 +849,18 @@ def export_video():
     fps_guess = tmpcap.get(cv2.CAP_PROP_FPS) or 30.0
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # Separate outputs: grayscale and binary
     w_color = cv2.VideoWriter(out_color, fourcc, max(1.0, fps_guess), (W, H))
     w_bin   = cv2.VideoWriter(out_bin,   fourcc, max(1.0, fps_guess), (W, H))
 
-    print(f"[INFO] Export started →\n  DIR: {out_dir}\n  {out_color}\n  {out_bin}\n  CSV: {out_csv}")
+    print(f"[INFO] Export started →\n  Grayscale: {out_color}\n  Binary: {out_bin}\n  CSV: {out_csv}")
 
     # Snapshot of params/overlays for deterministic export
     p  = dict(params)
     ov = dict(overlays)
 
     # Default center if not set
-    global center_valid, xCenter, yCenter
+    global center_valid, xCenter, yCenter, calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
     if not center_valid or xCenter is None or yCenter is None:
         xCenter, yCenter, center_valid = W // 2, H // 2, True
         print(f"[INFO] Default center for export -> ({xCenter},{yCenter})")
@@ -993,6 +1154,33 @@ def export_video():
     except Exception as e:
         print(f"[WARN] CSV save failed: {e}")
 
+    # Auto-save preset to video folder with counter if multiple exist
+    video_dir = os.path.dirname(video_path)
+    base_preset = os.path.join(video_dir, "pair_detect_preset.json")
+    counter = 1
+    folder_preset_path = base_preset
+    while os.path.exists(folder_preset_path):
+        folder_preset_path = os.path.join(video_dir, f"pair_detect_preset-{counter}.json")
+        counter += 1
+    calibration_data = None
+    if calibration_loaded:
+        calibration_data = {
+            "magic_constant": calibration_magic_constant,
+            "magic_offset": calibration_magic_offset,
+            "working_distance_mm": calibration_working_distance_mm,
+            "pixels_per_mm": calibration_pixels_per_mm,
+        }
+    save_preset_file(
+        folder_preset_path,
+        params,
+        overlays,
+        overlay_targets,
+        (xCenter, yCenter, center_valid),
+        video_path,
+        calibration_data,
+    )
+    print(f"[INFO] Preset saved to folder: {folder_preset_path}")
+    
     # Re-enable controls after export
     ui_set_controls_enabled(widgets, True)
 
@@ -1343,33 +1531,46 @@ def preview_loop():
             ret, first_frame = cap.read()
             if ret:
                 first_frame_display = first_frame.copy()
-                cv2.putText(first_frame_display, "Click to set optical center (Press Enter to confirm)", 
+                cv2.putText(first_frame_display, "Click to set optical center", 
                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.putText(first_frame_display, "Click this window, then Press Enter to confirm", 
+                           (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
                 if xCenter is not None and yCenter is not None:
                     # Show temporary crosshair at current/default position
                     cv2.circle(first_frame_display, (xCenter, yCenter), 10, (0, 255, 255), 2)
                     cv2.line(first_frame_display, (xCenter - 15, yCenter), (xCenter + 15, yCenter), (0, 255, 255), 2)
                     cv2.line(first_frame_display, (xCenter, yCenter - 15), (xCenter, yCenter + 15), (0, 255, 255), 2)
                 cv2.imshow("Tracked", first_frame_display)
+                cv2.setMouseCallback("Tracked", on_mouse_tracked)
                 # Show blank binary window
                 h, w = first_frame.shape[:2]
                 blank = np.zeros((h, w), dtype=np.uint8)
                 cv2.imshow("Binary", blank)
                 
                 # Ensure Tracked window is active and can receive keyboard input
-                # waitKey() only responds to keys when an OpenCV window has focus
-                # This ensures Enter key detection only works when Tracked window is focused
+                # Try to bring window to front and give it focus
                 try:
+                    # Bring window to front (works on Windows/Linux)
+                    # This helps ensure the window can receive keyboard input
+                    cv2.setWindowProperty("Tracked", cv2.WND_PROP_TOPMOST, 1)
+                    cv2.setWindowProperty("Tracked", cv2.WND_PROP_TOPMOST, 0)
+                    # Force window update
+                    cv2.waitKey(1)
+                    
                     # Check if Tracked window is visible
                     if cv2.getWindowProperty("Tracked", cv2.WND_PROP_VISIBLE) >= 1:
-                        # Check for Enter key press (key code 13 or 10)
-                        # Note: This only works when Tracked window has focus
-                        key = cv2.waitKey(1) & 0xFF
-                        if key == 13 or key == 10:  # Enter key
+                        # Use waitKey with longer delay to catch key presses more reliably
+                        # waitKey() only responds to keys when an OpenCV window has focus
+                        # Longer delay (30ms) gives more time to detect key presses
+                        key = cv2.waitKey(30) & 0xFF
+                        if key == 13 or key == 10:  # Enter key (13=CR, 10=LF)
                             # Confirm current center location
                             if xCenter is not None and yCenter is not None:
                                 set_centerxy(xCenter, yCenter)
-                except cv2.error:
+                                print(f"[INFO] Optical center confirmed via Enter key -> ({xCenter},{yCenter})")
+                                # Refresh display immediately to show confirmation
+                                cv2.waitKey(1)
+                except cv2.error as e:
                     # Window might not exist yet, continue
                     pass
             root.after(DELAY_MS, preview_loop)
@@ -1619,7 +1820,7 @@ def main():
     root, widgets, gui_vars_numeric, gui_vars_check = ui_build_gui(
         params, overlays, overlay_targets,
         open_video, export_video, optimize_optical_center, handle_reset, on_exit, toggle_play_pause,
-        load_calibration
+        load_calibration, load_process_from_folder
     )
 
     # Create windows early (needed before reopen_video can resize them)
