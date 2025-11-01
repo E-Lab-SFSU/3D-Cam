@@ -19,9 +19,10 @@ The system consists of several components:
 1. **Video Capture** (`capture_raspi.py`, `capture_windows.py`): Record video from USB cameras
 2. **Image Calibration** (`calibrate_image.py`): Determine pixels-per-millimeter scale
 3. **Pair Detection** (`pair_detect.py`): Detect and track particle pairs in video
-4. **Video Calibration** (`calibrate_video.py`): Calibrate Z-height measurements using known heights
-5. **3D Visualization** (`visualize3d.py`): Visualize 3D trajectories interactively
-6. **Z Height Histogram** (`z_histogram.py`): Analyze and visualize Z height distribution
+4. **Video Calibration** (`calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
+5. **Track Smoothing** (`track_smoother.py`): Smooth and clean trajectories, remove spikes
+6. **3D Visualization** (`visualize3d.py`): Visualize 3D trajectories interactively
+7. **Z Height Histogram** (`z_histogram.py`): Analyze and visualize Z height distribution
 
 ## Tools Summary
 
@@ -31,7 +32,11 @@ The system consists of several components:
 
 - **`calibrate_image.py`** - Image scale calibration tool. Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements.
 
-- **`calibrate_video.py`** - Z-height calibration tool. Uses videos of objects at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights.
+- **`calibrate_video.py`** - Z-height calibration tool. Uses CSV files from pair detection at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights. Automatically saves calibration files.
+
+### Post-Processing Tools
+
+- **`track_smoother.py`** - Track smoothing and cleaning tool. Removes spikes, applies smoothing filters, and compares original vs smoothed trajectories interactively.
 
 ### Visualization Tools
 
@@ -69,7 +74,7 @@ python capture_windows.py
 5. Record video(s) of objects moving at constant Z heights (different heights for calibration)
    - **Note**: Any number of objects can be in each video, as long as they all move at the same constant Z height for that video
 
-**Output:** Videos saved to `capture_output/` directory
+**Output:** Videos saved to `inputs_outputs/video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/` directory
 
 ### Step 2: Image Calibration (Scale Calibration)
 
@@ -104,7 +109,7 @@ where:
 - `pixel_distance = √((x₂ - x₁)² + (y₂ - y₁)²)` (in pixels)
 - `pixel_size_mm = pixel_size_microns / 1000`
 
-**Output:** Calibration JSON file saved to `calibrations/image_calibration_YYYYMMDD_HHMMSS.json`
+**Output:** Calibration JSON file saved to `calibrations/{image_name}_image_calibration_YYYYMMDD_HHMMSS.json`
 
 ### Step 3: Pair Detection
 
@@ -115,7 +120,7 @@ python pair_detect.py
 **Purpose:** Detect particle pairs (direct view + mirror reflection) and track them through the video.
 
 **Procedure:**
-1. Open a video file from `capture_output/` or `input/`
+1. Select a video folder (automatically detects the base video file, ignoring processed exports)
 2. Set the optical center (where particles align along radial lines from the mirror edge):
    - **Initial estimate**: Click in the preview window to set a rough optical center
    - **Optimize**: Click "Optimize Optical Center" button to analyze all frames and find the optimal center using ray intersection voting
@@ -137,7 +142,7 @@ python pair_detect.py
    - **Greedy**: Fast, sequential matching
    - **Symmetric**: Ensures mutual best matches
    - **Hungarian**: Optimal global matching (recommended)
-6. Export the processed video with tracked pairs
+6. Export the processed video with tracked pairs (includes Load Process button to restore previous settings)
 
 **Image Processing Pipeline:**
 
@@ -260,9 +265,11 @@ The system uses a sophisticated multi-frame tracking algorithm that maintains st
 - Morphing support: Accommodates objects that change size or shape
 - Stable IDs: Consistent track IDs for reliable trajectory analysis
 
-**Output:** 
-- Processed video with overlays: `pair_detect_output/[video_name]_[timestamp]/tracked_export.mp4`
-- CSV file with all pair data: `pair_detect_output/[video_name]_[timestamp]/pairs.csv`
+**Output:** All files saved in the same folder as the input video:
+- Grayscale video with overlays: `{video_name}-grayscale.mp4` (or `-grayscale-N.mp4` if multiple exports)
+- Binary video with overlays: `{video_name}-binary.mp4` (or `-binary-N.mp4` if multiple exports)
+- CSV file with all pair data: `{video_name}-paired-tracked.csv` (or `-paired-tracked-N.csv` if multiple exports)
+- Preset file: `pair_detect_preset.json` (or `pair_detect_preset-N.json` if multiple exports)
 
 ### Step 4: Video Calibration (Z-Height Calibration)
 
@@ -274,14 +281,14 @@ python calibrate_video.py
 
 **Procedure:**
 1. Enter the global working distance (mm) - should match the value from image calibration
-2. For each calibration video:
-   - Browse to the `pair_detect_output` folder containing `pairs.csv`
-   - Enter the known Z height (mm) above the reflection surface
+2. For each calibration CSV:
+   - Browse to select a CSV file from pair detection
+   - Enter the known Z height (mm) above the reflection surface for that CSV
    - **Note**: Any number of objects can be in the video, as long as they all move at the same constant Z height
 3. Click "Calculate" to determine:
    - `magic_constant`: Linear scaling factor
    - `magic_offset`: Offset in millimeters
-4. Save the calibration data
+4. Calibration is automatically saved to the `calibrations` folder
 
 **Math Behind Video Calibration:**
 
@@ -326,9 +333,32 @@ The system uses a two-stage calibration process:
 - More objects provide more pair detections, improving the statistical reliability of the average Zprime
 - This is especially useful for calibration at each height - you can move multiple objects simultaneously
 
-**Output:** Calibration JSON file saved to `calibrations/video_calibration_YYYYMMDD_HHMMSS.json`
+**Output:** Calibration JSON file automatically saved to `calibrations/{csv1}_{csv2}_{...}_video_calibration_YYYYMMDD_HHMMSS.json`
 
-### Step 5: 3D Visualization
+### Step 5: Track Smoothing (Optional)
+
+```bash
+python track_smoother.py
+```
+
+**Purpose:** Smooth trajectories and remove noise spikes from tracking data.
+
+**Procedure:**
+1. Load a CSV file from your pair detection results
+2. Adjust smoothing parameters:
+   - **Window Size**: Moving average window (larger = more smoothing)
+   - **Spike Threshold**: Statistical outlier threshold (higher = fewer spikes removed)
+   - **Velocity Threshold**: Maximum allowed velocity jump
+3. Toggle display options:
+   - Show original trajectories
+   - Show smoothed trajectories
+   - Show detected spike points
+4. View smoothness metrics comparing original vs smoothed data
+5. Export cleaned CSV data
+
+**Output:** Smoothed CSV saved as `{csv_name}-smoothed.csv` (or `-smoothed-N.csv` if multiple exports) in the same folder as the CSV
+
+### Step 6: 3D Visualization
 
 ```bash
 python visualize3d.py
@@ -337,12 +367,14 @@ python visualize3d.py
 **Purpose:** Interactively visualize 3D trajectories from processed pair data.
 
 **Procedure:**
-1. Load a CSV file from `pair_detect_output` (requires X_mm, Y_mm, Z_mm columns)
+1. Load a CSV file from your input video folder (requires X_mm, Y_mm, Z_mm columns)
 2. Use time slider to scrub through frames
 3. Toggle trail visualization and adjust trail length
 4. Select specific tracks to display
 5. Rotate/zoom/pan the 3D view
 6. Export animated video of the 3D trajectories
+
+**Output:** 3D plot video saved as `{csv_name}-3dplot.mp4` (or `-3dplot-N.mp4` if multiple exports) in the same folder as the CSV
 
 **3D Coordinate Calculation:**
 
@@ -376,9 +408,8 @@ Once calibrated, full 3D coordinates are computed:
 - **Y-axis**: Depth (forward = positive, accounting for image coordinate flip)
 - **Z-axis**: Vertical height above mirror (up = positive)
 
-**Output:** Video file saved to `3dvis_output/` directory
 
-### Step 6: Z Height Histogram Analysis
+### Step 7: Z Height Histogram Analysis
 
 ```bash
 python z_histogram.py
@@ -387,18 +418,19 @@ python z_histogram.py
 **Purpose:** Analyze and visualize the distribution of Z heights in your tracked data.
 
 **Procedure:**
-1. The tool automatically loads the latest CSV file from `pair_detect_output` (or manually load a different CSV)
+1. Load a CSV file (automatically loads latest from inputs_outputs, or manually browse to select)
 2. View the histogram showing Z height distribution:
    - **X-axis**: Z Height (mm)
    - **Y-axis**: Frequency (Count) - logarithmic scale
 3. Adjust histogram settings:
    - **Bins**: Slider to control number of histogram bins (10-200)
+   - **Log Scale**: Toggle logarithmic Y-axis
 4. View statistics panel showing:
    - Mean Z height
    - Median Z height
    - Standard deviation
    - Minimum and maximum values
-5. Export histogram as image (PNG, PDF, or SVG)
+5. Export histogram as PNG image
 
 **Use Cases:**
 - Analyze height distribution of particles in your video
@@ -408,7 +440,7 @@ python z_histogram.py
 
 **Requirements:** CSV file must contain `Z_mm` column (requires calibration data during export from `pair_detect.py`)
 
-**Output:** Histogram image file (optional export)
+**Output:** Histogram image saved as `{csv_name}-histogram.png` (or `-histogram-N.png` if multiple exports) in the same folder as the CSV
 
 ## Methods and Algorithms
 
@@ -505,6 +537,7 @@ The system builds an averaged background model from the entire video before proc
 ├── calibrate_image.py         # Image scale calibration
 ├── calibrate_video.py         # Z-height calibration
 ├── pair_detect.py             # Main pair detection and tracking
+├── track_smoother.py          # Track smoothing and cleaning
 ├── visualize3d.py             # 3D trajectory visualization
 ├── z_histogram.py             # Z height distribution histogram
 ├── lib/                       # Library modules
@@ -516,14 +549,54 @@ The system builds an averaged background model from the entire video before proc
 │   │   └── preset_io.py       # Settings persistence
 │   └── capture/               # Video capture utilities
 ├── calibrations/              # Calibration JSON files
-├── capture_output/            # Raw captured videos
-├── pair_detect_output/        # Processed pair data
-│   └── [video_name]_[timestamp]/
-│       ├── pairs.csv          # Tracked pair data
-│       ├── tracked_export.mp4 # Video with overlays
-│       └── binary_overlay_export.mp4
-└── 3dvis_output/              # 3D visualization videos
+├── inputs_outputs/            # All video and data outputs organized by capture
+│   └── video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/
+│       ├── video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS.mp4  # Original capture
+│       ├── *-grayscale.mp4    # Processed grayscale video
+│       ├── *-binary.mp4       # Processed binary video
+│       ├── *-paired-tracked.csv  # Pair tracking data
+│       ├── *-smoothed.csv     # Smoothed data (from track_smoother)
+│       ├── *-3dplot.mp4       # 3D visualization
+│       ├── *-3dplot-smoothed.mp4  # 3D visualization of smoothed data
+│       ├── *-histogram.png    # Z height histogram
+│       ├── pair_detect_preset.json  # Processing parameters
+│       └── track_smoother_preset.json  # Smoothing parameters
 ```
+
+## File Organization and Naming Conventions
+
+### Centralized Output Structure
+
+All outputs are organized by capture session in the `inputs_outputs/` directory:
+
+**Capture** → Creates unique folder: `video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/`
+- Original video saved inside this folder
+
+**Pair Detection** → Processes video in the same folder:
+- `{video_name}-grayscale.mp4` - Grayscale video with overlays
+- `{video_name}-binary.mp4` - Binary video with overlays
+- `{video_name}-paired-tracked.csv` - Tracking data
+- `pair_detect_preset.json` - Processing parameters and calibration
+
+**Post-Processing** → Uses CSV as input, saves outputs in same folder:
+- `{csv_name}-smoothed.csv` - Cleaned tracking data
+- `{csv_name}-3dplot.mp4` - 3D visualization
+- `{csv_name}-3dplot-smoothed.mp4` - 3D visualization of smoothed data
+- `{csv_name}-histogram.png` - Z height distribution
+- `track_smoother_preset.json` - Smoothing parameters
+
+### Multiple Export Handling
+
+When exporting multiple times from the same input:
+- First export: Uses base suffix (e.g., `-grayscale.mp4`)
+- Subsequent exports: Appends counter (e.g., `-grayscale-1.mp4`, `-grayscale-2.mp4`)
+- Prevents overwriting and allows version comparison
+
+### Input Methods
+
+- **Video folders**: `pair_detect.py` - Selects base video automatically
+- **CSV files**: All other tools - Direct file selection
+- **JSON presets**: "Load Process" button - Restores previous settings
 
 ## Configuration Files
 
