@@ -1,0 +1,25 @@
+{
+  "image_path": "C:/Users/Leonard/Desktop/oriental scan1.jpg",
+  "point1": {
+    "x": 220,
+    "y": 259
+  },
+  "point2": {
+    "x": 370,
+    "y": 425
+  },
+  "pixel_distance": 223.7319825147938,
+  "mm_measurement": 34.0,
+  "pixels_per_mm": 39.85,
+  "working_distance_mm": 21.74,
+  "working_distance_m": 0.02174,
+  "camera_parameters": {
+    "focal_length_mm": 16.0,
+    "pixel_size_microns": 3.0,
+    "pixel_size_m": 3e-06,
+    "sensor_x_mm": 5.76,
+    "sensor_y_mm": 3.24,
+    "sensor_x_m": 0.0057599999999999995,
+    "sensor_y_m": 0.0032400000000000003
+  }
+}

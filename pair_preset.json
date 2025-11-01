@@ -1,6 +1,6 @@
 {
   "params": {
-    "threshold": 33,
+    "threshold": 47,
     "blur": 1,
     "minArea": 0,
     "maxArea": 5000,
@@ -21,13 +21,16 @@
     "contrast": 100
   },
   "overlays": {
-    "show_blobs": 1,
-    "show_center": 1,
+    "show_blobs": 0,
+    "show_center": 0,
     "show_pair_center": 0,
     "show_lines": 1,
-    "show_rays": 1,
+    "show_rays": 0,
+    "show_pair_points": 0,
     "label_mode": "Random",
-    "show_text_labels": 1,
+    "show_text_labels": 0,
+    "show_z_value": 1,
+    "show_real_point": 1,
     "show_current_stats": 0,
     "show_total_stats": 0
   },

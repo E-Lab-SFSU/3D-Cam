@@ -25,8 +25,10 @@ NOTES
 """
 
 import cv2, numpy as np, math, csv, json, os, time, sys
+from typing import Optional
+from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, messagebox
 from lib.pair.pair_algorithms import (
     detect as alg_detect,
     pair_scored as alg_pair_scored,
@@ -41,6 +43,9 @@ from lib.pair.pair_draw import (
     draw_pair_rays_toward_center as draw_pair_rays_toward_center_ext,
     set_video_seed as set_video_seed_ext,
     draw_stats_overlay as draw_stats_overlay_ext,
+    draw_z_values as draw_z_values_ext,
+    draw_xy_values as draw_xy_values_ext,
+    draw_real_point as draw_real_point_ext,
 )
 from lib.capture.util_paths import ts_name, path_stem, export_paths_for
 from lib.pair.preset_io import save_preset_file, load_preset_file
@@ -98,8 +103,12 @@ DEFAULT_OVERLAYS = {
     "show_pair_center": 0, # Draw small circle at pair midpoint (for tracking visualization)
     "show_lines":   1,     # Draw white line between paired blobs
     "show_rays":    1,     # Extend pair line (white) in the AC direction toward/past the center
+    "show_pair_points": 1, # Draw circles at pair endpoints (A and C points)
     "label_mode":   "Red/Blue",   # Label mode: "None", "Red/Blue", "Random"
     "show_text_labels": 1,         # Show #A/#C text labels on pairs
+    "show_z_value": 0,     # Show Z value text labels on pairs (requires calibration)
+    "show_xy_values": 0,   # Show X and Y value text labels on pairs (requires calibration)
+    "show_real_point": 0,  # Show real point at B mm distance from center along ray (requires calibration)
     "show_current_stats": 0,  # Show current frame stats overlay
     "show_total_stats": 0,    # Show total stats overlay
 }
@@ -119,6 +128,13 @@ xCenter      = None                    # optical center x-coordinate (int pixels
 yCenter      = None                    # optical center y-coordinate (int pixels)
 center_valid = False                   # True once user clicked in preview
 showing_center_setup = False           # True when showing raw first frame for center setup
+
+# ============ Calibration data for Z/B calculation ============
+calibration_magic_constant: Optional[float] = None
+calibration_magic_offset: Optional[float] = None
+calibration_working_distance_mm: Optional[float] = None
+calibration_pixels_per_mm: Optional[float] = None  # Pixels per mm for B to mm conversion
+calibration_loaded = False
 
 # ============ Live preview control ============
 FPS_PREVIEW   = 15                     # Target preview FPS (smooth enough to tune)
@@ -333,7 +349,7 @@ def reopen_video():
     print(f"[INFO] Video: {W}×{H}, fps≈{fps:.2f}")
     
     # Reset preview tracker when video (re)opens
-    global tracker_preview, total_pairs_count, max_pair_count, center_valid, showing_center_setup
+    global tracker_preview, total_pairs_count, max_pair_count, center_valid, showing_center_setup, xCenter, yCenter
     tracker_preview = PairTracker(
         max_match_dist_px=float(params.get("track_max_match_dist", 25.0)),
         max_misses=int(params.get("track_max_misses", 10))
@@ -341,9 +357,21 @@ def reopen_video():
     total_pairs_count = 0  # Reset total pairs count when video reopens
     max_pair_count = 0  # Reset max pair count when video reopens
     
-    # Reset center - user must set it using raw first frame
-    center_valid = False
-    showing_center_setup = True
+    # Only reset center if it's not already valid (preserve existing center)
+    if not center_valid:
+        # If we have a last known center location from preset, automatically use it
+        if xCenter is not None and yCenter is not None:
+            # Center coordinates exist from preset, automatically validate them
+            center_valid = True
+            showing_center_setup = False
+            print(f"[INFO] Using preset optical center -> ({xCenter},{yCenter})")
+        else:
+            # No previous center exists, default to frame center and show setup
+            xCenter, yCenter = W // 2, H // 2
+            showing_center_setup = True
+    else:
+        # Center is already valid, don't prompt again
+        showing_center_setup = False
     
     # Set video seed for persistent colors based on filename
     set_video_seed_ext(video_path)
@@ -357,17 +385,28 @@ def reopen_video():
     except Exception:
         pass  # Windows may already exist, ignore
     
-    # Show raw first frame for center point placement
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    ret, first_frame = cap.read()
-    if ret:
-        # Display raw first frame (unprocessed) for center placement
-        first_frame_display = first_frame.copy()  # Original BGR frame
-        cv2.putText(first_frame_display, "Click to set optical center", 
-                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow("Tracked", first_frame_display)
-        cv2.setMouseCallback("Tracked", on_mouse_tracked)
-        cv2.waitKey(1)  # Update display
+    # Show raw first frame for center point placement (only if center not valid)
+    if showing_center_setup:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, first_frame = cap.read()
+        if ret:
+            # Display raw first frame (unprocessed) for center placement
+            first_frame_display = first_frame.copy()  # Original BGR frame
+            cv2.putText(first_frame_display, "Click to set optical center (Press Enter to confirm)", 
+                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            # Show default/previous center location if available
+            if xCenter is not None and yCenter is not None:
+                cv2.circle(first_frame_display, (xCenter, yCenter), 10, (0, 255, 255), 2)
+                cv2.line(first_frame_display, (xCenter - 15, yCenter), (xCenter + 15, yCenter), (0, 255, 255), 2)
+                cv2.line(first_frame_display, (xCenter, yCenter - 15), (xCenter, yCenter + 15), (0, 255, 255), 2)
+            cv2.imshow("Tracked", first_frame_display)
+            cv2.setMouseCallback("Tracked", on_mouse_tracked)
+            # Bring Tracked window to front to ensure it can receive keyboard input
+            try:
+                cv2.setWindowProperty("Tracked", cv2.WND_PROP_TOPMOST, 0)
+            except:
+                pass
+            cv2.waitKey(1)  # Update display
     
     # Create or update video controls window
     setup_video_controls_window()
@@ -627,16 +666,73 @@ def export_video():
         if overlays["show_lines"]:
             if overlay_targets["enable_tracked"]:
                 show_labels = overlays.get("show_text_labels", 1)
-                draw_pair_lines_ext(color, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path)
+                show_points = overlays.get("show_pair_points", 1)
+                draw_pair_lines_ext(color, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path, show_points)
             if overlay_targets["enable_binary"]:
                 show_labels = overlays.get("show_text_labels", 1)
-                draw_pair_lines_ext(bin3, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path)
+                show_points = overlays.get("show_pair_points", 1)
+                draw_pair_lines_ext(bin3, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path, show_points)
 
         if overlays["show_rays"]:
             if overlay_targets["enable_tracked"]:
                 draw_pair_rays_toward_center_ext(color, pairs, color.shape[1], xCenter, yCenter, overlays.get("label_mode", "Red/Blue"), video_path)
             if overlay_targets["enable_binary"]:
                 draw_pair_rays_toward_center_ext(bin3, pairs, bin3.shape[1], xCenter, yCenter, overlays.get("label_mode", "Red/Blue"), video_path)
+
+        # Z value overlay - show if enabled and working distance is available
+        # The draw function will show "Z:??" if magic constants are not available
+        if overlays.get("show_z_value", 0) and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+            if overlay_targets["enable_tracked"]:
+                draw_z_values_ext(color, pairs, 
+                                calibration_working_distance_mm,
+                                calibration_magic_constant,
+                                calibration_magic_offset,
+                                overlays.get("label_mode", "Red/Blue"),
+                                video_path)
+            if overlay_targets["enable_binary"]:
+                draw_z_values_ext(bin3, pairs,
+                                calibration_working_distance_mm,
+                                calibration_magic_constant,
+                                calibration_magic_offset,
+                                overlays.get("label_mode", "Red/Blue"),
+                                video_path)
+
+        # X, Y values overlay - show if enabled and required parameters are available
+        if overlays.get("show_xy_values", 0):
+            pixels_per_mm = get_pixels_per_mm()
+            if calibration_working_distance_mm and calibration_working_distance_mm > 0 and pixels_per_mm and pixels_per_mm > 0:
+                if overlay_targets["enable_tracked"]:
+                    draw_xy_values_ext(color, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+                if overlay_targets["enable_binary"]:
+                    draw_xy_values_ext(bin3, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+
+        # Real point overlay (B point) - show if enabled and working distance is available
+        # B can be calculated from A and C radii, working distance check is kept for consistency
+        if overlays.get("show_real_point", 0) and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+                if overlay_targets["enable_tracked"]:
+                    draw_real_point_ext(color, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      calibration_pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+                if overlay_targets["enable_binary"]:
+                    draw_real_point_ext(bin3, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      calibration_pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
 
         # Stats overlay
         if overlays.get("show_current_stats", 0) or overlays.get("show_total_stats", 0):
@@ -673,14 +769,84 @@ def export_video():
         for pair in pairs:
             # Unpack pair (now includes areas)
             pid, xi, yi, xj, yj, th_i, r_i, th_j, r_j, score = pair[0:10]
-            # Additional fields (area_i, area_j) are available but not needed for CSV export
-            rows.append([
+            
+            # Calculate Zprime, B, and Z if calibration is loaded
+            zprime_val = None
+            b_val = None
+            z_val = None
+            
+            if calibration_loaded and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+                # r_i is Radius_A (inner), r_j is Radius_B (outer, which is C)
+                r_a = r_i  # A = inner radius
+                r_c = r_j  # C = outer radius
+                
+                if r_a > 0 and r_c > 0:
+                    # Calculate Zprime = working_distance * (C-A)/(A+C)
+                    zprime_val = calibration_working_distance_mm * (r_c - r_a) / (r_a + r_c)
+                    
+                    # Calculate B = (2*A*C)/(A+C)
+                    b_val = (2 * r_a * r_c) / (r_a + r_c)
+                    
+                    # Calculate Z = Zprime * magic_constant + magic_offset
+                    # Note: Z requires calibration JSON with magic_constant/offset
+                    if calibration_magic_constant is not None and calibration_magic_offset is not None:
+                        z_val = zprime_val * calibration_magic_constant + calibration_magic_offset
+            
+            # Build row - always include Z, B, X, Y columns (empty if constants not present)
+            # Calculate Z and B if calibration constants are available
+            z_mm_val = ""
+            b_px_val = ""
+            x_mm_val = ""
+            y_mm_val = ""
+            
+            if calibration_loaded and calibration_magic_constant is not None and calibration_magic_offset is not None:
+                # Z can only be calculated if magic_constant and magic_offset are available
+                if z_val is not None:
+                    z_mm_val = round(z_val, 4)
+            
+            if calibration_loaded and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+                # B can be calculated if working distance is available
+                if b_val is not None:
+                    b_px_val = round(b_val, 4)
+                    
+                    # Calculate X, Y from B and theta (polar to Cartesian conversion)
+                    # Get pixels_per_mm for conversion
+                    pixels_per_mm = get_pixels_per_mm()
+                    if pixels_per_mm and pixels_per_mm > 0:
+                        # Calculate B in mm
+                        b_mm = b_px_val / pixels_per_mm
+                        
+                        # Calculate angle to pair midpoint (average of the two angles, or from midpoint coordinates)
+                        # Use the midpoint angle from the pair
+                        mx = 0.5 * (xi + xj)
+                        my = 0.5 * (yi + yj)
+                        dx = mx - xCenter
+                        dy = my - yCenter
+                        dist_to_midpoint = math.sqrt(dx*dx + dy*dy)
+                        
+                        if dist_to_midpoint > 1e-6:
+                            # Calculate angle in radians (atan2 gives angle from positive x-axis)
+                            # Note: In image coordinates, Y increases downward, so we negate Y
+                            theta_rad = math.atan2(dy, dx)
+                            
+                            # Convert polar to Cartesian: X = r * cos(theta), Y = -r * sin(theta)
+                            # Y is negated because image coordinates have Y increasing downward
+                            x_mm_val = round(b_mm * math.cos(theta_rad), 4)
+                            y_mm_val = round(-b_mm * math.sin(theta_rad), 4)
+            
+            row = [
                 idx, pid, xi, yi, xj, yj, th_i, r_i, th_j, r_j, round(float(score), 4),
                 pair_count,  # Pair Count column
                 int(p["threshold"]), int(p["blur"]), int(p["minArea"]), int(p["maxArea"]), int(p["maxW"]),
                 float(p["maxRadGap"]), float(p["maxDMR"]), float(p["maxCenterOff"]),
-                float(p["w_theta"]), float(p["w_area"]), float(p["w_center"]), float(p["Smin"])
-            ])
+                float(p["w_theta"]), float(p["w_area"]), float(p["w_center"]), float(p["Smin"]),
+                z_mm_val,  # Z_mm column (empty if constants not present)
+                b_px_val,  # B_px column (empty if constants not present)
+                x_mm_val,  # X_mm column (empty if pixels_per_mm not available)
+                y_mm_val   # Y_mm column (empty if pixels_per_mm not available)
+            ]
+            
+            rows.append(row)
 
         if idx in progress_marks:
             pct = 100 * idx / max(1, N)
@@ -696,21 +862,205 @@ def export_video():
     try:
         with open(out_csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow([
+            # Build header - always include Z, B, X, Y columns (empty if constants not present)
+            header = [
                 "Frame_Number", "Track_ID", "Center_X", "Center_Y", "Right_X", "Right_Y",
-                "Angle_A_deg", "Radius_A_px", "Angle_B_deg", "Radius_B_px", "Pair_Score",
+                "Angle_A_deg", "A_px", "Angle_B_deg", "C_px", "Pair_Score",
                 "Pair_Count",
                 "Binary_Threshold", "Blur_Size", "Min_Area_px2", "Max_Area_px2", "Max_Width_px",
                 "Max_Radial_Gap_px", "Max_Angle_Diff_deg", "Max_Center_Offset_px",
-                "Weight_Angle", "Weight_Area", "Weight_Center", "Min_Score_Threshold"
-            ])
+                "Weight_Angle", "Weight_Area", "Weight_Center", "Min_Score_Threshold",
+                "Z_mm", "B_px", "X_mm", "Y_mm"
+            ]
+            
+            w.writerow(header)
             w.writerows(rows)
+        
         print(f"[INFO] Export complete. CSV → {out_csv}")
+        if calibration_loaded:
+            print(f"[INFO] Calibration used: magic_constant={calibration_magic_constant:.6f}, "
+                  f"magic_offset={calibration_magic_offset:.6f} mm, "
+                  f"working_distance={calibration_working_distance_mm:.2f} mm")
+            print(f"[INFO] Z and B values calculated and included in CSV.")
+        else:
+            print(f"[INFO] Note: Z and B columns are empty (no calibration constants loaded).")
     except Exception as e:
         print(f"[WARN] CSV save failed: {e}")
 
     # Re-enable controls after export
     ui_set_controls_enabled(widgets, True)
+
+def get_latest_image_calibration_file() -> Optional[str]:
+    """
+    Find the latest image calibration JSON file in the calibrations folder.
+    Returns the path to the latest file, or None if no file is found.
+    """
+    calibrations_dir = Path("calibrations")
+    
+    if not calibrations_dir.exists():
+        return None
+    
+    # Find image calibration files
+    json_files = list(calibrations_dir.glob("image_calibration_*.json"))
+    
+    if not json_files:
+        return None
+    
+    # Sort by modification time (newest first)
+    json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    return str(json_files[0])
+
+
+def get_pixels_per_mm() -> Optional[float]:
+    """
+    Get pixels_per_mm from calibration data.
+    First checks video calibration, then falls back to latest image calibration.
+    """
+    global calibration_pixels_per_mm
+    
+    # First check if it's already loaded from video calibration
+    if calibration_pixels_per_mm is not None and calibration_pixels_per_mm > 0:
+        return calibration_pixels_per_mm
+    
+    # Try to load from latest image calibration file
+    latest_image_cal = get_latest_image_calibration_file()
+    if latest_image_cal:
+        try:
+            with open(latest_image_cal, 'r', encoding='utf-8') as f:
+                cal_data = json.load(f)
+                if "pixels_per_mm" in cal_data:
+                    pixels_per_mm = float(cal_data["pixels_per_mm"])
+                    if pixels_per_mm > 0:
+                        return pixels_per_mm
+        except Exception:
+            pass
+    
+    return None
+
+
+def get_latest_video_calibration_file() -> Optional[str]:
+    """
+    Find the latest video calibration JSON file in the calibrations folder.
+    Returns the path to the latest file, or None if no file is found.
+    """
+    calibrations_dir = Path("calibrations")
+    
+    if not calibrations_dir.exists():
+        return None
+    
+    # Find all video calibration JSON files (those with magic_constant and magic_offset)
+    json_files = list(calibrations_dir.glob("video_calibration_*.json"))
+    
+    if not json_files:
+        # Fallback: check any JSON file that might contain video calibration data
+        json_files = list(calibrations_dir.glob("*.json"))
+        # Filter for files that have video calibration structure
+        valid_files = []
+        for json_file in json_files:
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    cal_data = json.load(f)
+                    if "magic_constant" in cal_data and "magic_offset" in cal_data:
+                        valid_files.append(json_file)
+            except Exception:
+                continue
+        json_files = valid_files
+    
+    if not json_files:
+        return None
+    
+    # Sort by modification time (newest first)
+    json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    return str(json_files[0])
+
+
+def load_calibration_file(file_path: str, silent: bool = False) -> bool:
+    """
+    Load calibration data from a JSON file.
+    
+    Args:
+        file_path: Path to the calibration JSON file
+        silent: If True, don't show messageboxes (only print to console)
+    
+    Returns:
+        True if calibration was successfully loaded, False otherwise
+    """
+    global calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm, calibration_loaded
+    
+    if not file_path or not os.path.exists(file_path):
+        if not silent:
+            messagebox.showerror("Error", f"File not found: {file_path}")
+        return False
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            cal_data = json.load(f)
+        
+        if "magic_constant" in cal_data and "magic_offset" in cal_data:
+            calibration_magic_constant = float(cal_data["magic_constant"])
+            calibration_magic_offset = float(cal_data["magic_offset"])
+            calibration_loaded = True
+            
+            # Try to get working distance from calibration file (top level first, then data points)
+            if "working_distance_mm" in cal_data:
+                calibration_working_distance_mm = float(cal_data["working_distance_mm"])
+            elif "data_points" in cal_data and len(cal_data["data_points"]) > 0:
+                # Use working distance from first data point (assuming same for all)
+                calibration_working_distance_mm = float(cal_data["data_points"][0].get("working_distance_mm", 0))
+            
+            # Try to get pixels_per_mm from calibration file
+            if "pixels_per_mm" in cal_data:
+                calibration_pixels_per_mm = float(cal_data["pixels_per_mm"])
+            else:
+                calibration_pixels_per_mm = None
+            
+            if calibration_working_distance_mm is None or calibration_working_distance_mm <= 0:
+                # Working distance not found
+                if not silent:
+                    print("[WARN] Working distance not found in calibration file.")
+                    print(f"[INFO] Loaded calibration: magic_constant={calibration_magic_constant:.6f}, magic_offset={calibration_magic_offset:.6f}")
+                    messagebox.showinfo(
+                        "Calibration Loaded",
+                        f"Magic Constant: {calibration_magic_constant:.6f}\n"
+                        f"Magic Offset: {calibration_magic_offset:.6f} mm\n\n"
+                        "Note: Working distance not found. Please ensure it's set for Z/B calculation."
+                    )
+                return True
+            
+            print(f"[INFO] Calibration loaded: magic_constant={calibration_magic_constant:.6f}, "
+                  f"magic_offset={calibration_magic_offset:.6f} mm, "
+                  f"working_distance={calibration_working_distance_mm:.2f} mm")
+            if not silent:
+                messagebox.showinfo(
+                    "Calibration Loaded",
+                    f"Magic Constant: {calibration_magic_constant:.6f}\n"
+                    f"Magic Offset: {calibration_magic_offset:.6f} mm\n"
+                    f"Working Distance: {calibration_working_distance_mm:.2f} mm\n\n"
+                    "Z and B will be calculated for exported pairs."
+                )
+            return True
+        else:
+            if not silent:
+                messagebox.showerror("Error", "Invalid calibration file: missing magic_constant or magic_offset")
+            return False
+    except Exception as e:
+        if not silent:
+            messagebox.showerror("Error", f"Failed to load calibration file: {e}")
+        print(f"[ERROR] Failed to load calibration: {e}")
+        return False
+
+
+def load_calibration():
+    """Load calibration data from JSON file for Z/B calculation (with file dialog)."""
+    file_path = filedialog.askopenfilename(
+        title="Load Video Calibration File",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+    )
+    
+    if file_path:
+        load_calibration_file(file_path, silent=False)
 
 def handle_reset():
     ui_reset_defaults_ui(
@@ -879,7 +1229,7 @@ def preview_loop():
             root.after(DELAY_MS, preview_loop)
             return
 
-        # If showing center setup, wait for user to click
+        # If showing center setup, wait for user to click or press Enter
         global cached_frame
         if showing_center_setup and not center_valid:
             # Still waiting for center point - show raw first frame
@@ -887,10 +1237,10 @@ def preview_loop():
             ret, first_frame = cap.read()
             if ret:
                 first_frame_display = first_frame.copy()
-                cv2.putText(first_frame_display, "Click to set optical center", 
-                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.putText(first_frame_display, "Click to set optical center (Press Enter to confirm)", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 if xCenter is not None and yCenter is not None:
-                    # Show temporary crosshair at current click position
+                    # Show temporary crosshair at current/default position
                     cv2.circle(first_frame_display, (xCenter, yCenter), 10, (0, 255, 255), 2)
                     cv2.line(first_frame_display, (xCenter - 15, yCenter), (xCenter + 15, yCenter), (0, 255, 255), 2)
                     cv2.line(first_frame_display, (xCenter, yCenter - 15), (xCenter, yCenter + 15), (0, 255, 255), 2)
@@ -899,6 +1249,23 @@ def preview_loop():
                 h, w = first_frame.shape[:2]
                 blank = np.zeros((h, w), dtype=np.uint8)
                 cv2.imshow("Binary", blank)
+                
+                # Ensure Tracked window is active and can receive keyboard input
+                # waitKey() only responds to keys when an OpenCV window has focus
+                # This ensures Enter key detection only works when Tracked window is focused
+                try:
+                    # Check if Tracked window is visible
+                    if cv2.getWindowProperty("Tracked", cv2.WND_PROP_VISIBLE) >= 1:
+                        # Check for Enter key press (key code 13 or 10)
+                        # Note: This only works when Tracked window has focus
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == 13 or key == 10:  # Enter key
+                            # Confirm current center location
+                            if xCenter is not None and yCenter is not None:
+                                set_centerxy(xCenter, yCenter)
+                except cv2.error:
+                    # Window might not exist yet, continue
+                    pass
             root.after(DELAY_MS, preview_loop)
             return
         
@@ -1029,16 +1396,73 @@ def preview_loop():
         if overlays["show_lines"]:
             if overlay_targets["enable_tracked"]:
                 show_labels = overlays.get("show_text_labels", 1)
-                draw_pair_lines_ext(color, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path)
+                show_points = overlays.get("show_pair_points", 1)
+                draw_pair_lines_ext(color, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path, show_points)
             if overlay_targets["enable_binary"]:
                 show_labels = overlays.get("show_text_labels", 1)
-                draw_pair_lines_ext(bin3, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path)
+                show_points = overlays.get("show_pair_points", 1)
+                draw_pair_lines_ext(bin3, pairs, show_labels, overlays.get("label_mode", "Red/Blue"), video_path, show_points)
 
         if overlays["show_rays"]:
             if overlay_targets["enable_tracked"]:
                 draw_pair_rays_toward_center_ext(color, pairs, color.shape[1], xCenter, yCenter, overlays.get("label_mode", "Red/Blue"), video_path)
             if overlay_targets["enable_binary"]:
                 draw_pair_rays_toward_center_ext(bin3, pairs, bin3.shape[1], xCenter, yCenter, overlays.get("label_mode", "Red/Blue"), video_path)
+
+        # Z value overlay - show if enabled and working distance is available
+        # The draw function will show "Z:??" if magic constants are not available
+        if overlays.get("show_z_value", 0) and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+            if overlay_targets["enable_tracked"]:
+                draw_z_values_ext(color, pairs, 
+                                calibration_working_distance_mm,
+                                calibration_magic_constant,
+                                calibration_magic_offset,
+                                overlays.get("label_mode", "Red/Blue"),
+                                video_path)
+            if overlay_targets["enable_binary"]:
+                draw_z_values_ext(bin3, pairs,
+                                calibration_working_distance_mm,
+                                calibration_magic_constant,
+                                calibration_magic_offset,
+                                overlays.get("label_mode", "Red/Blue"),
+                                video_path)
+
+        # X, Y values overlay - show if enabled and required parameters are available
+        if overlays.get("show_xy_values", 0):
+            pixels_per_mm = get_pixels_per_mm()
+            if calibration_working_distance_mm and calibration_working_distance_mm > 0 and pixels_per_mm and pixels_per_mm > 0:
+                if overlay_targets["enable_tracked"]:
+                    draw_xy_values_ext(color, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+                if overlay_targets["enable_binary"]:
+                    draw_xy_values_ext(bin3, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+
+        # Real point overlay (B point) - show if enabled and working distance is available
+        # B can be calculated from A and C radii, working distance check is kept for consistency
+        if overlays.get("show_real_point", 0) and calibration_working_distance_mm and calibration_working_distance_mm > 0:
+                if overlay_targets["enable_tracked"]:
+                    draw_real_point_ext(color, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      calibration_pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
+                if overlay_targets["enable_binary"]:
+                    draw_real_point_ext(bin3, pairs,
+                                      xCenter, yCenter,
+                                      calibration_working_distance_mm,
+                                      calibration_pixels_per_mm,
+                                      overlays.get("label_mode", "Red/Blue"),
+                                      video_path)
 
         # Stats overlay
         if overlays.get("show_current_stats", 0) or overlays.get("show_total_stats", 0):
@@ -1086,12 +1510,24 @@ def main():
     global root, widgets, gui_vars_numeric, gui_vars_check
     root, widgets, gui_vars_numeric, gui_vars_check = ui_build_gui(
         params, overlays, overlay_targets,
-        open_video, export_video, optimize_optical_center, handle_reset, on_exit, toggle_play_pause
+        open_video, export_video, optimize_optical_center, handle_reset, on_exit, toggle_play_pause,
+        load_calibration
     )
 
     # Create windows early (needed before reopen_video can resize them)
     cv2.namedWindow("Tracked", cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED)
     cv2.namedWindow("Binary",  cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_EXPANDED)
+    
+    # Auto-load latest video calibration file
+    latest_cal_file = get_latest_video_calibration_file()
+    if latest_cal_file:
+        print(f"[INFO] Auto-loading latest video calibration: {latest_cal_file}")
+        if load_calibration_file(latest_cal_file, silent=True):
+            print(f"[INFO] Successfully auto-loaded calibration from: {os.path.basename(latest_cal_file)}")
+        else:
+            print(f"[WARN] Failed to auto-load calibration from: {latest_cal_file}")
+    else:
+        print("[INFO] No video calibration file found in calibrations folder.")
     
     if video_path and os.path.exists(video_path):
         reopen_video()  # This will resize windows to native video resolution

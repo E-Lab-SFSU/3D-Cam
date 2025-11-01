@@ -1,0 +1,26 @@
+{
+  "magic_constant": 3.5378494975121066,
+  "magic_offset": 0.06071995009796431,
+  "r_squared": 1.0,
+  "data_points": [
+    {
+      "folder": "C:/Users/Leonard/Documents/GitHub/3D-Cam/pair_detect_output/video_640x480_30fps_20251031_182254_20251031_201445",
+      "z_mm": 3.0,
+      "working_distance_mm": 21.74,
+      "avg_zprime": 0.8308098046479935,
+      "avg_b": 218.6149193208883
+    },
+    {
+      "folder": "C:/Users/Leonard/Documents/GitHub/3D-Cam/pair_detect_output/video_640x480_30fps_20251031_182412_20251031_201550",
+      "z_mm": 4.0,
+      "working_distance_mm": 21.74,
+      "avg_zprime": 1.1134673910442554,
+      "avg_b": 239.3579470078276
+    }
+  ],
+  "formula": "Z = Zprime * magic_constant + magic_offset",
+  "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
+  "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
+  "b_formula": "B = (2*A*C)/(A+C)",
+  "working_distance_mm": 21.74
+}

@@ -21,6 +21,7 @@ def build_gui(
     on_reset,
     on_exit,
     on_toggle_play_pause=None,  # Optional, not used in main window anymore
+    on_load_calibration=None,  # Optional, for loading calibration data
 ):
     widgets: dict = {}
     gui_vars_numeric: dict = {}
@@ -56,8 +57,15 @@ def build_gui(
     widgets["btn_optimize"].grid(row=0, column=2, padx=2, sticky="ew")
     widgets["btn_reset"].grid(row=0, column=3, padx=2, sticky="ew")
     
-    widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)
-    widgets["btn_exit"].grid(row=1, column=0, columnspan=4, padx=2, pady=(2, 0), sticky="ew")
+    # Add calibration button if callback is provided
+    if on_load_calibration:
+        widgets["btn_calibration"] = ttk.Button(frm_btn, text="📐 Load Calibration", command=on_load_calibration)
+        widgets["btn_calibration"].grid(row=1, column=0, padx=2, pady=(2, 0), sticky="ew")
+        widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)
+        widgets["btn_exit"].grid(row=1, column=1, columnspan=3, padx=2, pady=(2, 0), sticky="ew")
+    else:
+        widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)
+        widgets["btn_exit"].grid(row=1, column=0, columnspan=4, padx=2, pady=(2, 0), sticky="ew")
 
     # Parameters frame
     frm_params = ttk.LabelFrame(content_frame, text="Processing Parameters")
@@ -275,34 +283,46 @@ def build_gui(
         gui_vars_check[key] = var
         widgets[f"chk_{key}"] = chk
 
-    add_check(0, 0, "Blobs", "show_blobs")
-    add_check(0, 1, "Center", "show_center")
-    add_check(0, 2, "Pair Center", "show_pair_center")
-    add_check(1, 0, "Lines", "show_lines")
-    add_check(1, 1, "Rays", "show_rays")
+    add_check(0, 0, "Blobs (Green)", "show_blobs")
+    add_check(0, 1, "Optical Center (Yellow)", "show_center")
+    add_check(0, 2, "Pair Midpoint", "show_pair_center")
+    add_check(1, 0, "Pair Line", "show_lines")
+    add_check(1, 1, "Pair Rays", "show_rays")
+    add_check(1, 2, "Pair Points", "show_pair_points")
     
-    # Label mode dropdown
-    ttk.Label(frm_ov, text="Color:").grid(row=2, column=0, padx=4, pady=2, sticky="w")
+    # Pair Color dropdown
+    ttk.Label(frm_ov, text="Pair Color:").grid(row=2, column=0, padx=4, pady=2, sticky="w")
     label_mode_var = tk.StringVar(value=overlays.get("label_mode", "Red/Blue"))
+    # Convert "None" to "White" for display, but keep internal value as "None"
+    current_mode = overlays.get("label_mode", "Red/Blue")
+    display_mode = "White" if current_mode == "None" else current_mode
+    label_mode_var.set(display_mode)
     cmb_label = ttk.Combobox(
         frm_ov,
-        values=["None", "Red/Blue", "Random"],
+        values=["White", "Red/Blue", "Random"],
         state="readonly",
         textvariable=label_mode_var,
         width=12,
     )
     cmb_label.grid(row=2, column=1, padx=4, pady=2, sticky="w")
-    cmb_label.set(overlays.get("label_mode", "Red/Blue"))
+    cmb_label.set(display_mode)
     
     def on_label_mode_change(*_):
-        overlays["label_mode"] = label_mode_var.get()
+        display_val = label_mode_var.get()
+        # Convert "White" back to "None" for internal storage
+        overlays["label_mode"] = "None" if display_val == "White" else display_val
     
     cmb_label.bind("<<ComboboxSelected>>", on_label_mode_change)
     label_mode_var.trace_add("write", on_label_mode_change)
     widgets["cmb_label_mode"] = cmb_label
     
-    # Text labels checkbox
-    add_check(2, 2, "Text Labels (#A/#C)", "show_text_labels")
+    # Text labels checkboxes (#A/#C, Z value, X/Y values, and Real point)
+    add_check(3, 0, "#A/#C", "show_text_labels")
+    add_check(3, 1, "Z value", "show_z_value")
+    add_check(3, 2, "X/Y values", "show_xy_values")
+    
+    # Real point checkbox on next row
+    add_check(4, 0, "Real point", "show_real_point")
 
     # Preview Overlay section
     frm_preview_ov = ttk.LabelFrame(content_frame, text="Preview Overlay")
@@ -376,7 +396,9 @@ def reset_defaults_ui(
     try:
         cmb_label = widgets.get("cmb_label_mode")
         if cmb_label is not None:
-            cmb_label.set(overlays.get("label_mode", "Red/Blue"))
+            current_mode = overlays.get("label_mode", "Red/Blue")
+            display_mode = "White" if current_mode == "None" else current_mode
+            cmb_label.set(display_mode)
     except Exception:
         pass
 
