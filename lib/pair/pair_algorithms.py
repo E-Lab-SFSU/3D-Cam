@@ -34,7 +34,8 @@ def detect(binary: np.ndarray, cx: int, cy: int, params: Dict) -> List[Dict]:
     minA, maxA, maxW = int(params["minArea"]), int(params["maxArea"]), int(params["maxW"])
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
-        area = w * h
+        # Use actual contour area (white pixels), not bounding box area
+        area = cv2.contourArea(c)
         if area < minA or area > maxA:
             continue
         if w > maxW or h > maxW:

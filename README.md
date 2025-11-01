@@ -169,9 +169,9 @@ The detection system processes each video frame through the following pipeline:
    - Threshold value: adjustable (0-255)
 7. **Blob Detection**: Find connected components (blobs) in binary image
    - Uses contour detection to identify particle candidates
-   - Filters by size constraints: `minArea ≤ area ≤ maxArea`
+   - Filters by pixel area: `minArea ≤ actual_pixel_area ≤ maxArea`
    - Filters by dimensions: width/height ≤ `maxW`
-   - Extracts blob properties: center position (xc, yc), bounding box, area
+   - Extracts blob properties: center position (xc, yc), bounding box, actual pixel area
    - Converts to polar coordinates (theta, radius) relative to optical center
 8. **Pair Matching**: Score candidate pairs based on:
    - **Angular Similarity** (`S_theta`): How close are the angles from center?
