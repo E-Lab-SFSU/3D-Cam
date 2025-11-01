@@ -1,5 +1,6 @@
 import os
 import time
+import sys
 
 
 def ts_name(stem: str, ext: str) -> str:
@@ -45,8 +46,19 @@ def export_paths_for(video_path: str) -> dict:
     }
 
 
-# Capture output directory
-CAPTURE_OUTPUT_DIR = "capture_output"
+# Capture output directory - relative to script location
+def get_script_dir():
+    """Get the directory where the main script is located."""
+    if getattr(sys, 'frozen', False):
+        # If running as compiled executable
+        return os.path.dirname(sys.executable)
+    else:
+        # If running as script
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+# Get script directory and create capture_output path relative to it
+_script_dir = get_script_dir()
+CAPTURE_OUTPUT_DIR = os.path.join(_script_dir, "capture_output")
 
 
 def make_capture_output_path(width: int, height: int, fps: int) -> str:

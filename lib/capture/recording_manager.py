@@ -111,57 +111,75 @@ class RecordingManager:
         next_frame_time = t0
         last_frame = None
         
-        while not self.stop_flag and camera and camera.is_open():
+        while not self.stop_flag and camera and camera.is_open() and self.video_writer is not None:
             try:
                 try:
                     frame = self.frame_queue.get(timeout=0.1)
                 except Empty:
                     current_time = time.time()
-                    if current_time >= next_frame_time and last_frame is not None:
+                    if current_time >= next_frame_time and last_frame is not None and self.video_writer is not None:
+                        try:
+                            w, h = self.scaled_size()
+                            if w != camera.w or h != camera.h:
+                                frame_resized = cv2.resize(last_frame, (w, h))
+                            else:
+                                frame_resized = last_frame.copy()
+                            
+                            if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
+                                frame_bgr = frame_resized
+                            else:
+                                frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
+                            
+                            if frame_bgr is not None:
+                                self.video_writer.write(frame_bgr)
+                                frame_count += 1
+                                next_frame_time += frame_interval
+                        except Exception as e:
+                            print(f"[WARN] Frame write error (Empty queue): {e}")
+                            dropped_frames += 1
+                    continue
+                
+                if frame is not None:
+                    last_frame = frame
+                    
+                    if self.video_writer is None:
+                        continue
+                    
+                    try:
                         w, h = self.scaled_size()
                         if w != camera.w or h != camera.h:
-                            frame_resized = cv2.resize(last_frame, (w, h))
+                            frame_resized = cv2.resize(frame, (w, h))
                         else:
-                            frame_resized = last_frame.copy()
+                            frame_resized = frame
+                        
+                        if frame_resized is None:
+                            continue
                         
                         if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
                             frame_bgr = frame_resized
                         else:
                             frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
                         
-                        self.video_writer.write(frame_bgr)
-                        frame_count += 1
-                        next_frame_time += frame_interval
-                    continue
-                
-                if frame is not None:
-                    last_frame = frame
-                    
-                    w, h = self.scaled_size()
-                    if w != camera.w or h != camera.h:
-                        frame_resized = cv2.resize(frame, (w, h))
-                    else:
-                        frame_resized = frame
-                    
-                    if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
-                        frame_bgr = frame_resized
-                    else:
-                        frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
-                    
-                    current_time = time.time()
-                    
-                    if current_time >= next_frame_time:
-                        self.video_writer.write(frame_bgr)
-                        frame_count += 1
-                        next_frame_time += frame_interval
+                        if frame_bgr is None:
+                            continue
                         
-                        if current_time > next_frame_time + frame_interval * 2:
-                            next_frame_time = current_time + frame_interval
-                    else:
-                        skipped_frames += 1
+                        current_time = time.time()
+                        
+                        if current_time >= next_frame_time:
+                            self.video_writer.write(frame_bgr)
+                            frame_count += 1
+                            next_frame_time += frame_interval
+                            
+                            if current_time > next_frame_time + frame_interval * 2:
+                                next_frame_time = current_time + frame_interval
+                        else:
+                            skipped_frames += 1
+                    except Exception as e:
+                        print(f"[WARN] Frame write error: {e}")
+                        dropped_frames += 1
                         
             except Exception as e:
-                print(f"[WARN] Frame write error: {e}")
+                print(f"[WARN] Recording loop error: {e}")
                 dropped_frames += 1
         
         duration = time.time() - t0
