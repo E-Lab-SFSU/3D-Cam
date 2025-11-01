@@ -4,14 +4,14 @@
 Video Calibration Tool
 
 This tool allows you to:
-  • Input multiple pair_detect_output folders
-  • Specify the mm height and working distance for each video
+  • Input multiple CSV files from pair detection
+  • Specify the mm height and working distance for each CSV
   • Calculate magic offset and magic constant
-  • Save the calibration parameters to a file
+  • Automatically save calibration to calibrations folder
 
 The calibration uses linear regression on:
   - Zprime values calculated from highest quality pairs: Zprime = working_distance * (C-A)/(A+C)
-  - Z values: the calibrated mm height input for each video
+  - Z values: the calibrated mm height input for each CSV
   - Formula: Z = Zprime * magic_constant + magic_offset
 """
 
@@ -443,10 +443,6 @@ class VideoCalibrationApp:
         self.metrics_text.grid(row=0, column=0, sticky="nsew")
         self.metrics_text_scrollbar.grid(row=0, column=1, sticky="ns")
         
-        # Save button
-        save_btn = ttk.Button(main_frame, text="💾 Save Calibration", command=self.save_calibration)
-        save_btn.pack(pady=5)
-        
         # Magic offset and constant storage
         self.magic_offset: Optional[float] = None
         self.magic_constant: Optional[float] = None
@@ -837,15 +833,27 @@ class VideoCalibrationApp:
         calibrations_dir = Path("calibrations")
         calibrations_dir.mkdir(exist_ok=True)
         
-        # Generate timestamped filename with prefix from first data point
+        # Generate timestamped filename combining all CSV filenames
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        prefix = ""
+        csv_names = []
         if self.calibration_data.get("data_points"):
-            first_csv = self.calibration_data["data_points"][0].get("csv_path", "")
-            if first_csv:
-                # Extract CSV filename without extension
-                csv_name = os.path.splitext(os.path.basename(first_csv))[0]
-                prefix = csv_name + "_"
+            for point in self.calibration_data["data_points"]:
+                csv_path = point.get("csv_path", "")
+                if csv_path:
+                    # Extract CSV filename without extension
+                    csv_name = os.path.splitext(os.path.basename(csv_path))[0]
+                    csv_names.append(csv_name)
+        
+        # Combine CSV names with underscores
+        if csv_names:
+            combined_names = "_".join(csv_names)
+            # Limit filename length to avoid filesystem issues
+            if len(combined_names) > 100:
+                combined_names = combined_names[:100]
+            prefix = combined_names + "_"
+        else:
+            prefix = ""
+        
         filename = f"{prefix}video_calibration_{timestamp}.json"
         file_path = calibrations_dir / filename
         
@@ -862,30 +870,6 @@ class VideoCalibrationApp:
         except Exception as e:
             print(f"[ERROR] Failed to auto-save calibration: {e}")
     
-    def save_calibration(self):
-        """Save calibration data to file."""
-        if self.calibration_data is None:
-            messagebox.showwarning("Warning", "Please calculate the calibration first.")
-            return
-        
-        file_path = filedialog.asksaveasfilename(
-            title="Save Calibration Data",
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(self.calibration_data, f, indent=2)
-            messagebox.showinfo("Success", f"Calibration saved to:\n{file_path}")
-            print(f"[INFO] Calibration saved to: {file_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save calibration: {e}")
-
-
 def main():
     """Main entry point."""
     root = tk.Tk()
