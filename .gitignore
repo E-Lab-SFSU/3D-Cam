@@ -14,5 +14,9 @@ capture_output/*
 
 # Python
 *.pyc
+*.pyo
+*.pyd
 __pycache__/
+**/__pycache__/
+*.cpython-*.pyc
 
