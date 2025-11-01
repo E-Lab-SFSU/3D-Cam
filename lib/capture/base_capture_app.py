@@ -182,7 +182,14 @@ class BaseCaptureApp:
         from lib.camera_info import list_all_cameras
         
         print("[INFO] Refreshing camera list...")
-        self.available_cameras = list_all_cameras(max_test=10, detailed=False, test_resolutions=False)
+        try:
+            self.available_cameras = list_all_cameras(max_test=10, detailed=False, test_resolutions=False)
+            print(f"[INFO] Found {len(self.available_cameras)} camera(s)")
+        except Exception as e:
+            print(f"[ERROR] Failed to refresh camera list: {e}")
+            import traceback
+            traceback.print_exc()
+            self.available_cameras = []
         
         # Update combo box
         values = []
@@ -198,6 +205,7 @@ class BaseCaptureApp:
             self.on_camera_selected()
         else:
             self.camera_info_label.config(text="No cameras found")
+            print("[WARN] No cameras found - check camera connections and permissions")
     
     def on_camera_selected(self, event=None):
         """Handle camera selection change."""

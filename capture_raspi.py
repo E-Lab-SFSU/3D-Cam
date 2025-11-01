@@ -7,8 +7,14 @@ Lightweight platform-specific implementation for Raspberry Pi
 Heavy lifting done in base_capture_app.py
 """
 
-import cv2
 import os
+
+# IMPORTANT: Set environment variables BEFORE importing cv2 or any module that imports cv2
+# Force OpenCV to prefer GTK backend over Qt (more reliable on Raspberry Pi)
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_GTK', '1')
+os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_MSMF', '0')
+
+import cv2
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -19,10 +25,6 @@ from lib.capture.base_capture_app import BaseCaptureApp
 
 # ============ Debug Configuration ============
 DEBUG_PREVIEW = True  # Set to False to disable detailed preview debug messages
-
-# Force OpenCV to prefer GTK backend over Qt (more reliable on Raspberry Pi)
-os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_GTK', '1')
-os.environ.setdefault('OPENCV_VIDEOIO_PRIORITY_MSMF', '0')
 
 
 class CaptureApp(BaseCaptureApp):
