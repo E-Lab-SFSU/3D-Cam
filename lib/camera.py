@@ -347,24 +347,6 @@ class Camera:
                 # V4L2: smaller buffer = lower latency but less tolerance for delays
                 # Always use 1 for V4L2 to minimize timeouts
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                
-                # For V4L2, flush initial frames to "warm up" the camera stream
-                # This helps prevent timeout issues on first read
-                print("[INFO] Warming up V4L2 camera (flushing initial frames)...")
-                import time
-                time.sleep(0.1)  # Small delay to let camera initialize
-                
-                for i in range(5):
-                    try:
-                        # Use timeout wrapper for warm-up to avoid blocking
-                        ok, frame = read_frame_with_timeout(self.cap, timeout=1.0)
-                        if ok and frame is not None:
-                            break  # Got a frame, camera is ready
-                    except:
-                        pass
-                    time.sleep(0.05)  # Small delay between attempts
-                
-                print("[INFO] V4L2 camera warmed up")
             elif is_mjpeg_hd:
                 # MJPEG HD on Windows: use buffer size 2 for grab()+retrieve() pattern
                 # Need enough frames in buffer to skip stale ones, but not too many (latency)
