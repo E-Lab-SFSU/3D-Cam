@@ -43,7 +43,8 @@ python capture_windows.py
 2. Select your camera
 3. Position a ruler or calibration target with known millimeter markings on the mirror surface
 4. Capture a single frame image with the scale visible
-5. Record video of two objects moving at constant Z heights (different heights for calibration)
+5. Record video(s) of objects moving at constant Z heights (different heights for calibration)
+   - **Note**: Any number of objects can be in each video, as long as they all move at the same constant Z height for that video
 
 **Output:** Videos saved to `capture_output/` directory
 
@@ -135,11 +136,75 @@ python pair_detect.py
 
 **Tracking Method:**
 
-Pairs are tracked across frames using nearest-neighbor matching:
-- Match pairs between frames based on Euclidean distance of midpoint positions
-- Maximum matching distance: `track_max_match_dist` pixels
-- Lost tracks are retired after `track_max_misses` consecutive misses
-- Each track maintains a stable ID across the video
+The system uses a sophisticated multi-frame tracking algorithm that maintains stable track IDs across the entire video. The tracker combines position prediction, velocity modeling, and morphing support for robust tracking.
+
+**Core Algorithm:**
+
+1. **Position Prediction**:
+   - Each track maintains a current midpoint position and velocity vector
+   - Predicted position = `previous_position + velocity`
+   - This accounts for constant velocity motion between frames
+
+2. **Multi-Criteria Matching**:
+   Pairs are matched to tracks using a composite score that considers:
+   
+   a. **Distance Cost**: Euclidean distance from predicted position
+   ```
+   distance = ||predicted_position - candidate_position||
+   ```
+   
+   b. **Velocity Smoothness**: Consistency of motion direction and speed
+   - **Angle Consistency**: Measures how well the new velocity matches the previous velocity direction
+     - Smaller angle difference between old and new velocity = smoother motion
+     - Normalized to 0-1 scale (0° difference = 1.0, 180° = 0.0)
+   - **Magnitude Consistency**: Measures speed stability
+     - Coefficient of variation (CV) of velocity magnitudes across recent history
+     - Lower variance = smoother motion
+   - **Multi-frame Linearity**: Checks if motion follows a consistent direction over several frames
+   
+   c. **Size Morphing Smoothness**: Allows gradual size changes (blob area)
+   - Tracks can gradually grow or shrink (0.7× to 1.4× per frame)
+   - Abrupt size jumps are penalized
+   - Uses coefficient of variation to detect smooth size transitions
+   
+   d. **Length Morphing Smoothness**: Allows gradual pair length changes
+   - The distance between the two points (A and C) in a pair can change smoothly
+   - Tracks can accommodate pairs that expand/contract (0.8× to 1.25× per frame)
+   - Important for objects moving in/out of focus or changing orientation
+
+3. **Composite Scoring**:
+   ```
+   score = distance + 
+           (1 - velocity_smoothness) × velocity_penalty_scale +
+           (1 - size_smoothness) × size_penalty_scale +
+           (1 - length_smoothness) × length_penalty_scale
+   ```
+   Lower scores indicate better matches. The tracker uses greedy matching (best match first) to assign pairs to tracks.
+
+4. **Track Lifecycle**:
+   - **New Track**: Created for unmatched pairs (within `max_match_dist_px`)
+   - **Active Track**: Updated when matched, velocity and properties updated
+   - **Missed Track**: Increments miss counter when not matched in a frame
+   - **Retired Track**: Removed after `max_misses` consecutive misses
+   - **Stable ID**: Once assigned, track IDs persist throughout the video
+
+5. **History Management**:
+   - Maintains rolling history of recent velocities, sizes, and lengths
+   - Default: Last 5 frames of history for smoothness calculations
+   - Enables detection of motion trends and gradual morphing
+
+**Key Parameters:**
+- `max_match_dist_px`: Maximum distance (pixels) for matching (default: 25.0)
+- `max_misses`: Frames to wait before retiring lost tracks (default: 10)
+- Velocity smoothness weights: Angle (0.6) + Magnitude (0.4)
+- Size ratio range: 0.7× to 1.4× per frame
+- Length ratio range: 0.8× to 1.25× per frame
+
+**Advantages:**
+- Handles occlusions: Tracks survive temporary disappearances
+- Adapts to motion changes: Velocity prediction handles acceleration/deceleration
+- Morphing support: Accommodates objects that change size or shape
+- Stable IDs: Consistent track IDs for reliable trajectory analysis
 
 **Output:** 
 - Processed video with overlays: `pair_detect_output/[video_name]_[timestamp]/tracked_export.mp4`
@@ -151,13 +216,14 @@ Pairs are tracked across frames using nearest-neighbor matching:
 python calibrate_video.py
 ```
 
-**Purpose:** Calibrate the Z-height measurement by using videos of objects at known heights.
+**Purpose:** Calibrate the Z-height measurement by using videos of objects at known heights. You need at least 2 videos at different Z heights to perform linear regression.
 
 **Procedure:**
 1. Enter the global working distance (mm) - should match the value from image calibration
 2. For each calibration video:
    - Browse to the `pair_detect_output` folder containing `pairs.csv`
    - Enter the known Z height (mm) above the reflection surface
+   - **Note**: Any number of objects can be in the video, as long as they all move at the same constant Z height
 3. Click "Calculate" to determine:
    - `magic_constant`: Linear scaling factor
    - `magic_offset`: Offset in millimeters
@@ -178,20 +244,33 @@ The system uses a two-stage calibration process:
 
    **Geometric Reasoning:** In the perpendicular mirror setup, the ratio `(C-A)/(A+C)` is proportional to the height above the mirror. Higher objects produce larger radial separation between the direct and reflected views.
 
-2. **Linear Regression** to find calibration constants:
+2. **Data Collection**:
+   - For each calibration video, the system analyzes the highest quality pairs (top 20% by score, or pairs with score > 0.8)
+   - Calculates average Zprime and average B for these quality pairs
+   - This works with any number of objects in the video, as long as they're all at the same constant Z height
+   - More objects provide more data points and better statistics
+
+3. **Linear Regression** to find calibration constants:
    ```
    Z = Zprime × magic_constant + magic_offset
    ```
    
-   Using multiple videos with known Z heights, we perform linear regression:
-   - `Z` = known calibrated height (input)
-   - `Zprime` = calculated from pair geometry (dependent variable)
+   Using multiple videos (minimum 2) with known Z heights, we perform linear regression:
+   - `Z` = known calibrated height (input) - one per video
+   - `Zprime` = average Zprime calculated from pair geometry in that video (dependent variable)
    - `magic_constant` = slope from regression
    - `magic_offset` = intercept from regression
 
-3. **Quality Metric**: R² (coefficient of determination) indicates calibration quality
+4. **Quality Metric**: R² (coefficient of determination) indicates calibration quality
    - R² close to 1.0 = excellent linear fit
    - Lower R² may indicate setup issues or measurement errors
+   - Higher number of calibration videos (3+) improves reliability
+
+**Why Multiple Objects Work:**
+- The system averages Zprime values from the best quality pairs in each video
+- As long as all objects in a video are at the same Z height, their Zprime values will cluster around the same value
+- More objects provide more pair detections, improving the statistical reliability of the average Zprime
+- This is especially useful for calibration at each height - you can move multiple objects simultaneously
 
 **Output:** Calibration JSON file saved to `calibrations/video_calibration_YYYYMMDD_HHMMSS.json`
 
