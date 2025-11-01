@@ -9,6 +9,9 @@ pair_detect_output/*
 
 capture_output/*
 !capture_output/.gitkeep
+# Preserve specific captured videos
+!capture_output/video_640x480_30fps_20251031_182254.mp4
+!capture_output/video_640x480_30fps_20251031_182412.mp4
 # Uncomment to preserve specific captured videos
 # !capture_output/*sample*/
 
