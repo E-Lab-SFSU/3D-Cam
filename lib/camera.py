@@ -204,6 +204,7 @@ class Camera:
         self.w = None
         self.h = None
         self.actual_backend = None
+        self.use_latest_frames = False  # Set to True for MJPEG high-res to skip stale frames
 
     def open(self):
         """Open camera with specified settings. Tries multiple backends if needed."""
@@ -212,15 +213,23 @@ class Camera:
         
         # Determine backends to try
         if platform.system() == "Windows":
-            # On Windows, try DSHOW first (often more reliable than MSMF for some cameras)
-            backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, self.backend, cv2.CAP_V4L2, cv2.CAP_ANY]
+            # On Windows, prioritize the explicitly requested backend, then try alternatives
+            # DSHOW often has better FPS for MJPEG, MSMF may be more reliable
+            if self.backend in [cv2.CAP_DSHOW, cv2.CAP_MSMF]:
+                # Use requested backend first
+                backends_to_try = [self.backend, cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY]
+            else:
+                # Default: try DSHOW first (often faster), then MSMF
+                backends_to_try = [cv2.CAP_DSHOW, cv2.CAP_MSMF, self.backend, cv2.CAP_ANY]
+            # Remove duplicates while preserving order
+            seen = set()
+            backends_to_try = [x for x in backends_to_try if not (x in seen or seen.add(x))]
         else:
             # On Linux, prefer V4L2 and limit backends
             backends_to_try = [self.backend]
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        backends_to_try = [x for x in backends_to_try if not (x in seen or seen.add(x))]
+            # Remove duplicates while preserving order
+            seen = set()
+            backends_to_try = [x for x in backends_to_try if not (x in seen or seen.add(x))]
         
         # Try each backend and verify it can read frames successfully
         for backend_alt in backends_to_try:
@@ -305,34 +314,127 @@ class Camera:
         except:
             pass
         
-        # Only set FPS if explicitly provided (non-zero)
-        # If fps is 0, let camera run at maximum speed (don't limit)
-        if self.fps > 0:
+        # Set FPS - for some cameras (like ELP), explicit FPS helps more than "max speed"
+        # If fps is 0, try setting to 30 for MJPG (common max for USB cameras)
+        fps_to_set = self.fps
+        if fps_to_set == 0 and self.fourcc == "MJPG" and is_windows:
+            # For MJPG on Windows, try explicit 30 FPS - many USB cameras need this
+            fps_to_set = 30
+        
+        if fps_to_set > 0:
             try:
-                self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+                self.cap.set(cv2.CAP_PROP_FPS, fps_to_set)
+                # Verify it was set - some cameras round to nearest supported value
+                actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+                if actual_fps > 0 and abs(actual_fps - fps_to_set) > 5:
+                    # FPS was rounded significantly - camera might have limited FPS options
+                    print(f"[INFO] Camera FPS set to {actual_fps:.1f} (requested {fps_to_set})")
             except:
                 pass
         
         # Determine if using V4L2 (check actual backend name or backend type)
         using_v4l2 = is_linux_os and (self.backend == cv2.CAP_V4L2 or 'V4L2' in str(self.actual_backend))
+        is_windows = platform.system() == "Windows"
+        using_dshow = is_windows and (self.backend == cv2.CAP_DSHOW or 'DSHOW' in str(self.actual_backend))
+        using_msmf = is_windows and (self.backend == cv2.CAP_MSMF or 'MSMF' in str(self.actual_backend))
         
-        # Set buffer size - critical for V4L2 to avoid timeouts
+        # Set buffer size - critical for performance
         try:
+            # Check if this is high-res MJPEG on Windows (will use grab()+retrieve())
+            is_mjpeg_hd = self.fourcc == "MJPG" and self.width >= 1920 and self.height >= 1080 and is_windows
+            
             if using_v4l2:
                 # V4L2: smaller buffer = lower latency but less tolerance for delays
                 # Always use 1 for V4L2 to minimize timeouts
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            elif is_mjpeg_hd:
+                # MJPEG HD on Windows: use buffer size 2 for grab()+retrieve() pattern
+                # Need enough frames in buffer to skip stale ones, but not too many (latency)
+                try:
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                except:
+                    try:
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except:
+                        pass
             else:
+                # Windows: use buffer size 1 for lowest latency
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except:
             pass
         
-        # Shorter stabilization time on Linux/V4L2
-        stabilization_time = 0.3 if using_v4l2 else 0.5
+        # Windows-specific optimizations for better FPS
+        if is_windows:
+            # Property setting order matters for some cameras - set in specific order
+            try:
+                # Disable auto-exposure adjustments (can cause frame rate drops)
+                # 0.25 = manual exposure, 0.75 = auto exposure
+                # For ELP cameras and similar, manual exposure can improve FPS
+                self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+            except:
+                pass
+            
+            # Try setting brightness/gain to fixed values to avoid auto-adjustments
+            try:
+                # Set brightness to mid-range to avoid auto-adjustments
+                self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 128)
+            except:
+                pass
+            
+            try:
+                # For DSHOW: optimize performance settings
+                if using_dshow:
+                    # Disable autofocus - it can cause frame drops
+                    try:
+                        self.cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+                    except:
+                        pass
+                    
+                    # Disable auto white balance if possible - can cause FPS drops
+                    try:
+                        self.cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+                    except:
+                        pass
+                    
+                    # For ELP and similar USB cameras, try setting these DSHOW-specific properties
+                    # These are DirectShow-specific and may not work on all cameras
+                    try:
+                        # CAP_PROP_SETTINGS = 37 - opens camera settings dialog (don't use)
+                        # Instead, try to minimize processing
+                        pass
+                    except:
+                        pass
+            except:
+                pass
+            
+            try:
+                # For MSMF: set additional performance properties
+                if using_msmf:
+                    # MSMF supports these additional optimizations
+                    # Set to use hardware acceleration if available
+                    try:
+                        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*self.fourcc))
+                    except:
+                        pass
+            except:
+                pass
+        
+        # Shorter stabilization time on Linux/V4L2, minimal on Windows for faster startup
+        if using_v4l2:
+            stabilization_time = 0.3
+        elif is_windows:
+            stabilization_time = 0.1  # Minimal delay on Windows
+        else:
+            stabilization_time = 0.5
         time.sleep(stabilization_time)
         
-        # Flush initial frames (camera warm-up) - fewer on Linux/V4L2 to avoid timeouts
-        flush_count = 5 if using_v4l2 else 10
+        # Flush initial frames (camera warm-up) - fewer on Linux/V4L2, minimal on Windows
+        if using_v4l2:
+            flush_count = 5
+        elif is_windows:
+            flush_count = 3  # Fewer flushes on Windows for faster startup
+        else:
+            flush_count = 10
         for _ in range(flush_count):
             try:
                 # Use timeout for flushing to avoid blocking
@@ -351,24 +453,113 @@ class Camera:
         actual_fourcc = ""
         try:
             fourcc_int = int(self.cap.get(cv2.CAP_PROP_FOURCC))
-            actual_fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+            # Import helper function for FOURCC conversion
+            try:
+                from lib.camera_info import fourcc_int_to_string
+                actual_fourcc = fourcc_int_to_string(fourcc_int)
+            except ImportError:
+                # Fallback if import fails
+                chars = []
+                for i in range(4):
+                    byte_val = (fourcc_int >> (8 * i)) & 0xFF
+                    if 32 <= byte_val <= 126:  # Printable ASCII only
+                        chars.append(chr(byte_val))
+                    elif byte_val == 0:
+                        break
+                actual_fourcc = "".join(chars).strip() or "unknown"
         except:
             actual_fourcc = "unknown"
+        
+        # Enable latest frame mode for MJPEG at high resolution (prevents rolling shutter)
+        # MJPEG at 1920x1080+ often benefits from skipping stale frames
+        # Also enable for any high-res MJPEG on Windows that's slow
+        if actual_fourcc == "MJPG" and is_windows:
+            if self.w >= 1920 and self.h >= 1080:
+                self.use_latest_frames = True
+                print(f"[INFO] Enabled latest-frame mode for MJPEG {self.w}×{self.h} (skips stale frames)")
+            elif self.w >= 1280:  # Also enable for 1280x720 if camera supports it
+                self.use_latest_frames = True
+                print(f"[INFO] Enabled latest-frame mode for MJPEG {self.w}×{self.h} (skips stale frames)")
         
         print(f"[INFO] Camera {self.index} opened: {actual_fourcc} {self.w}×{self.h}@{actual_fps:.0f} FPS (backend: {self.actual_backend})")
         return True
 
-    def read(self, max_retries=3):
+    def read(self, max_retries=3, use_latest=False):
         """
         Read a frame from the camera. Returns frame or None.
         
         Args:
             max_retries: Maximum number of retries if frame read fails (default: 3)
+            use_latest: If True, use grab()+retrieve() pattern to skip stale frames (default: False)
+                       Recommended for MJPEG at high resolution to prevent rolling shutter
         """
         if not self.cap or not self.cap.isOpened():
             return None
         
-        # Retry logic for reading frames
+        # For high-FPS MJPEG, use grab()+retrieve() to skip stale frames
+        # Auto-enable if configured, or if explicitly requested
+        if use_latest or self.use_latest_frames:
+            try:
+                # Grab multiple times to skip old frames, then retrieve the latest
+                # This prevents rolling shutter from stale buffered frames
+                # Strategy: grab() advances buffer without decoding (fast), 
+                # then retrieve() decodes the latest frame
+                grab_count = 0
+                max_grab_attempts = 3  # Skip up to 3 old frames max
+                
+                # First grab to get a frame
+                if not self.cap.grab():
+                    return None  # Failed to grab
+                grab_count = 1
+                
+                # Try to grab more frames if available (skip old ones)
+                # For MJPG at high res, be more aggressive - skip up to 5 frames
+                max_skips = 5 if (self.fourcc == "MJPG" and self.w >= 1920) else max_grab_attempts
+                consecutive_grab_failures = 0
+                
+                while grab_count < max_skips:
+                    if self.cap.grab():
+                        grab_count += 1
+                        consecutive_grab_failures = 0
+                        # Check if another frame is immediately available (camera is ahead)
+                        if self.cap.grab():
+                            grab_count += 1
+                            consecutive_grab_failures = 0
+                        else:
+                            break  # No more frames waiting
+                    else:
+                        consecutive_grab_failures += 1
+                        if consecutive_grab_failures >= 2:
+                            break  # Multiple failures, no more frames
+                
+                # Retrieve the latest grabbed frame (decodes it)
+                ok, frame = self.cap.retrieve()
+                if ok and frame is not None:
+                    try:
+                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                            return frame
+                    except:
+                        pass
+                return None
+            except:
+                return None
+        
+        # Optimized path for single read (most common case in frame grabber)
+        if max_retries == 1:
+            try:
+                ok, frame = self.cap.read()
+                if ok and frame is not None:
+                    # Quick validation - just check basic structure
+                    try:
+                        if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                            return frame
+                    except:
+                        pass
+                return None
+            except:
+                return None
+        
+        # Retry logic for reading frames (when max_retries > 1)
         for attempt in range(max_retries):
             try:
                 ok, frame = self.cap.read()

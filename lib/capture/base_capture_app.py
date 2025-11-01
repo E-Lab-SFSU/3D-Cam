@@ -71,6 +71,8 @@ class BaseCaptureApp:
         # Format and resolution
         self.format_var = tk.StringVar(value=default_format)
         self.scale_percent = tk.DoubleVar(value=100.0)
+        # Default FPS - platform-specific implementations can override
+        # Windows default is 0 (max speed) set in capture_windows.py __init__
         self.fps_var = tk.DoubleVar(value=30.0)
         
         # Frame queue (shared by preview and recording)
@@ -196,7 +198,10 @@ class BaseCaptureApp:
         ttk.Button(btn_frame, text="Capture Frame", command=self.capture_frame).pack(fill=tk.X, pady=(0, 2))
         
         # Reset Controls button
-        ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X)
+        ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X, pady=(0, 2))
+        
+        # Exit button
+        ttk.Button(btn_frame, text="Exit", command=self.on_close).pack(fill=tk.X)
     
     def _build_camera_controls(self):
         """Build camera control sliders - override in platform-specific implementation."""
@@ -396,6 +401,53 @@ class BaseCaptureApp:
         """Reset camera controls to defaults - platform-specific implementation."""
         pass
     
+    def _convert_frame_to_bgr(self, frame):
+        """
+        Convert frame to BGR format if needed.
+        OpenCV VideoCapture typically auto-converts YUYV to BGR, but this handles edge cases.
+        
+        Args:
+            frame: Input frame (may be BGR, YUYV, or other format)
+            
+        Returns:
+            BGR frame ready for display/recording
+        """
+        if frame is None:
+            return None
+        
+        try:
+            # If already BGR (3 channels, 3 bytes per pixel), use as-is
+            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                # Verify it's actually BGR by checking value ranges
+                # BGR should have values 0-255
+                if frame.dtype == 'uint8' and frame.max() <= 255 and frame.min() >= 0:
+                    return frame
+                # If weird values, might be wrong format - try conversion
+                return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+            
+            # If 2D (grayscale or packed YUYV), convert
+            elif len(frame.shape) == 2:
+                # Try YUYV conversion (most common for cameras)
+                try:
+                    return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                except:
+                    # If that fails, convert grayscale to BGR
+                    return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            
+            # Other formats - try YUYV conversion as fallback
+            else:
+                try:
+                    return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+                except:
+                    # Last resort - return as-is if conversion fails
+                    print(f"[WARN] Unknown frame format, shape: {frame.shape}, dtype: {frame.dtype}")
+                    return frame
+                    
+        except Exception as e:
+            print(f"[WARN] Frame conversion error: {e}, shape: {frame.shape if frame is not None else 'None'}")
+            # Return original frame if conversion fails
+            return frame
+    
     def capture_frame(self):
         """Capture a single frame - common implementation."""
         if not self.cam or not self.cam.is_open():
@@ -420,11 +472,8 @@ class BaseCaptureApp:
         else:
             frame_resized = frame
         
-        # Convert if needed
-        if len(frame_resized.shape) == 3 and frame_resized.shape[2] == 3:
-            frame_bgr = frame_resized
-        else:
-            frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
+        # Convert if needed - use helper to safely handle YUYV/BGR detection
+        frame_bgr = self._convert_frame_to_bgr(frame_resized)
         
         # Save to capture_output directory
         output_path = make_capture_frame_path(w, h)

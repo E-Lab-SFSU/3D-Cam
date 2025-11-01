@@ -40,6 +40,94 @@ if _parent_dir not in sys.path:
 from lib.camera import detect_cameras, get_camera_backend, is_linux, is_raspberry_pi, read_frame_with_timeout
 
 
+def fourcc_int_to_string(fourcc_int: int) -> str:
+    """
+    Convert a FOURCC integer code to a readable string.
+    Filters out non-printable characters and maps known codes.
+    
+    Args:
+        fourcc_int: FOURCC code as integer
+        
+    Returns:
+        Readable FOURCC string (e.g., "YUYV", "MJPG")
+    """
+    if fourcc_int == 0:
+        return "unknown"
+    
+    # Try different byte orders and interpretations
+    # FOURCC codes can be stored in different endianness
+    
+    # Method 1: Little-endian (standard FOURCC, bytes 0-3 as chars)
+    chars_le = []
+    for i in range(4):
+        byte_val = (fourcc_int >> (8 * i)) & 0xFF
+        if 65 <= byte_val <= 90 or 48 <= byte_val <= 57:  # A-Z, 0-9
+            chars_le.append(chr(byte_val))
+        elif byte_val == 0:
+            break
+        else:
+            chars_le.append(None)  # Mark as invalid
+    
+    # Method 2: Big-endian (reverse order)
+    chars_be = []
+    for i in range(3, -1, -1):
+        byte_val = (fourcc_int >> (8 * i)) & 0xFF
+        if 65 <= byte_val <= 90 or 48 <= byte_val <= 57:  # A-Z, 0-9
+            chars_be.append(chr(byte_val))
+        elif byte_val == 0:
+            break
+        else:
+            chars_be.append(None)
+    
+    # Check which interpretation gives valid result
+    valid_le = all(c is not None for c in chars_le) and len(chars_le) == 4
+    valid_be = all(c is not None for c in chars_be) and len(chars_be) == 4
+    
+    if valid_le:
+        result = "".join(chars_le)
+        # Check against known codes
+        if result in ["YUYV", "YUY2", "MJPG", "H264", "YUV2"]:
+            return result
+    
+    if valid_be:
+        result = "".join(chars_be)
+        if result in ["YUYV", "YUY2", "MJPG", "H264", "YUV2"]:
+            return result
+    
+    # Method 3: Hex pattern matching (for corrupted displays)
+    hex_str = f"{fourcc_int:08X}"
+    # Check hex string for known patterns (case-insensitive)
+    hex_upper = hex_str.upper()
+    if "59555956" in hex_upper or "56595559" in hex_upper:  # YUYV patterns
+        return "YUYV"
+    if "4A504D47" in hex_upper or "47504A4D" in hex_upper:  # MJPG patterns
+        return "MJPG"
+    if "32315559" in hex_upper or "59553132" in hex_upper:  # YUY2 patterns
+        return "YUY2"
+    
+    # Method 4: Extract any valid ASCII letters/numbers
+    chars = []
+    for i in range(4):
+        byte_val = (fourcc_int >> (8 * i)) & 0xFF
+        if 65 <= byte_val <= 90:  # A-Z
+            chars.append(chr(byte_val))
+        elif 48 <= byte_val <= 57:  # 0-9
+            chars.append(chr(byte_val))
+        elif byte_val == 0:
+            break
+    
+    if len(chars) >= 3:
+        result = "".join(chars)
+        # If it matches a known pattern (even if incomplete)
+        if "YUY" in result or "YUV" in result:
+            return "YUYV"
+        if "MJP" in result or "JPG" in result:
+            return "MJPG"
+        return result
+    
+    return "unknown"
+
+
 @dataclass
 class CameraInfo:
     """Structured information about a camera."""
@@ -362,7 +450,7 @@ def get_camera_info(index: int, test_resolutions: bool = False,
                 # Get default FOURCC
                 try:
                     fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-                    info.default_fourcc = "".join([chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+                    info.default_fourcc = fourcc_int_to_string(fourcc_int)
                     # Add default to supported list if valid
                     if info.default_fourcc and info.default_fourcc != "unknown" and info.default_fourcc not in info.supported_fourcc:
                         info.supported_fourcc.append(info.default_fourcc)
@@ -379,7 +467,7 @@ def get_camera_info(index: int, test_resolutions: bool = False,
                         cap.set(cv2.CAP_PROP_FOURCC, fourcc_code)
                         # Check if it was set
                         actual_fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
-                        actual_fourcc = "".join([chr((actual_fourcc_int >> 8 * i) & 0xFF) for i in range(4)])
+                        actual_fourcc = fourcc_int_to_string(actual_fourcc_int)
                         # Restore
                         cap.set(cv2.CAP_PROP_FOURCC, old_fourcc)
                         # If format matches or is similar, it's supported

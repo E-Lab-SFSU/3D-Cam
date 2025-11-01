@@ -12,3 +12,7 @@ capture_output/*
 # Uncomment to preserve specific captured videos
 # !capture_output/*sample*/
 
+# Python
+*.pyc
+__pycache__/
+

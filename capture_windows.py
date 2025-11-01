@@ -43,7 +43,10 @@ class CaptureApp(BaseCaptureApp):
     """Windows UVC Camera GUI - platform-specific implementation."""
     
     def __init__(self, root):
-        super().__init__(root, title="UVC Camera Capture — Windows", default_format="MJPG")
+        # Default to YUYV for fastest performance on Windows (no decompression needed)
+        super().__init__(root, title="UVC Camera Capture — Windows", default_format="YUYV")
+        # Override FPS default to 0 (max speed) for Windows
+        self.fps_var.set(0.0)
     
     def _build_camera_controls(self):
         """Build camera control sliders using OpenCV properties."""
@@ -115,30 +118,38 @@ class CaptureApp(BaseCaptureApp):
             )
             format_str = self.camera_info.default_fourcc
         
-        # Determine resolution based on format
+        # Determine resolution based on format - optimized for Windows speed
+        # YUYV: Use 1280x720 for good quality and high FPS (no decompression overhead)
+        # MJPEG: Use 1920x1080 if needed, but will be slower
         if format_str == "MJPG":
             width, height = 1920, 1080
+        elif format_str == "YUYV":
+            width, height = 1280, 720  # Good balance of quality and speed for YUYV
         else:
             width, height = 640, 480
         
         # Get framerate from input (0 = maximum speed, >0 = specific FPS)
+        # For MJPG on Windows, explicitly setting 30 FPS often works better than 0
         try:
             fps_value = float(self.fps_var.get())
             # Clamp between 0 (max speed) and 60
             fps_value = max(0.0, min(60.0, fps_value))
+            # For MJPG format, if user set 0, use 30 instead (better for USB cameras)
+            if fps_value == 0 and format_str == "MJPG":
+                fps_value = 30.0
             self.fps_var.set(fps_value)
         except (ValueError, tk.TclError):
-            fps_value = 30.0  # Default to 30 FPS if invalid
+            fps_value = 30.0  # Default to 30 FPS (better than 0 for MJPG)
             self.fps_var.set(fps_value)
         
-        # Create camera with MSMF backend
+        # Create camera - try DSHOW first (often faster than MSMF), fallback to MSMF
         self.cam = Camera(
             index=self.camera_info.index,
             fps=int(fps_value) if fps_value > 0 else 0,  # 0 = max speed, >0 = specific FPS
             fourcc=format_str,
             width=width,
             height=height,
-            backend=cv2.CAP_MSMF  # Prefer MSMF on Windows
+            backend=cv2.CAP_DSHOW  # DSHOW often faster than MSMF for MJPEG on Windows
         )
         
         if not self.cam.open():

@@ -61,7 +61,8 @@ class FrameGrabber:
         print("[INFO] Frame grabber: Starting frame capture...")
         
         while self.running and self.camera and self.camera.is_open():
-            frame = self.camera.read(max_retries=1)
+            # Use latest frame mode if camera has it enabled (for MJPEG high-res)
+            frame = self.camera.read(max_retries=1, use_latest=getattr(self.camera, 'use_latest_frames', False))
             if frame is not None:
                 consecutive_errors = 0
                 frames_read += 1
