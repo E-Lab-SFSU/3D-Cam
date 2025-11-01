@@ -1,6 +1,6 @@
 {
   "params": {
-    "threshold": 46,
+    "threshold": 33,
     "blur": 1,
     "minArea": 0,
     "maxArea": 5000,
@@ -36,9 +36,9 @@
     "enable_binary": 0
   },
   "center": {
-    "x": 277,
-    "y": 207,
+    "x": 272,
+    "y": 212,
     "valid": true
   },
-  "video_path": "C:/Users/923521596/Documents/GitHub/3D-Cam/input/video_640x480_20251029_174357.mp4"
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/capture_output/video_640x480_30fps_20251031_182254.mp4"
 }
