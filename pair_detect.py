@@ -1525,7 +1525,8 @@ def setup_video_controls_window():
         # Update frame label when trackbar changes
         def update_frame_label(*args):
             current = trackbar_var.get()
-            video_controls_widgets["frame_label"].config(text=f"{current} / {video_total_frames - 1}")
+            if "frame_label" in video_controls_widgets and video_controls_widgets["frame_label"].winfo_exists():
+                video_controls_widgets["frame_label"].config(text=f"{current} / {video_total_frames - 1}")
         trackbar_var.trace_add("write", update_frame_label)
         update_frame_label()
         

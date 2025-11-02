@@ -1,0 +1,105 @@
+{
+  "magic_constant": 2.3746763343847515,
+  "magic_offset": 0.9989579747769332,
+  "r_squared": 1.0,
+  "data_points": [
+    {
+      "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z3mm_objects/z3mm_objects-paired-tracked-smoothed.csv",
+      "z_mm": 3.0,
+      "working_distance_mm": 21.74,
+      "avg_zprime": 0.8426588483863892,
+      "avg_b": 216.40914541480444
+    },
+    {
+      "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z4mm_objects/z4mm_objects-paired-tracked-smoothed.csv",
+      "z_mm": 4.0,
+      "working_distance_mm": 21.74,
+      "avg_zprime": 1.263768868948028,
+      "avg_b": 272.69441094147237
+    }
+  ],
+  "formula": "Z = Zprime * magic_constant + magic_offset",
+  "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
+  "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
+  "b_formula": "B = (2*A*C)/(A+C)",
+  "metrics": {
+    "input_dataset": {
+      "total_pairs": 1073,
+      "per_video": [
+        {
+          "video": "z3mm_objects-paired-tracked-smoothed.csv",
+          "count": 563,
+          "zprime_mean": 0.8293491336534878,
+          "zprime_std": 0.04707596722360297,
+          "zprime_min": 0.7161083790351369,
+          "zprime_max": 0.9586513192427655,
+          "b_mean": 221.70286478259547,
+          "b_std": 66.07009630893434,
+          "b_min": 74.19932758009877,
+          "b_max": 383.1336613315531,
+          "score_mean": 0.7993321492007105,
+          "score_std": 0.08835405511485503,
+          "score_min": 0.5422,
+          "score_max": 1.0
+        },
+        {
+          "video": "z4mm_objects-paired-tracked-smoothed.csv",
+          "count": 510,
+          "zprime_mean": 1.1233810920907747,
+          "zprime_std": 0.27505034515511806,
+          "zprime_min": 0.4701917016013629,
+          "zprime_max": 3.3705511644323836,
+          "b_mean": 234.50955568210125,
+          "b_std": 70.36378638295007,
+          "b_min": 109.47885827515168,
+          "b_max": 383.8628617344252,
+          "score_mean": 0.708706274509804,
+          "score_std": 0.10644767912924676,
+          "score_min": 0.3644,
+          "score_max": 0.9758
+        }
+      ]
+    },
+    "chosen_dataset": {
+      "total_pairs": 81,
+      "percent_of_input": 7.548928238583411,
+      "per_video": [
+        {
+          "video": "z3mm_objects-paired-tracked-smoothed.csv",
+          "count": 63,
+          "percent_of_input": 11.190053285968029,
+          "zprime_mean": 0.8426588483863892,
+          "zprime_std": 0.03614843295803046,
+          "zprime_min": 0.7656901186119183,
+          "zprime_max": 0.927135320051482,
+          "b_mean": 216.40914541480444,
+          "b_std": 58.30384237945796,
+          "b_min": 74.92506472980531,
+          "b_max": 355.600822651131,
+          "score_mean": 0.9276952380952381,
+          "score_std": 0.021214209288516066,
+          "score_min": 0.9,
+          "score_max": 1.0
+        },
+        {
+          "video": "z4mm_objects-paired-tracked-smoothed.csv",
+          "count": 18,
+          "percent_of_input": 3.5294117647058822,
+          "zprime_mean": 1.263768868948028,
+          "zprime_std": 0.523261757931692,
+          "zprime_min": 0.8748421688535503,
+          "zprime_max": 3.3705511644323836,
+          "b_mean": 272.69441094147237,
+          "b_std": 59.24447192875887,
+          "b_min": 115.99376810459802,
+          "b_max": 355.17951468973405,
+          "score_mean": 0.8840444444444444,
+          "score_std": 0.03515060015644148,
+          "score_min": 0.8509,
+          "score_max": 0.9758
+        }
+      ]
+    }
+  },
+  "working_distance_mm": 21.74
+}

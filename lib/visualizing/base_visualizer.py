@@ -178,6 +178,11 @@ class Base3DVisualizer:
         self.track_ids = []
         self.selected_tracks = set()
         
+        # Coordinate system tracking
+        self.x_unit = "mm"  # Unit for X axis label
+        self.y_unit = "mm"  # Unit for Y axis label
+        self.z_unit = "mm"  # Unit for Z axis label
+        
         # Visualization settings
         self.show_trails = True
         self.trail_length = 50
@@ -635,23 +640,60 @@ class Base3DVisualizer:
                 
                 # Need at least some form of X/Y data
                 if not (has_x_mm or has_center_x) or not (has_y_mm or has_center_y):
-                    messagebox.showerror("Error", "CSV file must contain X and Y coordinate columns (X_mm/Y_mm or Center_X/Center_Y)")
+                    messagebox.showerror("Error", "CSV file must contain X and Y coordinate columns")
                     return
                 
                 # Determine which columns to use - prefer calibrated columns
-                use_calibrated_coords = has_x_mm and has_y_mm
                 can_calc_zprime = has_a_px and has_c_px
                 
-                for row in reader:
+                # Read all rows into a list so we can peek at first row for unit detection
+                all_rows = list(reader)
+                
+                # Set coordinate units based on available columns with actual data
+                if all_rows:
+                    sample_row = all_rows[0]
+                    has_x_mm_data = bool(sample_row.get('X_mm', '').strip())
+                    has_y_mm_data = bool(sample_row.get('Y_mm', '').strip())
+                    # XY labels: "X (mm), Y (mm)" if X_mm/Y_mm has data, otherwise "X (px), Y (px)"
+                    if has_x_mm_data and has_y_mm_data:
+                        self.x_unit = "mm"
+                        self.y_unit = "mm"
+                    else:
+                        self.x_unit = "px"
+                        self.y_unit = "px"
+                    
+                    # Set Z unit based on available columns with actual data
+                    # Z labels: "Z (mm)" if Z_mm, "Z" if Zprime_mm, "Z" if Zdoubleprime
+                    has_z_mm_data = bool(sample_row.get('Z_mm', '').strip())
+                    has_zprime_data = bool(sample_row.get('Zprime_mm', '').strip())
+                    has_zdoubleprime_data = bool(sample_row.get('Zdoubleprime', '').strip())
+                    
+                    if has_z_mm_data:
+                        self.z_unit = "mm"
+                    elif has_zprime_data:
+                        self.z_unit = ""  # "Z" label (no unit indicator for Zprime)
+                    elif has_zdoubleprime_data or can_calc_zprime:
+                        self.z_unit = ""  # "Z" label (no unit indicator for Zdoubleprime)
+                    else:
+                        self.z_unit = "mm"  # Default fallback
+                else:
+                    # No data, use defaults
+                    self.x_unit = "px"
+                    self.y_unit = "px"
+                    self.z_unit = "mm"
+                
+                for row in all_rows:
                     try:
                         frame = int(row['Frame_Number'])
                         track_id = int(row['Track_ID'])
                         
-                        # Get X and Y coordinates
-                        if use_calibrated_coords:
+                        # Get X and Y coordinates - fallback order: X_mm/Y_mm -> Center_X/Center_Y
+                        x_str = ''
+                        y_str = ''
+                        if has_x_mm and has_y_mm:
                             x_str = row.get('X_mm', '').strip()
                             y_str = row.get('Y_mm', '').strip()
-                        else:
+                        if (not x_str or not y_str) and has_center_x and has_center_y:
                             x_str = row.get('Center_X', '').strip()
                             y_str = row.get('Center_Y', '').strip()
                         
@@ -712,14 +754,25 @@ class Base3DVisualizer:
                     except (ValueError, KeyError):
                         continue
                 
-                # Show info about which coordinates were used
-                if use_calibrated_coords:
-                    if has_z_mm:
-                        print(f"[INFO] Using calibrated coordinates: X_mm, Y_mm, Z_mm")
-                    elif has_zprime_mm or can_calc_zprime:
-                        print(f"[INFO] Using calibrated X/Y with calculated Zprime")
-                else:
-                    print(f"[INFO] Using pixel coordinates: Center_X, Center_Y, with calculated Zprime")
+                # Show info about which columns are available
+                coord_info = []
+                if has_x_mm and has_y_mm:
+                    coord_info.append("X_mm/Y_mm")
+                if has_center_x and has_center_y:
+                    coord_info.append("Center_X/Center_Y")
+                
+                z_info = []
+                if has_z_mm:
+                    z_info.append("Z_mm")
+                if has_zprime_mm:
+                    z_info.append("Zprime_mm")
+                if has_zdoubleprime:
+                    z_info.append("Zdoubleprime")
+                if can_calc_zprime:
+                    z_info.append("calculated from A/C")
+                
+                print(f"[INFO] Available coordinates: {', '.join(coord_info) if coord_info else 'None'}")
+                print(f"[INFO] Available Z values: {', '.join(z_info) if z_info else 'None'}")
             
             # Sort data by frame for each track
             for track_id in self.data:
@@ -961,10 +1014,13 @@ class Base3DVisualizer:
         if self.show_centerline_var.get():
             self.draw_optical_center_column(tracks_to_show)
         
-        # Labels
-        self.ax.set_xlabel('X (mm)', fontsize=10)
-        self.ax.set_ylabel('Y (mm)', fontsize=10)
-        self.ax.set_zlabel('Z (mm)', fontsize=10)
+        # Labels - handle empty units for Z (Zprime or Zdoubleprime)
+        x_label = f'X ({self.x_unit})' if self.x_unit else 'X'
+        y_label = f'Y ({self.y_unit})' if self.y_unit else 'Y'
+        z_label = f'Z ({self.z_unit})' if self.z_unit else 'Z'
+        self.ax.set_xlabel(x_label, fontsize=10)
+        self.ax.set_ylabel(y_label, fontsize=10)
+        self.ax.set_zlabel(z_label, fontsize=10)
         self.ax.set_title(self.get_plot_title())
         
         # Set bounds

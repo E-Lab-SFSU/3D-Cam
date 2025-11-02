@@ -761,8 +761,16 @@ class TrackSmoother(Base3DVisualizer):
             self.canvas.draw()
             return
         
-        colors = cm.tab20(np.linspace(0, 1, len(self.track_ids)))
-        track_color_map = {tid: colors[i % len(colors)] for i, tid in enumerate(self.track_ids)}
+        # Get all unique track IDs from all data sources to build color map
+        all_track_ids = set(self.track_ids)
+        all_track_ids.update(self.original_data.keys())
+        all_track_ids.update(self.smoothed_data.keys())
+        for frame_data_list in self.frame_data.values():
+            all_track_ids.update(track_id for track_id, _, _, _ in frame_data_list)
+        all_track_ids = sorted(all_track_ids)
+        
+        colors = cm.tab20(np.linspace(0, 1, max(len(all_track_ids), 1)))
+        track_color_map = {tid: colors[i % len(colors)] for i, tid in enumerate(all_track_ids)}
         
         # Plot original tracks
         if self.show_orig_var.get():
@@ -876,10 +884,13 @@ class TrackSmoother(Base3DVisualizer):
         if self.show_centerline_var.get():
             self.draw_optical_center_column(tracks_to_show)
         
-        # Labels
-        self.ax.set_xlabel('X (mm)', fontsize=10)
-        self.ax.set_ylabel('Y (mm)', fontsize=10)
-        self.ax.set_zlabel('Z (mm)', fontsize=10)
+        # Labels - handle empty units for Z (Zprime or Zdoubleprime)
+        x_label = f'X ({self.x_unit})' if self.x_unit else 'X'
+        y_label = f'Y ({self.y_unit})' if self.y_unit else 'Y'
+        z_label = f'Z ({self.z_unit})' if self.z_unit else 'Z'
+        self.ax.set_xlabel(x_label, fontsize=10)
+        self.ax.set_ylabel(y_label, fontsize=10)
+        self.ax.set_zlabel(z_label, fontsize=10)
         self.ax.set_title(self.get_plot_title())
         
         # Set bounds
