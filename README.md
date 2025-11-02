@@ -367,7 +367,7 @@ python visualize3d.py
 **Purpose:** Interactively visualize 3D trajectories from processed pair data.
 
 **Procedure:**
-1. Load a CSV file from your input video folder (requires X_mm, Y_mm, Z_mm columns)
+1. Load a CSV file from your pair detection results
 2. Use time slider to scrub through frames
 3. Toggle trail visualization and adjust trail length
 4. Select specific tracks to display
@@ -376,23 +376,39 @@ python visualize3d.py
 
 **Output:** 3D plot video saved as `{csv_name}-3dplot.mp4` (or `-3dplot-N.mp4` if multiple exports) in the same folder as the CSV
 
+**CSV Column Requirements:**
+- **Frame_Number**: Frame index
+- **Track_ID**: Unique track identifier
+- **X/Y coordinates**: Either `X_mm`/`Y_mm` (calibrated mm) or `Center_X`/`Center_Y` (pixels)
+- **Z coordinate**: Either `Z_mm` (fully calibrated) or `Zprime_mm` (geometric height, uncalibrated)
+
+**Note:** If Z_mm is not available, the system automatically uses Zprime_mm for visualization. This allows you to visualize trajectories before completing video calibration.
+
 **3D Coordinate Calculation:**
 
-Once calibrated, full 3D coordinates are computed:
+The coordinate calculation happens in two stages:
 
-1. **Z coordinate** (height):
+1. **Zprime** (geometric height from mirror setup):
    ```
    Zprime = working_distance × (C - A) / (A + C)
+   ```
+   - This is **always** calculated if working distance is available
+   - Use Zprime for uncalibrated visualization
+
+2. **Z** (fully calibrated height):
+   ```
    Z = Zprime × magic_constant + magic_offset
    ```
+   - Requires video calibration with known heights
+   - Use Z for calibrated measurements
 
-2. **B point** (midpoint radius):
+3. **B point** (midpoint radius):
    ```
    B = (2 × A × C) / (A + C)
    ```
    The B point represents the radial distance of the particle from the optical center at the reflection surface plane.
 
-3. **X, Y coordinates** (horizontal position):
+4. **X, Y coordinates** (horizontal position):
    ```
    B_mm = B_px / pixels_per_mm
    θ = atan2(midpoint_y - center_y, midpoint_x - center_x)
@@ -438,7 +454,7 @@ python z_histogram.py
 - Detect anomalies or outliers in height measurements
 - Compare distributions across different experimental conditions
 
-**Requirements:** CSV file must contain `Z_mm` column (requires calibration data during export from `pair_detect.py`)
+**Requirements:** CSV file must contain `Z_mm` or `Zprime_mm` column. If Z_mm is not available, Zprime_mm will be used automatically for uncalibrated visualization.
 
 **Output:** Histogram image saved as `{csv_name}-histogram.png` (or `-histogram-N.png` if multiple exports) in the same folder as the CSV
 

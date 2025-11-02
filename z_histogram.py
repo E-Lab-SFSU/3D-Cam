@@ -197,19 +197,26 @@ class ZHistogramViewer:
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 
-                # Check if Z_mm column exists
-                if 'Z_mm' not in reader.fieldnames:
+                # Check if Z_mm or Zprime_mm column exists
+                has_z_mm = 'Z_mm' in reader.fieldnames
+                has_zprime_mm = 'Zprime_mm' in reader.fieldnames
+                
+                if not has_z_mm and not has_zprime_mm:
                     messagebox.showwarning(
                         "Missing Z Data",
-                        "CSV file doesn't contain Z_mm column.\n\n"
-                        "Z height data is only available if calibration data was loaded during export.\n"
+                        "CSV file doesn't contain Z_mm or Zprime_mm column.\n\n"
+                        "Z height data requires calibration data (working distance) loaded during export.\n"
                         "Please re-export with calibration data to view Z height histogram."
                     )
                     return
                 
+                # Determine which column to use
+                z_col = 'Z_mm' if has_z_mm else 'Zprime_mm'
+                using_zprime = not has_z_mm and has_zprime_mm
+                
                 for row in reader:
                     try:
-                        z_str = row.get('Z_mm', '').strip()
+                        z_str = row.get(z_col, '').strip()
                         
                         # Skip rows with missing Z data
                         if not z_str:
@@ -220,6 +227,10 @@ class ZHistogramViewer:
                     
                     except (ValueError, KeyError) as e:
                         continue
+                
+                # Show info about which Z column was used
+                if using_zprime:
+                    print(f"[INFO] Using Zprime_mm for histogram (Z_mm not available)")
             
             if not self.z_values:
                 messagebox.showwarning(

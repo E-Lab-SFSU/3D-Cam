@@ -1039,17 +1039,23 @@ def export_video():
             
             # Calculate Zprime, B, and Z if calibration is loaded
             zprime_val = None
+            zdoubleprime_val = None
             b_val = None
             z_val = None
             
-            if calibration_loaded and calibration_working_distance_mm and calibration_working_distance_mm > 0:
-                # r_i is Radius_A (inner), r_j is Radius_B (outer, which is C)
-                r_a = r_i  # A = inner radius
-                r_c = r_j  # C = outer radius
+            # Calculate radii from pair data
+            r_a = r_i  # A = inner radius
+            r_c = r_j  # C = outer radius
+            
+            if r_a > 0 and r_c > 0:
+                # Always calculate Zdoubleprime with working_distance = 1 (for uncalibrated visualization)
+                zdoubleprime_val = (r_c - r_a) / (r_a + r_c)
                 
-                if r_a > 0 and r_c > 0:
+                # Try to get working distance (from video calibration or image calibration)
+                working_dist = get_working_distance_mm()
+                if working_dist and working_dist > 0:
                     # Calculate Zprime = working_distance * (C-A)/(A+C)
-                    zprime_val = calibration_working_distance_mm * (r_c - r_a) / (r_a + r_c)
+                    zprime_val = working_dist * (r_c - r_a) / (r_a + r_c)
                     
                     # Calculate B = (2*A*C)/(A+C)
                     b_val = (2 * r_a * r_c) / (r_a + r_c)
@@ -1059,12 +1065,21 @@ def export_video():
                     if calibration_magic_constant is not None and calibration_magic_offset is not None:
                         z_val = zprime_val * calibration_magic_constant + calibration_magic_offset
             
-            # Build row - always include Z, B, X, Y columns (empty if constants not present)
-            # Calculate Z and B if calibration constants are available
+            # Build row - always include Zprime, Zdoubleprime, Z, B, X, Y columns (empty if constants not present)
+            zprime_mm_val = ""
+            zdoubleprime_val_str = ""
             z_mm_val = ""
             b_px_val = ""
             x_mm_val = ""
             y_mm_val = ""
+            
+            # Zdoubleprime is always calculated (working_distance = 1)
+            if zdoubleprime_val is not None:
+                zdoubleprime_val_str = round(zdoubleprime_val, 4)
+            
+            # Zprime is calculated if working distance is available (from image or video calibration)
+            if zprime_val is not None:
+                zprime_mm_val = round(zprime_val, 4)
             
             if calibration_loaded and calibration_magic_constant is not None and calibration_magic_offset is not None:
                 # Z can only be calculated if magic_constant and magic_offset are available
@@ -1107,6 +1122,8 @@ def export_video():
                 int(p["threshold"]), int(p["blur"]), int(p["minArea"]), int(p["maxArea"]), int(p["maxW"]),
                 float(p["maxRadGap"]), float(p["maxDMR"]), float(p["maxCenterOff"]),
                 float(p["w_theta"]), float(p["w_area"]), float(p["w_center"]), float(p["Smin"]),
+                zprime_mm_val,  # Zprime_mm column (requires working distance)
+                zdoubleprime_val_str,  # Zdoubleprime column (always calculated, working_distance = 1)
                 z_mm_val,  # Z_mm column (empty if constants not present)
                 b_px_val,  # B_px column (empty if constants not present)
                 x_mm_val,  # X_mm column (empty if pixels_per_mm not available)
@@ -1129,7 +1146,7 @@ def export_video():
     try:
         with open(out_csv, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            # Build header - always include Z, B, X, Y columns (empty if constants not present)
+            # Build header - always include Zprime, Zdoubleprime, Z, B, X, Y columns (empty if constants not present)
             header = [
                 "Frame_Number", "Track_ID", "Center_X", "Center_Y", "Right_X", "Right_Y",
                 "Angle_A_deg", "A_px", "Angle_B_deg", "C_px", "Pair_Score",
@@ -1137,7 +1154,7 @@ def export_video():
                 "Binary_Threshold", "Blur_Size", "Min_Area_px2", "Max_Area_px2", "Max_Width_px",
                 "Max_Radial_Gap_px", "Max_Angle_Diff_deg", "Max_Center_Offset_px",
                 "Weight_Angle", "Weight_Area", "Weight_Center", "Min_Score_Threshold",
-                "Z_mm", "B_px", "X_mm", "Y_mm"
+                "Zprime_mm", "Zdoubleprime", "Z_mm", "B_px", "X_mm", "Y_mm"
             ]
             
             w.writerow(header)
@@ -1148,9 +1165,12 @@ def export_video():
             print(f"[INFO] Calibration used: magic_constant={calibration_magic_constant:.6f}, "
                   f"magic_offset={calibration_magic_offset:.6f} mm, "
                   f"working_distance={calibration_working_distance_mm:.2f} mm")
-            print(f"[INFO] Z and B values calculated and included in CSV.")
+            if calibration_magic_constant is not None and calibration_magic_offset is not None:
+                print(f"[INFO] Z, Zprime, and B values calculated and included in CSV.")
+            else:
+                print(f"[INFO] Zprime and B values calculated and included in CSV.")
         else:
-            print(f"[INFO] Note: Z and B columns are empty (no calibration constants loaded).")
+            print(f"[INFO] Note: Z, Zprime, and B columns are empty (no calibration constants loaded).")
     except Exception as e:
         print(f"[WARN] CSV save failed: {e}")
 
@@ -1227,6 +1247,33 @@ def get_pixels_per_mm() -> Optional[float]:
                     pixels_per_mm = float(cal_data["pixels_per_mm"])
                     if pixels_per_mm > 0:
                         return pixels_per_mm
+        except Exception:
+            pass
+    
+    return None
+
+
+def get_working_distance_mm() -> Optional[float]:
+    """
+    Get working_distance_mm from calibration data.
+    First checks video calibration, then falls back to latest image calibration.
+    """
+    global calibration_working_distance_mm
+    
+    # First check if it's already loaded from video calibration
+    if calibration_working_distance_mm is not None and calibration_working_distance_mm > 0:
+        return calibration_working_distance_mm
+    
+    # Try to load from latest image calibration file
+    latest_image_cal = get_latest_image_calibration_file()
+    if latest_image_cal:
+        try:
+            with open(latest_image_cal, 'r', encoding='utf-8') as f:
+                cal_data = json.load(f)
+                if "working_distance_mm" in cal_data:
+                    working_dist_mm = float(cal_data["working_distance_mm"])
+                    if working_dist_mm > 0:
+                        return working_dist_mm
         except Exception:
             pass
     

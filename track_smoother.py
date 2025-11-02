@@ -957,9 +957,21 @@ class TrackSmoother(Base3DVisualizer):
                         
                         if (frame, track_id) in smoothed_map:
                             x, y, z = smoothed_map[(frame, track_id)]
-                            row['X_mm'] = f"{x:.4f}"
-                            row['Y_mm'] = f"{y:.4f}"
-                            row['Z_mm'] = f"{z:.4f}"
+                            # Write smoothed coordinates to standard columns if they exist
+                            if 'X_mm' in fieldnames:
+                                row['X_mm'] = f"{x:.4f}"
+                            if 'Y_mm' in fieldnames:
+                                row['Y_mm'] = f"{y:.4f}"
+                            if 'Z_mm' in fieldnames:
+                                row['Z_mm'] = f"{z:.4f}"
+                            # Also update pixel coordinates if they exist
+                            if 'Center_X' in fieldnames:
+                                row['Center_X'] = f"{x:.4f}"
+                            if 'Center_Y' in fieldnames:
+                                row['Center_Y'] = f"{y:.4f}"
+                            # Also update Zprime if it exists
+                            if 'Zprime_mm' in fieldnames:
+                                row['Zprime_mm'] = f"{z:.4f}"
                         
                         writer.writerow(row)
                     

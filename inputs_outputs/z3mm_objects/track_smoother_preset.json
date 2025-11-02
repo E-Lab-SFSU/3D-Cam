@@ -1,7 +1,0 @@
-{
-  "smoothing_window": 8,
-  "spike_threshold": 2.0,
-  "spike_velocity_threshold": 50.0,
-  "enable_smoothing": true,
-  "enable_spike_removal": true
-}
