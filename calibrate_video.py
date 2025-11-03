@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
-from lib.zcalc import (
+from lib.xyzcalc import (
     extract_working_distance,
     extract_pixels_per_mm,
     calculate_b_px,

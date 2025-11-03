@@ -1,6 +1,6 @@
 """
 Calibration utilities for extracting working distance and other calibration parameters.
-Z-coordinate calculation utilities for B, X, Y coordinate transformations.
+XYZ-coordinate calculation utilities for B, X, Y, Z coordinate transformations.
 """
 
 from typing import Optional, Dict, Tuple
