@@ -49,12 +49,18 @@ These scripts automatically set up the virtual environment (if needed) and run t
 ### First Time Setup (Linux/Raspberry Pi)
 
 ```bash
-# Make all scripts executable
-chmod +x setup_venv.sh run_*.sh
+# Make all scripts executable (one-time setup)
+# This makes all .sh files executable (simpler approach)
+chmod +x *.sh
 
-# Run any program (it will set up automatically if needed)
+# Run any program (note the ./ before the script name)
 ./run_visualize3d.sh
 ```
+
+**Why `./` and `chmod +x`?**
+- `./` is required - Linux needs this to run scripts in the current directory
+- `chmod +x` makes files executable - only needed once per file
+- See `LINUX_BASICS.md` for detailed explanation
 
 ### First Time Setup (Windows)
 

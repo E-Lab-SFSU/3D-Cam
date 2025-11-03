@@ -28,9 +28,10 @@ The simplest way to get started is using the provided run scripts. They automati
 
 ```bash
 # Make scripts executable (first time only)
-chmod +x run_*.sh setup_venv.sh
+# This makes all .sh files executable (simpler than listing them separately)
+chmod +x *.sh
 
-# Run any program:
+# Run any program (note the ./ before the script name):
 ./run_visualize3d.sh
 ./run_pair_detect.sh
 ./run_capture_raspi.sh
@@ -39,6 +40,13 @@ chmod +x run_*.sh setup_venv.sh
 ./run_calibrate_video.sh
 ./run_z_histogram.sh
 ```
+
+**Quick explanation:**
+- **`./`** = tells Linux to run the script from the current directory (required for security)
+- **`chmod +x`** = makes files executable (only needed once)
+- **`run_*.sh`** = the `*` is a wildcard matching all files starting with "run_" and ending with ".sh"
+
+See `LINUX_BASICS.md` for more detailed explanation of Linux script basics.
 
 The run scripts will automatically:
 1. Create a virtual environment if it doesn't exist
