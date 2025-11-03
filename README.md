@@ -624,7 +624,7 @@ When exporting multiple times from the same input:
 
 ## Configuration Files
 
-- `pair_preset.json`: Saves pair detection parameters and settings  
+- `pair_detect_default.json`: Default settings loaded on startup or when opening a new video  
 - `lib/pair/tracker_config.json`: Advanced tracking algorithm smoothness parameters  
   - Controls how pairs are matched across frames (velocity, size, length consistency)  
   - Not exposed in GUI - modify directly for advanced tuning  

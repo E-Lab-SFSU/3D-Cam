@@ -15,7 +15,7 @@ This app lets you:
        - <prefix>_tracked_export.mp4  (grayscale + overlays)
        - <prefix>_binary_overlay_export.mp4  (binary + overlays)
        - <prefix>_pairs.csv  (UTF-8 metadata; no text burned into video)
-  • Save/restore all settings + optical center + last video path to pair_preset.json
+  • Save/restore default settings + optical center + last video path to pair_detect_default.json
 
 NOTES
   - “Tracked” OpenCV window: click once to update the optical center (yellow crosshair)
@@ -54,8 +54,10 @@ from lib.pair.ui import build_gui as ui_build_gui, set_controls_enabled as ui_se
 from lib.pair.pair_tracker import PairTracker
 from lib.xyzcalc import extract_working_distance, extract_pixels_per_mm
 
-# ============ Persistent preset file ============
-PRESET_PATH = "pair_preset.json"
+# ============ Persistent default settings file ============
+# This file stores default settings that load when pair_detect.py starts or when a new video is opened.
+# For reprocessing videos, use the pair_detect_preset.json files in video folders (saved during export).
+PRESET_PATH = "pair_detect_default.json"
 
 # ============ Default numeric parameters (sliders) ============
 DEFAULT_PARAMS = {
