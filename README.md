@@ -50,20 +50,80 @@ The system consists of several components:
 
 - **`capture_windows.py`** - Windows video capture application for recording videos from USB cameras.
 
+## Quick Start
+
+### Easy Setup and Run (Recommended)
+
+The easiest way to get started is using the provided run scripts. They automatically set up the virtual environment if needed and run the programs.
+
+#### On Windows:
+
+**Using Batch Files (.bat):**
+```batch
+# Double-click or run:
+run_visualize3d.bat
+run_pair_detect.bat
+run_capture_windows.bat
+run_track_smoother.bat
+run_calibrate_image.bat
+run_calibrate_video.bat
+run_z_histogram.bat
+```
+
+**Using PowerShell (.ps1):**
+```powershell
+# Run in PowerShell:
+.\run_visualize3d.ps1
+.\run_pair_detect.ps1
+.\run_capture_windows.ps1
+.\run_track_smoother.ps1
+.\run_calibrate_image.ps1
+.\run_calibrate_video.ps1
+.\run_z_histogram.ps1
+```
+
+#### On Linux/Raspberry Pi:
+
+```bash
+# Make scripts executable (first time only)
+chmod +x run_*.sh setup_venv.sh
+
+# Run any program:
+./run_visualize3d.sh
+./run_pair_detect.sh
+./run_capture_raspi.sh
+./run_track_smoother.sh
+./run_calibrate_image.sh
+./run_calibrate_video.sh
+./run_z_histogram.sh
+```
+
+**Note:** The run scripts will automatically:
+1. Create a virtual environment if it doesn't exist
+2. Install all dependencies
+3. Activate the virtual environment
+4. Run the program
+
+### Manual Setup
+
+If you prefer to set up manually, see the [Setup Instructions](#setup-instructions) below.
+
 ## Usage
 
 ### Step 1: Capture Video
 
 #### On Raspberry Pi:
 ```bash
-python capture_raspi.py
+./run_capture_raspi.sh
+# Or manually: python capture_raspi.py
 ```
 - UVC cameras are tested and supported
 - PiCamera support coming soon
 
 #### On Windows:
 ```bash
-python capture_windows.py
+run_capture_windows.bat
+# Or manually: python capture_windows.py
 ```
 
 **Procedure:**
@@ -79,7 +139,12 @@ python capture_windows.py
 ### Step 2: Image Calibration (Scale Calibration)
 
 ```bash
-python calibrate_image.py
+# Linux/Raspberry Pi:
+./run_calibrate_image.sh
+
+# Windows:
+run_calibrate_image.bat
+# Or manually: python calibrate_image.py
 ```
 
 **Purpose:** Determine the pixels-per-millimeter (px/mm) scale and working distance.
@@ -114,7 +179,12 @@ where:
 ### Step 3: Pair Detection
 
 ```bash
-python pair_detect.py
+# Linux/Raspberry Pi:
+./run_pair_detect.sh
+
+# Windows:
+run_pair_detect.bat
+# Or manually: python pair_detect.py
 ```
 
 **Purpose:** Detect particle pairs (direct view + mirror reflection) and track them through the video.
@@ -274,7 +344,12 @@ The system uses a sophisticated multi-frame tracking algorithm that maintains st
 ### Step 4: Video Calibration (Z-Height Calibration)
 
 ```bash
-python calibrate_video.py
+# Linux/Raspberry Pi:
+./run_calibrate_video.sh
+
+# Windows:
+run_calibrate_video.bat
+# Or manually: python calibrate_video.py
 ```
 
 **Purpose:** Calibrate the Z-height measurement by using videos of objects at known heights. You need at least 2 videos at different Z heights to perform linear regression.
@@ -338,7 +413,12 @@ The system uses a two-stage calibration process:
 ### Step 5: Track Smoothing (Optional)
 
 ```bash
-python track_smoother.py
+# Linux/Raspberry Pi:
+./run_track_smoother.sh
+
+# Windows:
+run_track_smoother.bat
+# Or manually: python track_smoother.py
 ```
 
 **Purpose:** Smooth trajectories and remove noise spikes from tracking data.
@@ -361,7 +441,12 @@ python track_smoother.py
 ### Step 6: 3D Visualization
 
 ```bash
-python visualize3d.py
+# Linux/Raspberry Pi:
+./run_visualize3d.sh
+
+# Windows:
+run_visualize3d.bat
+# Or manually: python visualize3d.py
 ```
 
 **Purpose:** Interactively visualize 3D trajectories from processed pair data.
@@ -428,7 +513,12 @@ The coordinate calculation happens in two stages:
 ### Step 7: Z Height Histogram Analysis
 
 ```bash
-python z_histogram.py
+# Linux/Raspberry Pi:
+./run_z_histogram.sh
+
+# Windows:
+run_z_histogram.bat
+# Or manually: python z_histogram.py
 ```
 
 **Purpose:** Analyze and visualize the distribution of Z heights in your tracked data.
@@ -634,12 +724,79 @@ When exporting multiple times from the same input:
 
 - Python 3.7+
 - OpenCV (`cv2`)
-- NumPy
+- NumPy 2.x (with NumPy 2.x compatible packages)
 - SciPy (for Hungarian algorithm)
-- Matplotlib (for 3D visualization)
+- Matplotlib 3.9+ (supports NumPy 2.x)
 - Tkinter (for GUIs)
 
+### Setup Instructions
+
+**Important**: On modern Linux systems (including Raspberry Pi OS) and for clean dependency management, you should use a virtual environment.
+
+#### Automatic Setup (Recommended)
+
+The run scripts handle everything automatically! Just run any `run_*.sh` (Linux) or `run_*.bat`/`run_*.ps1` (Windows) script and it will:
+- Create the virtual environment if needed
+- Install all dependencies
+- Run the program
+
+#### Manual Setup (Optional)
+
+If you prefer to set up manually:
+
+**Linux/Raspberry Pi:**
+```bash
+# Make setup script executable
+chmod +x setup_venv.sh
+
+# Run setup (creates venv and installs dependencies)
+./setup_venv.sh
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Now you can run scripts manually
+python visualize3d.py
+```
+
+**Windows:**
+```batch
+REM Run setup script
+setup_venv.bat
+
+REM Or manually:
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+#### System Requirements
+
+**Linux/Raspberry Pi:**
+```bash
+# Install if not already installed:
+sudo apt install python3-venv python3-full
+```
+
+**Windows:**
+- Python 3.7+ from [python.org](https://www.python.org/downloads/)
+- Make sure Python is added to PATH during installation
+
+See `SETUP.md` for detailed setup instructions and troubleshooting.
+
 ## Troubleshooting
+
+### Setup and Installation Issues
+
+**"externally-managed-environment" error**
+- Your system uses externally managed Python environments (PEP 668)
+- Use a virtual environment as described in the Setup section above
+- See `SETUP.md` for detailed instructions
+
+**NumPy/Matplotlib compatibility errors**
+- Ensure you're using matplotlib 3.9+ which supports NumPy 2.x
+- Reinstall dependencies: `pip install -r requirements.txt --upgrade`
+- Make sure virtual environment is activated
 
 ### Poor Pair Detection
 - Adjust threshold and blur parameters

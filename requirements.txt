@@ -1,0 +1,16 @@
+# 3D-Cam Project Dependencies
+# Compatible with NumPy 2.x
+
+# Core numerical and scientific computing
+numpy>=2.0.0,<3.0.0
+scipy>=1.11.0
+
+# Computer vision
+opencv-python>=4.8.0
+
+# Visualization (matplotlib 3.9+ supports NumPy 2.x)
+matplotlib>=3.9.0
+
+# Note: Tkinter is part of Python standard library (no pip install needed)
+# Python 3.7+ is required
+
