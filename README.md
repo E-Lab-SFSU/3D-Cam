@@ -625,7 +625,7 @@ When exporting multiple times from the same input:
 ## Configuration Files
 
 - `pair_preset.json`: Saves pair detection parameters and settings
-- `tracker_config.json`: Tracking algorithm parameters
+- `lib/pair/tracker_config.json`: Advanced tracking algorithm parameters (velocity/size/length smoothness)
 - `calibrations/*.json`: Calibration data (image and video)
 
 ## Dependencies

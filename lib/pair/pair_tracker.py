@@ -2,6 +2,7 @@ from typing import List, Tuple, Dict, Optional
 import math
 import json
 import os
+from pathlib import Path
 
 
 PairTuple = Tuple[int, int, int, int, int, float, float, float, float, float, float, float]
@@ -18,7 +19,7 @@ class PairTracker:
     """
 
     @staticmethod
-    def _load_config(config_path: str = "tracker_config.json") -> Dict:
+    def _load_config(config_path: str = None) -> Dict:
         """Load configuration from JSON file with default fallback."""
         default_config = {
             "tracking": {
@@ -54,6 +55,12 @@ class PairTracker:
             }
         }
         
+        # If no config_path provided, look in lib/pair directory
+        if config_path is None:
+            # Get the directory where this module is located
+            module_dir = Path(__file__).parent
+            config_path = module_dir / "tracker_config.json"
+        
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
@@ -74,7 +81,7 @@ class PairTracker:
         return default_config
 
     def __init__(self, max_match_dist_px: float = None, max_misses: int = None,
-                 config_path: str = "tracker_config.json"):
+                 config_path: str = None):
         # Load configuration
         self.config = self._load_config(config_path)
         

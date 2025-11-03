@@ -75,163 +75,189 @@ def build_gui(
         widgets["btn_exit"] = ttk.Button(frm_btn, text="🚪 Exit", command=on_exit)
         widgets["btn_exit"].grid(row=1, column=0, columnspan=4, padx=2, pady=(2, 0), sticky="ew")
 
-    # Parameters frame
-    frm_params = ttk.LabelFrame(content_frame, text="Processing Parameters")
-    frm_params.grid(row=2, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
-    frm_params.grid_columnconfigure(0, weight=0, minsize=130)
-    frm_params.grid_columnconfigure(1, weight=1, minsize=260)
-    frm_params.grid_columnconfigure(2, weight=0, minsize=56)
+    # Helper functions for creating sliders in different frames
+    def create_slider_funcs(parent_frame):
+        """Create slider functions that operate on a specific parent frame."""
+        def add_slider(row, label, key, from_, to_):
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            var = tk.IntVar(value=int(params[key]))
+            scale = ttk.Scale(
+                parent_frame,
+                from_=from_,
+                to=to_,
+                orient="horizontal",
+                length=260,
+                command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
+            )
+            scale.set(params[key])
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            lbl_val = ttk.Label(parent_frame, text=str(var.get()), width=6, anchor="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
 
-    def add_slider(row, label, key, from_, to_):
-        ttk.Label(frm_params, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
-        var = tk.IntVar(value=int(params[key]))
-        scale = ttk.Scale(
-            frm_params,
-            from_=from_,
-            to=to_,
-            orient="horizontal",
-            length=260,
-            command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
-        )
-        scale.set(params[key])
-        scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
-        lbl_val = ttk.Label(frm_params, text=str(var.get()), width=6, anchor="e")
-        lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            def on_var(*_):
+                v = int(var.get())
+                if key == "blur":
+                    if v < 1:
+                        v = 1
+                    if v % 2 == 0:
+                        v += 1
+                    var.set(v)
+                params[key] = v
+                lbl_val.config(text=str(v))
 
-        def on_var(*_):
-            v = int(var.get())
-            if key == "blur":
-                if v < 1:
-                    v = 1
-                if v % 2 == 0:
-                    v += 1
-                var.set(v)
-            params[key] = v
-            lbl_val.config(text=str(v))
+            var.trace_add("write", on_var)
+            widgets[f"scale_{key}"] = scale
+            gui_vars_numeric[key] = var
 
-        var.trace_add("write", on_var)
-        widgets[f"scale_{key}"] = scale
-        gui_vars_numeric[key] = var
+        def add_slider_float(row, label, key, from_, to_):
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            var = tk.IntVar(value=int(params[key] * 100))
+            scale = ttk.Scale(
+                parent_frame,
+                from_=from_,
+                to=to_,
+                orient="horizontal",
+                length=260,
+                command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
+            )
+            scale.set(int(params[key] * 100))
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            lbl_val = ttk.Label(parent_frame, text=f"{params[key]*100:.0f}%", width=6, anchor="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
 
-    def add_slider_float(row, label, key, from_, to_):
-        ttk.Label(frm_params, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
-        var = tk.IntVar(value=int(params[key] * 100))
-        scale = ttk.Scale(
-            frm_params,
-            from_=from_,
-            to=to_,
-            orient="horizontal",
-            length=260,
-            command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
-        )
-        scale.set(int(params[key] * 100))
-        scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
-        lbl_val = ttk.Label(frm_params, text=f"{params[key]*100:.0f}%", width=6, anchor="e")
-        lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            def on_var(*_):
+                params[key] = max(0.0, min(1.0, float(var.get()) / 100.0))
+                lbl_val.config(text=f"{params[key]*100:.0f}%")
 
-        def on_var(*_):
-            params[key] = max(0.0, min(1.0, float(var.get()) / 100.0))
-            lbl_val.config(text=f"{params[key]*100:.0f}%")
+            var.trace_add("write", on_var)
+            widgets[f"scale_{key}"] = scale
+            gui_vars_numeric[key] = var
 
-        var.trace_add("write", on_var)
-        widgets[f"scale_{key}"] = scale
-        gui_vars_numeric[key] = var
+        def add_slider_float_track(row, label, key, from_, to_):
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            var = tk.DoubleVar(value=float(params[key]))
+            scale = ttk.Scale(
+                parent_frame,
+                from_=from_,
+                to=to_,
+                orient="horizontal",
+                length=260,
+                command=lambda _v, k=key, _var=var: _var.set(float(_v)),
+            )
+            scale.set(float(params[key]))
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            lbl_val = ttk.Label(parent_frame, text=f"{params[key]:.1f}", width=6, anchor="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
 
-    def add_slider_smin(row):
-        key = "Smin"
-        ttk.Label(frm_params, text="Min Pair Score (×100)").grid(row=row, column=0, sticky="w", padx=4, pady=1)
-        var = tk.IntVar(value=int(params[key] * 100))
-        scale = ttk.Scale(frm_params, from_=10, to=200, orient="horizontal", command=lambda _v, _var=var: _var.set(int(float(_v))))
-        scale.set(int(params[key] * 100))
-        lbl_val = ttk.Label(frm_params, text=f"{params[key]*100:.0f}", width=6, anchor="e")
-        lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            def on_var(*_):
+                params[key] = max(float(from_), min(float(to_), float(var.get())))
+                lbl_val.config(text=f"{params[key]:.1f}")
 
-        def on_var(*_):
-            params[key] = max(0.1, min(2.0, float(var.get()) / 100.0))
-            lbl_val.config(text=f"{params[key]*100:.0f}")
+            var.trace_add("write", on_var)
+            widgets[f"scale_{key}"] = scale
+            gui_vars_numeric[key] = var
 
-        var.trace_add("write", on_var)
-        scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
-        widgets[f"scale_{key}"] = scale
-        gui_vars_numeric[key] = var
+        def add_slider_smin(row):
+            key = "Smin"
+            ttk.Label(parent_frame, text="Min Pair Score (×100)").grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            var = tk.IntVar(value=int(params[key] * 100))
+            scale = ttk.Scale(parent_frame, from_=10, to=200, orient="horizontal", command=lambda _v, _var=var: _var.set(int(float(_v))))
+            scale.set(int(params[key] * 100))
+            lbl_val = ttk.Label(parent_frame, text=f"{params[key]*100:.0f}", width=6, anchor="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
 
-    def add_slider_contrast(row):
-        key = "contrast"
-        ttk.Label(frm_params, text="Contrast (%)").grid(row=row, column=0, sticky="w", padx=4, pady=1)
-        var = tk.IntVar(value=int(params[key]))
-        scale = ttk.Scale(frm_params, from_=0, to=200, orient="horizontal", command=lambda _v, _var=var: _var.set(int(float(_v))))
-        scale.set(int(params[key]))
-        lbl_val = ttk.Label(frm_params, text=f"{params[key]}%", width=6, anchor="e")
-        lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            def on_var(*_):
+                params[key] = max(0.1, min(2.0, float(var.get()) / 100.0))
+                lbl_val.config(text=f"{params[key]*100:.0f}")
 
-        def on_var(*_):
-            params[key] = max(0, min(200, int(var.get())))
-            lbl_val.config(text=f"{params[key]}%")
+            var.trace_add("write", on_var)
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            widgets[f"scale_{key}"] = scale
+            gui_vars_numeric[key] = var
 
-        var.trace_add("write", on_var)
-        scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
-        widgets[f"scale_{key}"] = scale
-        gui_vars_numeric[key] = var
+        def add_slider_contrast(row):
+            key = "contrast"
+            ttk.Label(parent_frame, text="Contrast (%)").grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            var = tk.IntVar(value=int(params[key]))
+            scale = ttk.Scale(parent_frame, from_=0, to=200, orient="horizontal", command=lambda _v, _var=var: _var.set(int(float(_v))))
+            scale.set(int(params[key]))
+            lbl_val = ttk.Label(parent_frame, text=f"{params[key]}%", width=6, anchor="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
 
-    row = 0
-    add_slider(row, "Binary Threshold", "threshold", 0, 255); row += 1
-    add_slider(row, "Gaussian Blur Size (odd)", "blur", 1, 25); row += 1
+            def on_var(*_):
+                params[key] = max(0, min(200, int(var.get())))
+                lbl_val.config(text=f"{params[key]}%")
+
+            var.trace_add("write", on_var)
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            widgets[f"scale_{key}"] = scale
+            gui_vars_numeric[key] = var
+
+        return add_slider, add_slider_float, add_slider_float_track, add_slider_smin, add_slider_contrast
+
+    # Blobbing Parameters frame
+    frm_blobbing = ttk.LabelFrame(content_frame, text="Blobbing Parameters")
+    frm_blobbing.grid(row=2, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_blobbing.grid_columnconfigure(0, weight=0, minsize=130)
+    frm_blobbing.grid_columnconfigure(1, weight=1, minsize=260)
+    frm_blobbing.grid_columnconfigure(2, weight=0, minsize=56)
+    
+    add_slider, add_slider_float, add_slider_float_track, add_slider_smin, add_slider_contrast = create_slider_funcs(frm_blobbing)
     
     # Invert threshold checkbox (for black particles on white background)
-    def add_param_check(row, label, key):
+    def add_param_check(parent_frame, row, label, key):
         var = tk.IntVar(value=int(params.get(key, 0)))
         chk = ttk.Checkbutton(
-            frm_params, text=label, variable=var,
+            parent_frame, text=label, variable=var,
             command=lambda k=key, v=var: params.__setitem__(k, int(v.get()))
         )
         chk.grid(row=row, column=0, columnspan=3, sticky="w", padx=4, pady=2)
         widgets[f"chk_{key}"] = chk
         gui_vars_check[key] = var  # Store in check vars for reset functionality
     
-    add_param_check(row, "Black particles on white background", "invert_threshold"); row += 1
-    add_slider_contrast(row); row += 1
-    add_slider(row, "Min Blob Area (px²)", "minArea", 0, 200); row += 1
-    add_slider(row, "Max Blob Area (px²)", "maxArea", 100, 200); row += 1
-    add_slider(row, "Max Blob Width/Height (px)", "maxW", 1, 200); row += 1
-    add_slider(row, "Max Radial Gap (px)", "maxRadGap", 0, 200); row += 1
-    add_slider(row, "Max Angle Diff (deg)", "maxDMR", 0, 30); row += 1
-    add_slider(row, "Max Center Offset (px)", "maxCenterOff", 0, 200); row += 1
-    add_slider_float(row, "Weight: Angle Similarity", "w_theta", 0, 100); row += 1
-    add_slider_float(row, "Weight: Area Similarity", "w_area", 0, 100); row += 1
-    add_slider_float(row, "Weight: Center Alignment", "w_center", 0, 100); row += 1
-    add_slider_smin(row); row += 1
+    row_blob = 0
+    add_slider(row_blob, "Binary Threshold", "threshold", 0, 255); row_blob += 1
+    add_slider(row_blob, "Gaussian Blur Size (odd)", "blur", 1, 25); row_blob += 1
+    add_param_check(frm_blobbing, row_blob, "Black particles on white background", "invert_threshold"); row_blob += 1
+    add_slider_contrast(row_blob); row_blob += 1
+    add_slider(row_blob, "Min Blob Area (px²)", "minArea", 0, 200); row_blob += 1
+    add_slider(row_blob, "Max Blob Area (px²)", "maxArea", 100, 200); row_blob += 1
+    add_slider(row_blob, "Max Blob Width/Height (px)", "maxW", 1, 200); row_blob += 1
 
-    # Tracking parameters
-    def add_slider_float_track(row, label, key, from_, to_):
-        ttk.Label(frm_params, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
-        var = tk.DoubleVar(value=float(params[key]))
-        scale = ttk.Scale(
-            frm_params,
-            from_=from_,
-            to=to_,
-            orient="horizontal",
-            length=260,
-            command=lambda _v, k=key, _var=var: _var.set(float(_v)),
-        )
-        scale.set(float(params[key]))
-        scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
-        lbl_val = ttk.Label(frm_params, text=f"{params[key]:.1f}", width=6, anchor="e")
-        lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+    # Pairing Parameters frame
+    frm_pairing = ttk.LabelFrame(content_frame, text="Pairing Parameters")
+    frm_pairing.grid(row=3, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_pairing.grid_columnconfigure(0, weight=0, minsize=130)
+    frm_pairing.grid_columnconfigure(1, weight=1, minsize=260)
+    frm_pairing.grid_columnconfigure(2, weight=0, minsize=56)
+    
+    add_slider_pair, add_slider_float_pair, add_slider_float_track_pair, add_slider_smin_pair, add_slider_contrast_pair = create_slider_funcs(frm_pairing)
+    
+    row_pair = 0
+    add_slider_pair(row_pair, "Max Radial Gap (px)", "maxRadGap", 0, 200); row_pair += 1
+    add_slider_pair(row_pair, "Max Angle Diff (deg)", "maxDMR", 0, 30); row_pair += 1
+    add_slider_pair(row_pair, "Max Center Offset (px)", "maxCenterOff", 0, 200); row_pair += 1
+    add_slider_float_pair(row_pair, "Weight: Angle Similarity", "w_theta", 0, 100); row_pair += 1
+    add_slider_float_pair(row_pair, "Weight: Area Similarity", "w_area", 0, 100); row_pair += 1
+    add_slider_float_pair(row_pair, "Weight: Center Alignment", "w_center", 0, 100); row_pair += 1
+    add_slider_smin_pair(row_pair); row_pair += 1
 
-        def on_var(*_):
-            params[key] = max(float(from_), min(float(to_), float(var.get())))
-            lbl_val.config(text=f"{params[key]:.1f}")
-
-        var.trace_add("write", on_var)
-        widgets[f"scale_{key}"] = scale
-        gui_vars_numeric[key] = var
-
-    add_slider_float_track(row, "Track: Max Match Distance (px)", "track_max_match_dist", 5.0, 100.0); row += 1
-    add_slider(row, "Track: Max Misses Before Retire", "track_max_misses", 1, 30); row += 1
+    # Tracking Parameters frame
+    frm_tracking = ttk.LabelFrame(content_frame, text="Tracking Parameters")
+    frm_tracking.grid(row=4, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_tracking.grid_columnconfigure(0, weight=0, minsize=130)
+    frm_tracking.grid_columnconfigure(1, weight=1, minsize=260)
+    frm_tracking.grid_columnconfigure(2, weight=0, minsize=56)
+    
+    add_slider_track, add_slider_float_track2, add_slider_float_track_track, add_slider_smin_track, add_slider_contrast_track = create_slider_funcs(frm_tracking)
+    
+    row_track = 0
+    add_slider_float_track_track(row_track, "Max Match Distance (px)", "track_max_match_dist", 5.0, 100.0); row_track += 1
+    add_slider_track(row_track, "Max Misses Before Retire", "track_max_misses", 1, 30); row_track += 1
 
     # Pairing method
     frm_method = ttk.LabelFrame(content_frame, text="Pairing Method")
-    frm_method.grid(row=3, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_method.grid(row=5, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_method.grid_columnconfigure(0, weight=0)
     frm_method.grid_columnconfigure(1, weight=1)
 
@@ -275,7 +301,7 @@ def build_gui(
 
     # Overlay Targets
     frm_target = ttk.LabelFrame(content_frame, text="Overlay Targets")
-    frm_target.grid(row=4, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_target.grid(row=6, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_target.grid_columnconfigure((0, 1), weight=1)
 
     def add_target_check(col, text, key):
@@ -291,7 +317,7 @@ def build_gui(
 
     # Overlays
     frm_ov = ttk.LabelFrame(content_frame, text="Overlays")
-    frm_ov.grid(row=5, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_ov.grid(row=7, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
     for i in range(3):
         frm_ov.grid_columnconfigure(i, weight=1)
 
@@ -347,7 +373,7 @@ def build_gui(
 
     # Preview Overlay section
     frm_preview_ov = ttk.LabelFrame(content_frame, text="Preview Overlay")
-    frm_preview_ov.grid(row=6, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_preview_ov.grid(row=8, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
     for i in range(2):
         frm_preview_ov.grid_columnconfigure(i, weight=1)
 
@@ -366,7 +392,7 @@ def build_gui(
     ttk.Label(
         content_frame,
         text="Tip: Click in the 'Tracked' window to set optical center. ESC closes preview windows.",
-    ).grid(row=7, column=0, sticky="w", padx=4, pady=(4, 2))
+    ).grid(row=9, column=0, sticky="w", padx=4, pady=(4, 2))
     
     # Configure content frame column to expand
     content_frame.grid_columnconfigure(0, weight=1)
