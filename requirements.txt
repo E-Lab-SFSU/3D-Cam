@@ -3,6 +3,8 @@
 
 # Core numerical and scientific computing
 numpy>=2.0.0,<3.0.0
+# Note: On macOS, SciPy may need to be installed via conda or with updated Xcode Command Line Tools
+# pip will try to use pre-built wheels when available
 scipy>=1.11.0
 
 # Computer vision

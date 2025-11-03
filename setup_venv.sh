@@ -38,7 +38,34 @@ pip install --upgrade pip
 
 # Install dependencies
 echo "Installing dependencies from requirements.txt..."
-pip install -r requirements.txt
+
+# Detect macOS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "Detected macOS..."
+    echo "Note: SciPy may require special handling on macOS."
+    echo "If SciPy installation fails, try installing it via conda:"
+    echo "  conda install scipy -c conda-forge"
+    echo ""
+fi
+
+# Try to install dependencies
+if pip install -r requirements.txt; then
+    echo ""
+    echo "✓ All dependencies installed successfully!"
+else
+    echo ""
+    echo "⚠ Some dependencies failed to install."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo ""
+        echo "For macOS, try installing SciPy via conda:"
+        echo "  source venv/bin/activate"
+        echo "  conda install scipy -c conda-forge"
+        echo "  pip install numpy \"numpy<3.0.0,>=2.0.0\" opencv-python matplotlib"
+        echo ""
+        echo "Or see setup_macos.md for more solutions."
+    fi
+    exit 1
+fi
 
 echo ""
 echo "✓ Setup complete!"
