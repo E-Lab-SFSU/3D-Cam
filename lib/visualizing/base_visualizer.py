@@ -266,6 +266,12 @@ class Base3DVisualizer:
         export_frame.pack(fill="x", pady=5)
         self.setup_export_section(export_frame)
         
+        # Dataset specs display (scientific device info)
+        specs_frame = ttk.LabelFrame(left_col, text="Dataset Specifications", padding="10")
+        specs_frame.pack(fill="x", pady=5)
+        self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=120, justify="left", font=("Courier", 8))
+        self.specs_label.pack()
+        
         # Info display
         info_frame = ttk.LabelFrame(left_col, text="Info", padding="10")
         info_frame.pack(fill="x", pady=5)
@@ -789,6 +795,9 @@ class Base3DVisualizer:
             # Update track checkboxes
             self.update_track_checkboxes()
             
+            # Load and display CSV metadata JSON with specs
+            self.load_csv_metadata(file_path)
+            
             # Update info
             total_points = sum(len(self.data[tid]) for tid in self.data)
             self.info_label.config(
@@ -810,6 +819,76 @@ class Base3DVisualizer:
         
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load CSV file:\n{e}")
+    
+    def load_csv_metadata(self, csv_path: str):
+        """Load CSV metadata JSON file and display dataset specifications."""
+        import json
+        
+        # Try to find CSV metadata JSON file
+        csv_path_obj = Path(csv_path)
+        json_path = csv_path_obj.with_suffix('.json')
+        
+        if not json_path.exists():
+            # Try alternative names
+            json_path = csv_path_obj.parent / (csv_path_obj.stem + "_metadata.json")
+        
+        if not json_path.exists():
+            # No metadata found
+            self.specs_label.config(text="No metadata found")
+            return
+        
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            
+            # Build specs display string
+            specs_lines = []
+            
+            # Video specs
+            if "video_specs" in metadata:
+                vs = metadata["video_specs"]
+                frame_w = vs.get("frame_width_px", "?")
+                frame_h = vs.get("frame_height_px", "?")
+                fps = vs.get("fps", "?")
+                specs_lines.append(f"Frame Size: {frame_w}×{frame_h} px")
+                specs_lines.append(f"FPS: {fps:.2f}" if isinstance(fps, (int, float)) else f"FPS: {fps}")
+            
+            # Calibration specs
+            if "calibration" in metadata and metadata["calibration"]:
+                cal = metadata["calibration"]
+                pixels_per_mm = cal.get("pixels_per_mm")
+                if pixels_per_mm is not None:
+                    specs_lines.append(f"px/mm: {pixels_per_mm:.4f}")
+                
+                working_dist = cal.get("working_distance_mm")
+                if working_dist is not None:
+                    specs_lines.append(f"Working Dist: {working_dist:.2f} mm")
+            
+            # Optical center
+            if "optical_center" in metadata:
+                oc = metadata["optical_center"]
+                if oc.get("valid"):
+                    x_center = oc.get("x", "?")
+                    y_center = oc.get("y", "?")
+                    specs_lines.append(f"Optical Center: ({x_center}, {y_center})")
+            
+            # Exported timestamp
+            if "exported_at" in metadata:
+                exported = metadata["exported_at"]
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(exported.replace('Z', '+00:00'))
+                    specs_lines.append(f"Exported: {dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                except:
+                    specs_lines.append(f"Exported: {exported}")
+            
+            if specs_lines:
+                self.specs_label.config(text="\n".join(specs_lines))
+            else:
+                self.specs_label.config(text="No specs available")
+        
+        except Exception as e:
+            self.specs_label.config(text=f"Error loading metadata:\n{e}")
     
     def on_data_loaded(self):
         """Called after data is loaded - override in subclasses."""

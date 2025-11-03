@@ -1,0 +1,23 @@
+{
+  "csv_file": "z4mm_objects-paired-tracked-1.csv",
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z4mm_objects\\z4mm_objects.mp4",
+  "exported_at": "2025-11-02T17:22:11.614441",
+  "video_specs": {
+    "frame_width_px": 640,
+    "frame_height_px": 480,
+    "frame_count": 252,
+    "fps": 30.0
+  },
+  "optical_center": {
+    "x": 190,
+    "y": 174,
+    "valid": true
+  },
+  "processing_params": {
+    "threshold": 27,
+    "blur": 1,
+    "min_area": 4,
+    "max_area": 5000,
+    "pair_method": "Hungarian"
+  }
+}

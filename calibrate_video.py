@@ -29,6 +29,14 @@ from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib.pyplot as plt
+from lib.zcalc import (
+    extract_working_distance,
+    extract_pixels_per_mm,
+    calculate_b_px,
+    calculate_b_mm,
+    calculate_xy_mm,
+    calculate_b_xy_from_pair
+)
 
 
 def get_latest_calibration_file() -> Optional[str]:
@@ -959,40 +967,6 @@ class VideoCalibrationApp:
         # Update 3D visualization with new calibration pairs
         self.update_3d_visualization()
     
-    def _extract_working_distance(self, cal_data: dict) -> Optional[float]:
-        """
-        Extract working distance from calibration data dictionary.
-        Checks multiple possible locations.
-        Returns the working distance value or None if not found.
-        """
-        # 1. Top level
-        if "working_distance_mm" in cal_data:
-            try:
-                return float(cal_data["working_distance_mm"])
-            except (ValueError, TypeError):
-                pass
-        
-        # 2. From data_points array (first entry)
-        if "data_points" in cal_data and isinstance(cal_data["data_points"], list):
-            if len(cal_data["data_points"]) > 0:
-                first_point = cal_data["data_points"][0]
-                if isinstance(first_point, dict) and "working_distance_mm" in first_point:
-                    try:
-                        return float(first_point["working_distance_mm"])
-                    except (ValueError, TypeError):
-                        pass
-        
-        # 3. From camera_parameters if it exists
-        if "camera_parameters" in cal_data:
-            cam_params = cal_data["camera_parameters"]
-            if isinstance(cam_params, dict) and "working_distance_mm" in cam_params:
-                try:
-                    return float(cam_params["working_distance_mm"])
-                except (ValueError, TypeError):
-                    pass
-        
-        return None
-    
     def _auto_load_from_latest_calibration(self):
         """Automatically load working distance from the latest calibration file."""
         # Only auto-load if working distance field is empty
@@ -1014,7 +988,7 @@ class VideoCalibrationApp:
             with open(file_path, 'r', encoding='utf-8') as f:
                 cal_data = json.load(f)
             
-            working_dist = self._extract_working_distance(cal_data)
+            working_dist = extract_working_distance(cal_data)
             
             if working_dist is not None and working_dist > 0:
                 self.working_dist_var.set(str(working_dist))
@@ -1035,7 +1009,7 @@ class VideoCalibrationApp:
             with open(latest_cal_file, 'r', encoding='utf-8') as f:
                 cal_data = json.load(f)
             
-            working_dist = self._extract_working_distance(cal_data)
+            working_dist = extract_working_distance(cal_data)
             
             if working_dist is not None and working_dist > 0:
                 self.working_dist_var.set(str(working_dist))
@@ -1059,7 +1033,7 @@ class VideoCalibrationApp:
             with open(file_path, 'r', encoding='utf-8') as f:
                 cal_data = json.load(f)
             
-            working_dist = self._extract_working_distance(cal_data)
+            working_dist = extract_working_distance(cal_data)
             
             if working_dist is not None and working_dist > 0:
                 self.working_dist_var.set(str(working_dist))
@@ -1309,11 +1283,29 @@ class VideoCalibrationApp:
         # Automatically save to calibrations folder
         self._auto_save_calibration()
         
-        # Convert visualization data to Z_mm and update plot
-        self._convert_visualization_to_zmm()
-        # Update CSV files with Z_mm values
-        self._update_csv_files_with_zmm()
-        self.update_3d_visualization()
+        # Ask user if they want to save calculated mm values to CSV files
+        response = messagebox.askyesno(
+            "Save Calculated Values?",
+            "Calibration complete!\n\n"
+            "Would you like to save the calculated values (Z_mm, B_px, B_mm, X_mm, Y_mm) "
+            "back to the CSV files?\n\n"
+            "Yes - Update CSV files with all calculated mm values\n"
+            "No - Keep CSV files unchanged"
+        )
+        
+        if response:
+            # Update CSV files with all calculated mm values
+            # Each CSV is reloaded after update, so visualization data is automatically updated
+            self._update_csv_files_with_mm_values()
+            # Also convert visualization data to Z_mm as a backup (in case some CSVs weren't updated)
+            # This ensures all visualization data uses the latest calibration constants
+            self._convert_visualization_to_zmm()
+            # Update 3D visualization with calibrated Z_mm values
+            self.update_3d_visualization()
+        else:
+            # Still update visualization for display, but don't save to CSV
+            self._convert_visualization_to_zmm()
+            self.update_3d_visualization()
     
     def display_metrics(self, input_metrics_list, chosen_metrics_list, total_input, total_chosen, z_filter_stats_list=None):
         """Display detailed metrics for input and chosen datasets."""
@@ -1454,12 +1446,11 @@ class VideoCalibrationApp:
                 print(f"[WARN] Failed to convert {csv_name} to Z_mm: {e}")
                 continue
     
-    def _update_csv_files_with_zmm(self):
+    def _update_csv_files_with_mm_values(self):
         """
-        Update CSV files on disk with calculated Z_mm values if they don't already exist.
-        Note: Z_mm is typically calculated by pair_detect.py when calibration is loaded.
-        This function only updates CSVs if Z_mm is missing or needs recalculation.
-        Also checks for and updates associated JSON metadata files if they exist.
+        Update CSV files on disk with calculated mm values (Z_mm, B_px, B_mm, X_mm, Y_mm).
+        Uses the current calibration constants and tries to load optical center and pixels_per_mm
+        from preset and calibration files.
         """
         if self.magic_constant is None or self.magic_offset is None:
             return  # Calibration not complete yet
@@ -1472,6 +1463,9 @@ class VideoCalibrationApp:
         except (ValueError, tk.TclError):
             return
         
+        # Try to get pixels_per_mm from preset file, if not there, load from image calibration and save it to preset
+        pixels_per_mm = None
+        
         # Update each CSV file
         for entry in self.video_entries:
             if not entry.csv_path or not os.path.exists(entry.csv_path):
@@ -1482,42 +1476,98 @@ class VideoCalibrationApp:
             csv_basename = os.path.basename(csv_path)
             csv_name_no_ext = os.path.splitext(csv_basename)[0]
             
+            # Try to load optical center and pixels_per_mm from preset file in same directory
+            x_center = None
+            y_center = None
+            preset_path = os.path.join(csv_dir, "pair_detect_preset.json")
+            preset_needs_save = False
+            if os.path.exists(preset_path):
+                try:
+                    with open(preset_path, 'r', encoding='utf-8') as f:
+                        preset_data = json.load(f)
+                    if "center" in preset_data:
+                        center_data = preset_data["center"]
+                        if center_data.get("valid") and center_data.get("x") is not None and center_data.get("y") is not None:
+                            x_center = float(center_data["x"])
+                            y_center = float(center_data["y"])
+                    
+                    # Get pixels_per_mm from preset calibration data
+                    if "calibration" in preset_data and preset_data["calibration"]:
+                        calib_data = preset_data["calibration"]
+                        if calib_data.get("pixels_per_mm") is not None:
+                            pixels_per_mm = float(calib_data["pixels_per_mm"])
+                except Exception as e:
+                    print(f"[WARN] Could not load optical center or pixels_per_mm from preset: {e}")
+            
+            # If pixels_per_mm not in preset, try to load from image calibration and save to preset
+            if pixels_per_mm is None or pixels_per_mm <= 0:
+                try:
+                    calibrations_dir = Path("calibrations")
+                    if calibrations_dir.exists():
+                        image_cal_files = list(calibrations_dir.glob("image_calibration_*.json"))
+                        if image_cal_files:
+                            image_cal_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+                            latest_image_cal = image_cal_files[0]
+                            with open(latest_image_cal, 'r', encoding='utf-8') as f:
+                                image_cal_data = json.load(f)
+                            pixels_per_mm = extract_pixels_per_mm(image_cal_data)
+                            
+                            # Save pixels_per_mm to preset file if we found it
+                            if pixels_per_mm is not None and pixels_per_mm > 0:
+                                if preset_path and os.path.exists(preset_path):
+                                    try:
+                                        with open(preset_path, 'r', encoding='utf-8') as f:
+                                            preset_data = json.load(f)
+                                        if "calibration" not in preset_data:
+                                            preset_data["calibration"] = {}
+                                        preset_data["calibration"]["pixels_per_mm"] = float(pixels_per_mm)
+                                        with open(preset_path, 'w', encoding='utf-8') as f:
+                                            json.dump(preset_data, f, indent=2)
+                                        print(f"[INFO] Saved pixels_per_mm ({pixels_per_mm:.4f}) to preset file")
+                                    except Exception as e:
+                                        print(f"[WARN] Could not save pixels_per_mm to preset: {e}")
+                except Exception as e:
+                    print(f"[WARN] Could not load pixels_per_mm from image calibration: {e}")
+            
+            # If no preset, try to estimate from CSV data (use frame center as fallback)
+            if x_center is None or y_center is None:
+                # Estimate from first row's data - use a reasonable default
+                # We'll calculate relative to (0,0) or use a default center if needed
+                # For now, we'll skip X_mm/Y_mm if center is not available
+                pass
+            
             try:
                 # Read CSV
                 rows = []
                 fieldnames = None
                 with open(csv_path, 'r', encoding='utf-8') as f:
                     reader = csv.DictReader(f)
-                    fieldnames = reader.fieldnames
+                    fieldnames = list(reader.fieldnames) if reader.fieldnames else []
                     rows = list(reader)
                 
                 if not fieldnames or not rows:
                     continue
                 
-                # Check if Z_mm column exists and has data
-                has_z_mm_column = 'Z_mm' in fieldnames
-                has_z_mm_data = False
-                if has_z_mm_column:
-                    # Check if any row has Z_mm data (typically from pair_detect)
-                    for row in rows[:10]:  # Sample first 10 rows
-                        if row.get('Z_mm', '').strip():
-                            has_z_mm_data = True
-                            break
+                # Ensure all required columns exist
+                new_columns = []
+                if 'Z_mm' not in fieldnames:
+                    new_columns.append('Z_mm')
+                if 'B_px' not in fieldnames:
+                    new_columns.append('B_px')
+                if 'B_mm' not in fieldnames and pixels_per_mm is not None:
+                    new_columns.append('B_mm')
+                if 'X_mm' not in fieldnames and x_center is not None and y_center is not None and pixels_per_mm is not None:
+                    new_columns.append('X_mm')
+                if 'Y_mm' not in fieldnames and x_center is not None and y_center is not None and pixels_per_mm is not None:
+                    new_columns.append('Y_mm')
                 
-                # Only update if Z_mm is missing or empty
-                # (pair_detect typically calculates it when calibration is loaded)
-                if has_z_mm_data:
-                    print(f"[INFO] CSV {csv_basename} already has Z_mm values (from pair_detect), skipping update")
-                    # Still update visualization data to use existing Z_mm
-                    self._reload_csv_for_visualization(csv_path, csv_basename)
-                    continue
+                if new_columns:
+                    fieldnames = fieldnames + new_columns
                 
-                # Z_mm is missing or empty, calculate and add it
-                if not has_z_mm_column:
-                    fieldnames = list(fieldnames) + ['Z_mm']
-                
-                # Calculate Z_mm for each row
+                # Calculate values for each row
+                # Only fill empty values by default (preserve existing values)
                 updated_count = 0
+                overwritten_count = 0
                 for row in rows:
                     try:
                         # Get A and C values
@@ -1525,17 +1575,110 @@ class VideoCalibrationApp:
                         r_c = float(row.get("C_px", row.get("Radius_B_px", 0)))
                         
                         if r_a > 0 and r_c > 0 and (r_a + r_c) > 0:
-                            # Calculate Zprime
-                            zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                            # Calculate Z_mm = Zprime * magic_constant + magic_offset
-                            z_mm = zprime * self.magic_constant + self.magic_offset
-                            row['Z_mm'] = f"{z_mm:.4f}"
-                            updated_count += 1
+                            # Calculate Zprime and Z_mm
+                            # Only overwrite if empty (preserve old calibration values)
+                            existing_z_mm = row.get('Z_mm', '').strip()
+                            if not existing_z_mm:
+                                zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                                z_mm = zprime * self.magic_constant + self.magic_offset
+                                row['Z_mm'] = f"{z_mm:.4f}"
+                                updated_count += 1
+                            else:
+                                # Overwrite existing value after new calibration (user confirmed via popup)
+                                zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                                z_mm = zprime * self.magic_constant + self.magic_offset
+                                row['Z_mm'] = f"{z_mm:.4f}"
+                                overwritten_count += 1
+                            
+                            # Calculate B_px (overwrite after calibration, or fill if empty)
+                            existing_b_px = row.get('B_px', '').strip()
+                            b_px = calculate_b_px(r_a, r_c)
+                            if b_px is not None:
+                                # After calibration, always overwrite mm values
+                                row['B_px'] = f"{b_px:.4f}"
+                                
+                                # Calculate B_mm if pixels_per_mm is available
+                                if pixels_per_mm is not None:
+                                    existing_b_mm = row.get('B_mm', '').strip()
+                                    b_mm = calculate_b_mm(b_px, pixels_per_mm)
+                                    if b_mm is not None:
+                                        # After calibration, always overwrite mm values
+                                        row['B_mm'] = f"{b_mm:.4f}"
+                                        
+                                        # Calculate X_mm and Y_mm if center is available
+                                        if x_center is not None and y_center is not None:
+                                            # Get pair midpoint from CSV
+                                            try:
+                                                midpoint_x_str = row.get("Center_X", "").strip()
+                                                midpoint_y_str = row.get("Center_Y", "").strip()
+                                                
+                                                if midpoint_x_str and midpoint_y_str:
+                                                    midpoint_x = float(midpoint_x_str)
+                                                    midpoint_y = float(midpoint_y_str)
+                                                    
+                                                    # Calculate X_mm and Y_mm using midpoint and optical center
+                                                    x_mm, y_mm = calculate_xy_mm(
+                                                        midpoint_x, midpoint_y,
+                                                        x_center, y_center,
+                                                        b_mm
+                                                    )
+                                                    
+                                                    # After calibration, always overwrite mm values
+                                                    existing_x_mm = row.get('X_mm', '').strip()
+                                                    existing_y_mm = row.get('Y_mm', '').strip()
+                                                    
+                                                    if x_mm is not None:
+                                                        row['X_mm'] = f"{x_mm:.4f}"
+                                                        if existing_x_mm and existing_x_mm != row['X_mm']:
+                                                            overwritten_count += 1
+                                                    if y_mm is not None:
+                                                        row['Y_mm'] = f"{y_mm:.4f}"
+                                                        if existing_y_mm and existing_y_mm != row['Y_mm']:
+                                                            overwritten_count += 1
+                                            except (ValueError, KeyError):
+                                                pass
+                                        
+                                        # Track overwrites for B_mm
+                                        if existing_b_mm and existing_b_mm != row['B_mm']:
+                                            overwritten_count += 1
+                                # Track overwrites for B_px
+                                if existing_b_px and existing_b_px != row['B_px']:
+                                    overwritten_count += 1
+                            else:
+                                # Only set empty if column doesn't exist or is empty
+                                if 'B_px' in fieldnames and not row.get('B_px', '').strip():
+                                    row['B_px'] = ""
+                                if 'B_mm' in fieldnames and not row.get('B_mm', '').strip():
+                                    row['B_mm'] = ""
+                                if 'X_mm' in fieldnames and not row.get('X_mm', '').strip():
+                                    row['X_mm'] = ""
+                                if 'Y_mm' in fieldnames and not row.get('Y_mm', '').strip():
+                                    row['Y_mm'] = ""
+                            
+                            if not existing_z_mm:
+                                updated_count += 1
                         else:
-                            # No valid pair data, leave Z_mm empty
+                            # No valid pair data, leave all values empty
                             row['Z_mm'] = ""
-                    except (ValueError, KeyError):
+                            if 'B_px' in fieldnames:
+                                row['B_px'] = ""
+                            if 'B_mm' in fieldnames:
+                                row['B_mm'] = ""
+                            if 'X_mm' in fieldnames:
+                                row['X_mm'] = ""
+                            if 'Y_mm' in fieldnames:
+                                row['Y_mm'] = ""
+                    except (ValueError, KeyError) as e:
+                        # Leave all values empty on error
                         row['Z_mm'] = ""
+                        if 'B_px' in fieldnames:
+                            row['B_px'] = ""
+                        if 'B_mm' in fieldnames:
+                            row['B_mm'] = ""
+                        if 'X_mm' in fieldnames:
+                            row['X_mm'] = ""
+                        if 'Y_mm' in fieldnames:
+                            row['Y_mm'] = ""
                         continue
                 
                 # Write updated CSV back to file
@@ -1544,13 +1687,44 @@ class VideoCalibrationApp:
                     writer.writeheader()
                     writer.writerows(rows)
                 
-                print(f"[INFO] Updated CSV {csv_basename} with Z_mm values ({updated_count} rows)")
+                values_list = []
+                if 'Z_mm' in fieldnames:
+                    values_list.append("Z_mm")
+                if 'B_px' in fieldnames:
+                    values_list.append("B_px")
+                if 'B_mm' in fieldnames:
+                    values_list.append("B_mm")
+                if 'X_mm' in fieldnames:
+                    values_list.append("X_mm")
+                if 'Y_mm' in fieldnames:
+                    values_list.append("Y_mm")
                 
-                # Reload visualization data to use the new Z_mm values
+                update_msg = f"[INFO] Updated CSV {csv_basename} with {', '.join(values_list)}"
+                if updated_count > 0:
+                    update_msg += f" (filled {updated_count} empty values"
+                if overwritten_count > 0:
+                    if updated_count > 0:
+                        update_msg += ", "
+                    else:
+                        update_msg += " ("
+                    update_msg += f"overwritten {overwritten_count} existing values after calibration"
+                if updated_count > 0 or overwritten_count > 0:
+                    update_msg += ")"
+                print(update_msg)
+                
+                # Show popup if values were overwritten
+                if overwritten_count > 0:
+                    messagebox.showinfo(
+                        "CSV Updated",
+                        f"Updated CSV file: {csv_basename}\n\n"
+                        f"Filled {updated_count} empty values\n"
+                        f"Overwritten {overwritten_count} existing mm values with new calibration"
+                    )
+                
+                # Reload visualization data to use the new values
                 self._reload_csv_for_visualization(csv_path, csv_basename)
                 
-                # Look for associated JSON metadata file
-                # Common patterns: same name with .json, or metadata.json, or _metadata.json
+                # Look for associated JSON metadata file and update it
                 json_candidates = [
                     os.path.join(csv_dir, csv_name_no_ext + ".json"),
                     os.path.join(csv_dir, csv_name_no_ext + "_metadata.json"),
@@ -1572,6 +1746,9 @@ class VideoCalibrationApp:
                             json_data['calibration']['magic_offset'] = float(self.magic_offset)
                             json_data['calibration']['working_distance_mm'] = float(working_dist_val)
                             json_data['calibration']['formula'] = "Z_mm = Zprime * magic_constant + magic_offset"
+                            
+                            if pixels_per_mm is not None:
+                                json_data['calibration']['pixels_per_mm'] = float(pixels_per_mm)
                             
                             # Add calibration timestamp
                             json_data['calibration']['calibrated_at'] = datetime.now().isoformat()

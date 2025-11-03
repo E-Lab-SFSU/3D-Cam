@@ -27,6 +27,7 @@ NOTES
 import cv2, numpy as np, math, csv, json, os, time, sys
 from typing import Optional
 from pathlib import Path
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from lib.pair.pair_algorithms import (
@@ -51,6 +52,7 @@ from lib.capture.util_paths import ts_name, path_stem, export_paths_for
 from lib.pair.preset_io import save_preset_file, load_preset_file
 from lib.pair.ui import build_gui as ui_build_gui, set_controls_enabled as ui_set_controls_enabled, reset_defaults_ui as ui_reset_defaults_ui
 from lib.pair.pair_tracker import PairTracker
+from lib.zcalc import extract_working_distance, extract_pixels_per_mm
 
 # ============ Persistent preset file ============
 PRESET_PATH = "pair_preset.json"
@@ -1171,6 +1173,47 @@ def export_video():
                 print(f"[INFO] Zprime and B values calculated and included in CSV.")
         else:
             print(f"[INFO] Note: Z, Zprime, and B columns are empty (no calibration constants loaded).")
+        # Save CSV metadata JSON with video specs and calibration info
+        csv_json_path = os.path.splitext(out_csv)[0] + ".json"
+        try:
+            csv_metadata = {
+                "csv_file": os.path.basename(out_csv),
+                "video_path": video_path,
+                "exported_at": datetime.now().isoformat(),
+                "video_specs": {
+                    "frame_width_px": int(W),
+                    "frame_height_px": int(H),
+                    "frame_count": int(N),
+                    "fps": float(fps_guess)
+                },
+                "optical_center": {
+                    "x": int(xCenter),
+                    "y": int(yCenter),
+                    "valid": bool(center_valid)
+                },
+                "processing_params": {
+                    "threshold": int(p["threshold"]),
+                    "blur": int(p["blur"]),
+                    "min_area": int(p["minArea"]),
+                    "max_area": int(p["maxArea"]),
+                    "pair_method": p.get("pair_method", "Hungarian")
+                }
+            }
+            
+            # Add calibration data if available
+            if calibration_loaded:
+                csv_metadata["calibration"] = {
+                    "magic_constant": float(calibration_magic_constant) if calibration_magic_constant is not None else None,
+                    "magic_offset": float(calibration_magic_offset) if calibration_magic_offset is not None else None,
+                    "working_distance_mm": float(calibration_working_distance_mm) if calibration_working_distance_mm is not None else None,
+                    "pixels_per_mm": float(calibration_pixels_per_mm) if calibration_pixels_per_mm is not None else None
+                }
+            
+            with open(csv_json_path, 'w', encoding='utf-8') as f:
+                json.dump(csv_metadata, f, indent=2)
+            print(f"[INFO] CSV metadata saved → {csv_json_path}")
+        except Exception as e:
+            print(f"[WARN] Failed to save CSV metadata JSON: {e}")
     except Exception as e:
         print(f"[WARN] CSV save failed: {e}")
 
@@ -1344,18 +1387,15 @@ def load_calibration_file(file_path: str, silent: bool = False) -> bool:
             calibration_magic_offset = float(cal_data["magic_offset"])
             calibration_loaded = True
             
-            # Try to get working distance from calibration file (top level first, then data points)
-            if "working_distance_mm" in cal_data:
-                calibration_working_distance_mm = float(cal_data["working_distance_mm"])
-            elif "data_points" in cal_data and len(cal_data["data_points"]) > 0:
-                # Use working distance from first data point (assuming same for all)
-                calibration_working_distance_mm = float(cal_data["data_points"][0].get("working_distance_mm", 0))
-            
-            # Try to get pixels_per_mm from calibration file
-            if "pixels_per_mm" in cal_data:
-                calibration_pixels_per_mm = float(cal_data["pixels_per_mm"])
+            # Extract working distance and pixels_per_mm from calibration file
+            working_dist = extract_working_distance(cal_data)
+            if working_dist is not None and working_dist > 0:
+                calibration_working_distance_mm = working_dist
             else:
-                calibration_pixels_per_mm = None
+                calibration_working_distance_mm = None
+            
+            pixels_per_mm = extract_pixels_per_mm(cal_data)
+            calibration_pixels_per_mm = pixels_per_mm
             
             if calibration_working_distance_mm is None or calibration_working_distance_mm <= 0:
                 # Working distance not found
