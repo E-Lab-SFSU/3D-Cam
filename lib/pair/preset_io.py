@@ -128,7 +128,8 @@ def get_json_value(file_path: str, key_path: str, default: Any = None) -> Any:
     
     Example:
         pixels_per_mm = get_json_value("cal.json", "pixels_per_mm", 0.0)
-        magic_constant = get_json_value("cal.json", "calibration.magic_constant")
+        # Support both old and new JSON key names for backward compatibility
+        magic_constant = get_json_value("cal.json", "calibration.z_calibration_scale_factor") or get_json_value("cal.json", "calibration.magic_constant")
     """
     data = load_json(file_path)
     if data is None:

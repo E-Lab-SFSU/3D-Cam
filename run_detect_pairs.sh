@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run script for pair_detect.py on Linux/Raspberry Pi
+# Run script for detect_pairs.py on Linux/Raspberry Pi
 
 set -e
 
@@ -10,5 +10,5 @@ fi
 
 source venv/bin/activate
 export PYTHONPATH=$(pwd)
-python apps/pair_detect.py
+python apps/detect_pairs.py
 

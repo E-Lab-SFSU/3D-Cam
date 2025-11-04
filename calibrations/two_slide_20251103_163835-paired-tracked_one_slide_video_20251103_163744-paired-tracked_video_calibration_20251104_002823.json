@@ -1,27 +1,23 @@
 {
-  "magic_constant": 0.3827816393054713,
-  "magic_offset": 1.1135501320321881,
   "r_squared": 1.0,
   "data_points": [
     {
       "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/two_slide_20251103_163835/two_slide_20251103_163835-paired-tracked.csv",
       "z_mm": 4.0,
       "working_distance_mm": 111.2075641524942,
-      "avg_zprime": 7.5407218413220125,
-      "avg_b": 304.2388320348261
+      "avg_Geometric_Z_mm": 7.5407218413220125,
+      "avg_radial_distance_from_center_px": 304.2388320348261
     },
     {
       "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744/one_slide_video_20251103_163744-paired-tracked.csv",
       "z_mm": 3.0,
       "working_distance_mm": 111.2075641524942,
-      "avg_zprime": 4.928266338455087,
-      "avg_b": 223.11500116172533
+      "avg_Geometric_Z_mm": 4.928266338455087,
+      "avg_radial_distance_from_center_px": 223.11500116172533
     }
   ],
-  "formula": "Z = Zprime * magic_constant + magic_offset",
-  "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
-  "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
-  "b_formula": "B = (2*A*C)/(A+C)",
+  "formula": "Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm",
+  "description": "Z is the calibrated mm height input, Geometric_Z_mm is calculated from pair data",
   "metrics": {
     "input_dataset": {
       "total_pairs": 1709,
@@ -101,5 +97,9 @@
       ]
     }
   },
-  "working_distance_mm": 111.2075641524942
+  "working_distance_mm": 111.2075641524942,
+  "z_calibration_scale_factor": 0.3827816393054713,
+  "z_calibration_offset_mm": 1.1135501320321881,
+  "geometric_z_formula": "Geometric_Z_mm = working_distance * (outer_radius - inner_radius)/(inner_radius + outer_radius)",
+  "radial_distance_formula": "radial_distance_from_center = (2 * inner_radius * outer_radius)/(inner_radius + outer_radius)"
 }

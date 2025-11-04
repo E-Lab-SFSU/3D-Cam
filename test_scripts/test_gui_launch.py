@@ -68,29 +68,10 @@ def quick_test_gui(app_name, create_func, timeout=2):
         return False
 
 
-def test_calibrate_image():
-    """Test calibrate_image.py GUI."""
+def test_calibrate_scale_raspi():
+    """Test calibrate_scale_raspi.py GUI."""
     try:
-        from apps import calibrate_image
-        
-        def create():
-            root = tk.Tk()
-            # Check if the module sets up GUI in main
-            # We'll just create a basic window to test imports work
-            root.title("Test")
-            root.withdraw()  # Hide it
-            return root
-        
-        return quick_test_gui("calibrate_image.py", create, timeout=0.5)
-    except Exception as e:
-        print(f"[FAIL] calibrate_image.py: {e}")
-        return False
-
-
-def test_calibrate_image_raspi():
-    """Test calibrate_image_raspi.py GUI."""
-    try:
-        from apps import calibrate_image_raspi
+        from apps import calibrate_scale_raspi
         
         def create():
             root = tk.Tk()
@@ -98,16 +79,16 @@ def test_calibrate_image_raspi():
             root.withdraw()
             return root
         
-        return quick_test_gui("calibrate_image_raspi.py", create, timeout=0.5)
+        return quick_test_gui("calibrate_scale_raspi.py", create, timeout=0.5)
     except Exception as e:
-        print(f"[FAIL] calibrate_image_raspi.py: {e}")
+        print(f"[FAIL] calibrate_scale_raspi.py: {e}")
         return False
 
 
-def test_calibrate_image_windows():
-    """Test calibrate_image_windows.py GUI."""
+def test_calibrate_scale_windows():
+    """Test calibrate_scale_windows.py GUI."""
     try:
-        from apps import calibrate_image_windows
+        from apps import calibrate_scale_windows
         
         def create():
             root = tk.Tk()
@@ -115,16 +96,16 @@ def test_calibrate_image_windows():
             root.withdraw()
             return root
         
-        return quick_test_gui("calibrate_image_windows.py", create, timeout=0.5)
+        return quick_test_gui("calibrate_scale_windows.py", create, timeout=0.5)
     except Exception as e:
-        print(f"[FAIL] calibrate_image_windows.py: {e}")
+        print(f"[FAIL] calibrate_scale_windows.py: {e}")
         return False
 
 
-def test_z_histogram():
-    """Test z_histogram.py GUI."""
+def test_plot_z_histogram():
+    """Test plot_z_histogram.py GUI."""
     try:
-        from apps import z_histogram
+        from apps import plot_z_histogram
         
         def create():
             # Try to create the viewer (will need a dummy CSV or handle the error)
@@ -133,9 +114,9 @@ def test_z_histogram():
             root.withdraw()
             return root
         
-        return quick_test_gui("z_histogram.py", create, timeout=0.5)
+        return quick_test_gui("plot_z_histogram.py", create, timeout=0.5)
     except Exception as e:
-        print(f"[FAIL] z_histogram.py: {e}")
+        print(f"[FAIL] plot_z_histogram.py: {e}")
         return False
 
 
@@ -166,10 +147,9 @@ def main():
     print("=" * 60)
     
     tests = [
-        test_calibrate_image,
-        test_calibrate_image_raspi,
-        test_calibrate_image_windows,
-        test_z_histogram,
+        test_calibrate_scale_raspi,
+        test_calibrate_scale_windows,
+        test_plot_z_histogram,
         test_pair_ui,
     ]
     

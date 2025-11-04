@@ -47,9 +47,9 @@
   },
   "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744\\one_slide_video_20251103_163744.mp4",
   "calibration": {
-    "magic_constant": 3.495043867524603,
-    "magic_offset": 0.10596743780294696,
     "working_distance_mm": 21.74,
-    "pixels_per_mm": 39.85
+    "pixels_per_mm": 39.85,
+    "z_calibration_scale_factor": 3.495043867524603,
+    "z_calibration_offset_mm": 0.10596743780294696
   }
 }

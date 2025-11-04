@@ -1,5 +1,5 @@
 @echo off
-REM Run script for z_histogram.py on Windows
+REM Run script for calibrate_scale_windows.py on Windows
 
 if not exist "venv" (
     call setup_venv.bat
@@ -11,6 +11,6 @@ if not exist "venv" (
 
 call venv\Scripts\activate.bat
 set PYTHONPATH=%CD%
-python apps/z_histogram.py
+python apps/calibrate_scale_windows.py
 pause
 

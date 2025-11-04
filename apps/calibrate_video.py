@@ -6,13 +6,13 @@ Video Calibration Tool
 This tool allows you to:
   • Input multiple CSV files from pair detection
   • Specify the mm height and working distance for each CSV
-  • Calculate magic offset and magic constant
+  • Calculate z_calibration_scale_factor and z_calibration_offset_mm
   • Automatically save calibration to calibrations folder
 
 The calibration uses linear regression on:
-  - Zprime values calculated from highest quality pairs: Zprime = working_distance * (C-A)/(A+C)
+  - Geometric_Z_mm values calculated from highest quality pairs: Geometric_Z_mm = working_distance * (C-A)/(A+C)
   - Z values: the calibrated mm height input for each CSV
-  - Formula: Z = Zprime * magic_constant + magic_offset
+  - Formula: Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm
 """
 
 import csv
@@ -32,7 +32,7 @@ from lib.calibration import (
     calculate_b_mm,
     calculate_xy_mm,
 )
-from lib.calibration import CalibrationVisualizer
+from lib.visualizing.calibration_viz import CalibrationVisualizer
 from lib.gui.calibration_gui import VideoEntry, display_metrics
 from lib.util import find_latest_calibration_file
 
@@ -134,7 +134,7 @@ class VideoCalibrationApp:
                  "2. Select CSV files from pair detection\n"
                  "3. Enter mm height for each CSV\n"
                  "4. Adjust filters to see pairs in 3D view\n"
-                 "5. Click Calculate to compute magic offset and magic constant\n"
+                 "5. Click Calculate to compute z_calibration_scale_factor and z_calibration_offset_mm\n"
                  "6. Save the calibration data",
             justify="left"
         )
@@ -176,8 +176,8 @@ class VideoCalibrationApp:
         z_type_frame = ttk.Frame(z_filter_subframe)
         z_type_frame.pack(fill="x", pady=(5, 0))
         ttk.Label(z_type_frame, text="Filter by:").pack(side="left", padx=(0, 10))
-        self.z_filter_type_var = tk.StringVar(value="Zprime")
-        z_type_menu = ttk.OptionMenu(z_type_frame, self.z_filter_type_var, "Zprime", "Zprime", "Zdoubleprime", "Z_mm",
+        self.z_filter_type_var = tk.StringVar(value="Geometric_Z_mm")
+        z_type_menu = ttk.OptionMenu(z_type_frame, self.z_filter_type_var, "Geometric_Z_mm", "Geometric_Z_mm", "Zdoubleprime", "Z_mm",
                                      command=lambda x: self.on_filter_changed())
         z_type_menu.pack(side="left")
         
@@ -477,7 +477,7 @@ class VideoCalibrationApp:
                 self.canvas.configure(scrollregion=self.canvas.bbox("all"))
     
     def calculate(self):
-        """Calculate magic offset and magic constant using linear regression on Zprime values."""
+        """Calculate z_calibration_scale_factor and z_calibration_offset_mm using linear regression on Geometric_Z_mm values."""
         # Collect valid data points with metrics
         data_points = []
         all_input_metrics = []
@@ -542,22 +542,26 @@ class VideoCalibrationApp:
             )
             
             # Store results in app for compatibility
-            self.magic_constant = result["magic_constant"]
-            self.magic_offset = result["magic_offset"]
+            self.z_calibration_scale_factor = result["z_calibration_scale_factor"]
+            self.z_calibration_offset_mm = result["z_calibration_offset_mm"]
             self.calibration_data = result["calibration_data"]
+            
+            # Backward compatibility aliases
+            self.magic_constant = self.z_calibration_scale_factor
+            self.magic_offset = self.z_calibration_offset_mm
             
             # Update result label
             result_text = (
                 f"Calibration Complete!\n\n"
-                f"Magic Constant: {self.magic_constant:.6f}\n"
-                f"Magic Offset: {self.magic_offset:.6f} mm\n"
+                f"Z Calibration Scale Factor: {self.z_calibration_scale_factor:.6f}\n"
+                f"Z Calibration Offset: {self.z_calibration_offset_mm:.6f} mm\n"
                 f"R² (quality): {result['r_squared']:.4f}\n"
-                f"Avg B: {result['avg_b']:.4f} px\n\n"
-                f"Formula: Z = Zprime * {self.magic_constant:.6f} + {self.magic_offset:.6f}\n"
+                f"Avg Radial Distance: {result['avg_b']:.4f} px\n\n"
+                f"Formula: Z = Geometric_Z_mm * {self.z_calibration_scale_factor:.6f} + {self.z_calibration_offset_mm:.6f}\n"
                 f"where:\n"
                 f"  Z = calibrated mm height (input)\n"
-                f"  Zprime = working_distance * (C-A)/(A+C)\n"
-                f"  B = (2*A*C)/(A+C)\n\n"
+                f"  Geometric_Z_mm = working_distance * (C-A)/(A+C)\n"
+                f"  radial_distance_from_center = (2*A*C)/(A+C)\n\n"
                 f"Input Dataset: {result['total_input_count']} pairs | "
                 f"Chosen Dataset: {result['total_chosen_count']} pairs ({100*result['total_chosen_count']/max(1,result['total_input_count']):.1f}%)"
                 f"{result['z_filter_summary']}"
@@ -570,9 +574,9 @@ class VideoCalibrationApp:
                           all_z_filter_stats if all_z_filter_stats else None)
             
             print(f"[INFO] Calibration calculated:")
-            print(f"  Formula: Z = Zprime * magic_constant + magic_offset")
-            print(f"  Magic Constant: {self.magic_constant:.6f}")
-            print(f"  Magic Offset: {self.magic_offset:.6f} mm")
+            print(f"  Formula: Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm")
+            print(f"  Z Calibration Scale Factor: {self.z_calibration_scale_factor:.6f}")
+            print(f"  Z Calibration Offset: {self.z_calibration_offset_mm:.6f} mm")
             print(f"  R²: {result['r_squared']:.4f}")
             print(f"  Input Dataset: {result['total_input_count']} pairs")
             print(f"  Chosen Dataset: {result['total_chosen_count']} pairs ({100*result['total_chosen_count']/max(1,result['total_input_count']):.1f}%)")
@@ -623,7 +627,7 @@ class VideoCalibrationApp:
         Convert all visualization data to Z_mm using calibration constants.
         This is called after calibration is complete to update the 3D plot with calibrated Z values.
         """
-        if self.calibrator.magic_constant is None or self.calibrator.magic_offset is None:
+        if self.calibrator.z_calibration_scale_factor is None or self.calibrator.z_calibration_offset_mm is None:
             return  # Calibration not complete yet
         
         # Get working distance
@@ -646,7 +650,7 @@ class VideoCalibrationApp:
             if csv_name not in self.viz_data:
                 continue
             
-            # Load CSV to get A and C values for calculating Zprime
+            # Load CSV to get A and C values for calculating Geometric_Z_mm
             try:
                 track_data_map = {}  # {track_id: {frame: (r_a, r_c)}}
                 with open(csv_path, 'r', encoding='utf-8') as f:
@@ -678,10 +682,10 @@ class VideoCalibrationApp:
                         if frame in frame_map:
                             r_a, r_c = frame_map[frame]
                             if r_a + r_c > 0:
-                                # Calculate Zprime = working_distance * (C-A)/(A+C)
-                                zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                                # Convert to Z_mm = Zprime * magic_constant + magic_offset
-                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
+                                # Calculate Geometric_Z_mm = working_distance * (C-A)/(A+C)
+                                geometric_z_mm = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                                # Convert to Z_mm = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm
+                                z_mm = geometric_z_mm * self.calibrator.z_calibration_scale_factor + self.calibrator.z_calibration_offset_mm
                                 updated_points.append((frame, x, y, z_mm))
                             else:
                                 updated_points.append((frame, x, y, z_old))
@@ -704,7 +708,7 @@ class VideoCalibrationApp:
         Uses the current calibration constants and tries to load optical center and pixels_per_mm
         from preset and calibration files.
         """
-        if self.calibrator.magic_constant is None or self.calibrator.magic_offset is None:
+        if self.calibrator.z_calibration_scale_factor is None or self.calibrator.z_calibration_offset_mm is None:
             return  # Calibration not complete yet
         
         # Get working distance
@@ -831,14 +835,14 @@ class VideoCalibrationApp:
                             # Only overwrite if empty (preserve old calibration values)
                             existing_z_mm = row.get('Z_mm', '').strip()
                             if not existing_z_mm:
-                                zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
+                                geometric_z_mm = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                                z_mm = geometric_z_mm * self.calibrator.z_calibration_scale_factor + self.calibrator.z_calibration_offset_mm
                                 row['Z_mm'] = f"{z_mm:.4f}"
                                 updated_count += 1
                             else:
                                 # Overwrite existing value after new calibration (user confirmed via popup)
-                                zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
+                                geometric_z_mm = working_dist_val * (r_c - r_a) / (r_a + r_c)
+                                z_mm = geometric_z_mm * self.calibrator.z_calibration_scale_factor + self.calibrator.z_calibration_offset_mm
                                 row['Z_mm'] = f"{z_mm:.4f}"
                                 overwritten_count += 1
                             
@@ -994,10 +998,14 @@ class VideoCalibrationApp:
                             if 'calibration' not in json_data:
                                 json_data['calibration'] = {}
                             
-                            json_data['calibration']['magic_constant'] = float(self.calibrator.magic_constant)
-                            json_data['calibration']['magic_offset'] = float(self.calibrator.magic_offset)
+                            json_data['calibration']['z_calibration_scale_factor'] = float(self.calibrator.z_calibration_scale_factor)
+                            json_data['calibration']['z_calibration_offset_mm'] = float(self.calibrator.z_calibration_offset_mm)
                             json_data['calibration']['working_distance_mm'] = float(working_dist_val)
-                            json_data['calibration']['formula'] = "Z_mm = Zprime * magic_constant + magic_offset"
+                            json_data['calibration']['formula'] = "Z_mm = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm"
+                            
+                            # Backward compatibility: also include old keys
+                            json_data['calibration']['magic_constant'] = float(self.calibrator.z_calibration_scale_factor)
+                            json_data['calibration']['magic_offset'] = float(self.calibrator.z_calibration_offset_mm)
                             
                             if pixels_per_mm is not None:
                                 json_data['calibration']['pixels_per_mm'] = float(pixels_per_mm)

@@ -322,13 +322,13 @@ class CalibrationVisualizer:
         """Set calibration pairs for a CSV file."""
         self.viz_calibration_pairs[csv_name] = calibration_frames
     
-    def convert_visualization_to_zmm(self, magic_constant: float, magic_offset: float, working_distance: float):
+    def convert_visualization_to_zmm(self, z_calibration_scale_factor: float, z_calibration_offset_mm: float, working_distance: float):
         """
         Convert all visualization data to Z_mm using calibration constants.
         
         Args:
-            magic_constant: Calibration magic constant
-            magic_offset: Calibration magic offset
+            z_calibration_scale_factor: Z calibration scale factor
+            z_calibration_offset_mm: Z calibration offset in mm
             working_distance: Working distance in mm
         """
         # Find CSV paths for all loaded visualization data

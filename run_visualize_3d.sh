@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run script for visualize3d.py on Linux/Raspberry Pi
+# Run script for visualize_3d.py on Linux/Raspberry Pi
 # Automatically sets up venv if needed and runs the program
 
 set -e
@@ -14,5 +14,5 @@ source venv/bin/activate
 
 echo "Running visualize3d.py..."
 export PYTHONPATH=$(pwd)
-python apps/visualize3d.py
+python apps/visualize_3d.py
 

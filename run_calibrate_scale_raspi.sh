@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run script for calibrate_image_raspi.py on Linux/Raspberry Pi
+# Run script for calibrate_scale_raspi.py on Linux/Raspberry Pi
 
 set -e
 
@@ -9,5 +9,5 @@ fi
 
 source venv/bin/activate
 export PYTHONPATH=$(pwd)
-python apps/calibrate_image_raspi.py
+python apps/calibrate_scale_raspi.py
 

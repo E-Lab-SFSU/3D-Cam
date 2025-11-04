@@ -14,8 +14,8 @@ class VideoCalibrator:
     """Core calibration calculation logic."""
     
     def __init__(self):
-        self.magic_constant: Optional[float] = None
-        self.magic_offset: Optional[float] = None
+        self.z_calibration_scale_factor: Optional[float] = None
+        self.z_calibration_offset_mm: Optional[float] = None
         self.calibration_data: Optional[Dict] = None
     
     def calculate_calibration(
@@ -26,18 +26,18 @@ class VideoCalibrator:
         all_z_filter_stats: Optional[List[Tuple[str, Dict]]] = None
     ) -> Dict:
         """
-        Calculate magic offset and magic constant using linear regression.
+        Calculate z_calibration_scale_factor and z_calibration_offset_mm using linear regression.
         
         Args:
-            data_points: List of (csv_path, mm_height, working_distance, avg_zprime, avg_b)
+            data_points: List of (csv_path, mm_height, working_distance, avg_geometric_z_mm, avg_b)
             all_input_metrics: List of (csv_name, metrics_dict) for input dataset
             all_chosen_metrics: List of (csv_name, metrics_dict) for chosen dataset
             all_z_filter_stats: Optional list of (csv_name, z_filter_stats_dict)
         
         Returns:
             Dictionary with calibration results including:
-            - magic_constant
-            - magic_offset
+            - z_calibration_scale_factor
+            - z_calibration_offset_mm
             - r_squared
             - calibration_data (full structure)
         """
@@ -47,17 +47,17 @@ class VideoCalibrator:
             )
         
         # Extract values
-        zprimes = np.array([z for _, _, _, z, _ in data_points])
+        geometric_z_values = np.array([z for _, _, _, z, _ in data_points])
         b_values = np.array([b for _, _, _, _, b in data_points])
         z_values = np.array([h for _, h, _, _, _ in data_points])  # Z = calibrated mm height input
         
-        # Linear regression: Z = Zprime * magic_constant + magic_offset
-        coeffs = np.polyfit(zprimes, z_values, 1)
-        self.magic_constant = coeffs[0]  # slope
-        self.magic_offset = coeffs[1]    # intercept
+        # Linear regression: Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm
+        coeffs = np.polyfit(geometric_z_values, z_values, 1)
+        self.z_calibration_scale_factor = coeffs[0]  # slope
+        self.z_calibration_offset_mm = coeffs[1]    # intercept
         
         # Calculate R² for quality assessment
-        predicted_z = self.magic_constant * zprimes + self.magic_offset
+        predicted_z = self.z_calibration_scale_factor * geometric_z_values + self.z_calibration_offset_mm
         ss_res = np.sum((z_values - predicted_z) ** 2)
         ss_tot = np.sum((z_values - np.mean(z_values)) ** 2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
@@ -74,23 +74,23 @@ class VideoCalibrator:
         input_video_dict = {name: m for name, m in all_input_metrics}
         
         self.calibration_data = {
-            "magic_constant": float(self.magic_constant),
-            "magic_offset": float(self.magic_offset),
+            "z_calibration_scale_factor": float(self.z_calibration_scale_factor),
+            "z_calibration_offset_mm": float(self.z_calibration_offset_mm),
             "r_squared": float(r_squared),
             "data_points": [
                 {
                     "csv_path": csv_path,
                     "z_mm": float(h),  # Z = calibrated input value
                     "working_distance_mm": float(wd),
-                    "avg_zprime": float(z),
-                    "avg_b": float(b)
+                    "avg_Geometric_Z_mm": float(z),
+                    "avg_radial_distance_from_center_px": float(b)
                 }
                 for csv_path, h, wd, z, b in data_points
             ],
-            "formula": "Z = Zprime * magic_constant + magic_offset",
-            "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
-            "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
-            "b_formula": "B = (2*A*C)/(A+C)",
+            "formula": "Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm",
+            "description": "Z is the calibrated mm height input, Geometric_Z_mm is calculated from pair data",
+            "geometric_z_formula": "Geometric_Z_mm = working_distance * (C-A)/(A+C)",
+            "radial_distance_formula": "radial_distance_from_center = (2*A*C)/(A+C)",
             "metrics": {
                 "input_dataset": {
                     "total_pairs": total_input_count,
@@ -98,10 +98,10 @@ class VideoCalibrator:
                         {
                             "video": name,
                             "count": m["count"],
-                            "zprime_mean": m["zprime"]["mean"],
-                            "zprime_std": m["zprime"]["std"],
-                            "zprime_min": m["zprime"]["min"],
-                            "zprime_max": m["zprime"]["max"],
+                            "geometric_z_mean": m.get("geometric_z", {}).get("mean", m.get("zprime", {}).get("mean", 0)),
+                            "geometric_z_std": m.get("geometric_z", {}).get("std", m.get("zprime", {}).get("std", 0)),
+                            "geometric_z_min": m.get("geometric_z", {}).get("min", m.get("zprime", {}).get("min", 0)),
+                            "geometric_z_max": m.get("geometric_z", {}).get("max", m.get("zprime", {}).get("max", 0)),
                             "b_mean": m["b"]["mean"],
                             "b_std": m["b"]["std"],
                             "b_min": m["b"]["min"],
@@ -122,10 +122,10 @@ class VideoCalibrator:
                             "video": name,
                             "count": m["count"],
                             "percent_of_input": float(100 * m["count"] / max(1, input_video_dict.get(name, {}).get("count", 0))) if name in input_video_dict else 0.0,
-                            "zprime_mean": m["zprime"]["mean"],
-                            "zprime_std": m["zprime"]["std"],
-                            "zprime_min": m["zprime"]["min"],
-                            "zprime_max": m["zprime"]["max"],
+                            "geometric_z_mean": m.get("geometric_z", {}).get("mean", m.get("zprime", {}).get("mean", 0)),
+                            "geometric_z_std": m.get("geometric_z", {}).get("std", m.get("zprime", {}).get("std", 0)),
+                            "geometric_z_min": m.get("geometric_z", {}).get("min", m.get("zprime", {}).get("min", 0)),
+                            "geometric_z_max": m.get("geometric_z", {}).get("max", m.get("zprime", {}).get("max", 0)),
                             "b_mean": m["b"]["mean"],
                             "b_std": m["b"]["std"],
                             "b_min": m["b"]["min"],
@@ -145,15 +145,22 @@ class VideoCalibrator:
         if avg_working_distance_mm is not None:
             self.calibration_data["working_distance_mm"] = float(avg_working_distance_mm)
         
+        # Backward compatibility: add old keys for compatibility with existing code
+        self.calibration_data["magic_constant"] = float(self.z_calibration_scale_factor)
+        self.calibration_data["magic_offset"] = float(self.z_calibration_offset_mm)
+        
         return {
-            "magic_constant": self.magic_constant,
-            "magic_offset": self.magic_offset,
+            "z_calibration_scale_factor": self.z_calibration_scale_factor,
+            "z_calibration_offset_mm": self.z_calibration_offset_mm,
             "r_squared": r_squared,
             "avg_b": float(np.mean(b_values)) if len(b_values) > 0 else 0.0,
             "total_input_count": total_input_count,
             "total_chosen_count": total_chosen_count,
             "calibration_data": self.calibration_data,
-            "z_filter_summary": self._build_z_filter_summary(all_z_filter_stats) if all_z_filter_stats else ""
+            "z_filter_summary": self._build_z_filter_summary(all_z_filter_stats) if all_z_filter_stats else "",
+            # Backward compatibility aliases
+            "magic_constant": self.z_calibration_scale_factor,
+            "magic_offset": self.z_calibration_offset_mm
         }
     
     def _build_z_filter_summary(self, all_z_filter_stats: List[Tuple[str, Dict]]) -> str:

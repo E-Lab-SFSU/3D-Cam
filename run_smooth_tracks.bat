@@ -1,5 +1,5 @@
 @echo off
-REM Run script for calibrate_image_windows.py on Windows
+REM Run script for smooth_tracks.py on Windows
 
 if not exist "venv" (
     call setup_venv.bat
@@ -11,6 +11,6 @@ if not exist "venv" (
 
 call venv\Scripts\activate.bat
 set PYTHONPATH=%CD%
-python apps/calibrate_image_windows.py
+python apps/smooth_tracks.py
 pause
 

@@ -21,12 +21,12 @@
     "pair_method": "Hungarian"
   },
   "calibration": {
-    "magic_constant": 0.5557391593819938,
-    "magic_offset": -0.06336336047988818,
     "working_distance_mm": 111.2075641524942,
     "pixels_per_mm": 39.85,
     "formula": "Z_mm = Zprime * magic_constant + magic_offset",
     "calibrated_at": "2025-11-03T19:56:45.121773",
-    "r_squared": 1.0
+    "r_squared": 1.0,
+    "z_calibration_scale_factor": 0.5557391593819938,
+    "z_calibration_offset_mm": -0.06336336047988818
   }
 }

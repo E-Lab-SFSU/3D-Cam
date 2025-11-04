@@ -1,6 +1,6 @@
 """XYZ-calculation utilities for calibration data extraction and coordinate calculations."""
 
-from lib.xyzcalc.calibration_utils import (
+from lib.calibration.utils import (
     extract_working_distance,
     extract_pixels_per_mm,
     calculate_b_px,

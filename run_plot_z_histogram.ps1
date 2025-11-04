@@ -1,4 +1,4 @@
-# Run script for calibrate_image_windows.py on Windows (PowerShell)
+# Run script for plot_z_histogram.py on Windows (PowerShell)
 
 if (-not (Test-Path "venv")) {
     & ".\setup_venv.ps1"
@@ -7,6 +7,6 @@ if (-not (Test-Path "venv")) {
 
 & "venv\Scripts\Activate.ps1"
 $env:PYTHONPATH = $PWD
-python apps/calibrate_image_windows.py
+python apps/plot_z_histogram.py
 Read-Host "Press Enter to exit"
 

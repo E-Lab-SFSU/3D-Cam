@@ -48,11 +48,11 @@ def test_capture_windows():
         return False
 
 
-def test_calibrate_image():
-    """Test calibrate_image.py can be imported."""
-    print("\nTesting calibrate_image.py...")
+def test_calibrate_scale_raspi():
+    """Test calibrate_scale_raspi.py can be imported."""
+    print("\nTesting calibrate_scale_raspi.py...")
     try:
-        from apps import calibrate_image
+        from apps import calibrate_scale_raspi
         print("[OK] Module imported")
         return True
     except Exception as e:
@@ -60,23 +60,11 @@ def test_calibrate_image():
         return False
 
 
-def test_calibrate_image_raspi():
-    """Test calibrate_image_raspi.py can be imported."""
-    print("\nTesting calibrate_image_raspi.py...")
+def test_calibrate_scale_windows():
+    """Test calibrate_scale_windows.py can be imported."""
+    print("\nTesting calibrate_scale_windows.py...")
     try:
-        from apps import calibrate_image_raspi
-        print("[OK] Module imported")
-        return True
-    except Exception as e:
-        print(f"[FAIL] Error: {e}")
-        return False
-
-
-def test_calibrate_image_windows():
-    """Test calibrate_image_windows.py can be imported."""
-    print("\nTesting calibrate_image_windows.py...")
-    try:
-        from apps import calibrate_image_windows
+        from apps import calibrate_scale_windows
         print("[OK] Module imported")
         return True
     except Exception as e:
@@ -101,15 +89,15 @@ def test_calibrate_video():
         return False
 
 
-def test_z_histogram():
-    """Test z_histogram.py can be imported."""
-    print("\nTesting z_histogram.py...")
+def test_plot_z_histogram():
+    """Test plot_z_histogram.py can be imported."""
+    print("\nTesting plot_z_histogram.py...")
     try:
-        from apps import z_histogram
+        from apps import plot_z_histogram
         print("[OK] Module imported")
         
         # Check if ZHistogramViewer class exists
-        assert hasattr(z_histogram, 'ZHistogramViewer'), "ZHistogramViewer class not found"
+        assert hasattr(plot_z_histogram, 'ZHistogramViewer'), "ZHistogramViewer class not found"
         print("[OK] ZHistogramViewer class found")
         
         return True
@@ -161,11 +149,10 @@ def main():
     tests = [
         test_capture_raspi,
         test_capture_windows,
-        test_calibrate_image,
-        test_calibrate_image_raspi,
-        test_calibrate_image_windows,
+        test_calibrate_scale_raspi,
+        test_calibrate_scale_windows,
         test_calibrate_video,
-        test_z_histogram,
+        test_plot_z_histogram,
         test_pair_ui,
         test_base_visualizer,
     ]

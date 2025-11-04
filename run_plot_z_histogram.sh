@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run script for track_smoother.py on Linux/Raspberry Pi
+# Run script for plot_z_histogram.py on Linux/Raspberry Pi
 
 set -e
 
@@ -9,5 +9,5 @@ fi
 
 source venv/bin/activate
 export PYTHONPATH=$(pwd)
-python apps/track_smoother.py
+python apps/plot_z_histogram.py
 

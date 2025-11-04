@@ -15,7 +15,7 @@ This app lets you:
        - <prefix>_tracked_export.mp4  (grayscale + overlays)
        - <prefix>_binary_overlay_export.mp4  (binary + overlays)
        - <prefix>_pairs.csv  (UTF-8 metadata; no text burned into video)
-  • Save/restore default settings + optical center + last video path to pair_detect_default.json
+  • Save/restore default settings + optical center + last video path to detect_pairs_default.json
 
 NOTES
   - "Tracked" OpenCV window: click once to update the optical center (yellow crosshair)
@@ -57,7 +57,7 @@ from lib.calibration import extract_working_distance, extract_pixels_per_mm
 # ============ Persistent default settings file ============
 # This file stores default settings that load when pair_detect.py starts or when a new video is opened.
 # For reprocessing videos, use the pair_detect_preset.json files in video folders (saved during export).
-PRESET_PATH = "pair_detect_default.json"
+PRESET_PATH = "detect_pairs_default.json"
 
 # ============ Default numeric parameters (sliders) ============
 DEFAULT_PARAMS = {
@@ -136,8 +136,8 @@ center_valid = False                   # True once user clicked in preview
 showing_center_setup = False           # True when showing raw first frame for center setup
 
 # ============ Calibration data for Z/B calculation ============
-calibration_magic_constant: Optional[float] = None
-calibration_magic_offset: Optional[float] = None
+calibration_z_calibration_scale_factor: Optional[float] = None
+calibration_z_calibration_offset_mm: Optional[float] = None
 calibration_working_distance_mm: Optional[float] = None
 calibration_pixels_per_mm: Optional[float] = None  # Pixels per mm for B to mm conversion
 calibration_loaded = False
@@ -178,12 +178,12 @@ def angdiff(a, b):    return abs(((a - b + 180) % 360) - 180)
 # Preset I/O (JSON)
 # --------------------------------------------------------------------------------------
 def save_preset():
-    global calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
+    global calibration_loaded, calibration_z_calibration_scale_factor, calibration_z_calibration_offset_mm, calibration_working_distance_mm, calibration_pixels_per_mm
     calibration_data = None
     if calibration_loaded:
         calibration_data = {
-            "magic_constant": calibration_magic_constant,
-            "magic_offset": calibration_magic_offset,
+            "z_calibration_scale_factor": calibration_z_calibration_scale_factor,
+            "z_calibration_offset_mm": calibration_z_calibration_offset_mm,
             "working_distance_mm": calibration_working_distance_mm,
             "pixels_per_mm": calibration_pixels_per_mm,
         }
@@ -219,7 +219,7 @@ def load_preset():
 def load_process_from_folder():
     """Load process configuration from a JSON preset file."""
     global params, overlays, xCenter, yCenter, center_valid, video_path, overlay_targets, last_video_path
-    global calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
+    global calibration_loaded, calibration_z_calibration_scale_factor, calibration_z_calibration_offset_mm, calibration_working_distance_mm, calibration_pixels_per_mm
     
     # Ask user to select a JSON preset file
     preset_path = filedialog.askopenfilename(
@@ -245,8 +245,9 @@ def load_process_from_folder():
     
     # Apply calibration data if present
     if calib_data:
-        calibration_magic_constant = calib_data.get("magic_constant")
-        calibration_magic_offset = calib_data.get("magic_offset")
+        # Support both old and new JSON key names for backward compatibility
+        calibration_z_calibration_scale_factor = calib_data.get("z_calibration_scale_factor") or calib_data.get("magic_constant")
+        calibration_z_calibration_offset_mm = calib_data.get("z_calibration_offset_mm") or calib_data.get("magic_offset")
         calibration_working_distance_mm = calib_data.get("working_distance_mm")
         calibration_pixels_per_mm = calib_data.get("pixels_per_mm")
         calibration_loaded = True
@@ -864,7 +865,7 @@ def export_video():
     ov = dict(overlays)
 
     # Default center if not set
-    global center_valid, xCenter, yCenter, calibration_loaded, calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm
+    global center_valid, xCenter, yCenter, calibration_loaded, calibration_z_calibration_scale_factor, calibration_z_calibration_offset_mm, calibration_working_distance_mm, calibration_pixels_per_mm
     if not center_valid or xCenter is None or yCenter is None:
         xCenter, yCenter, center_valid = W // 2, H // 2, True
         print(f"[INFO] Default center for export -> ({xCenter},{yCenter})")
@@ -956,15 +957,15 @@ def export_video():
             if overlay_targets["enable_tracked"]:
                 draw_z_values_ext(color, pairs, 
                                 calibration_working_distance_mm,
-                                calibration_magic_constant,
-                                calibration_magic_offset,
+                                calibration_z_calibration_scale_factor,
+                                calibration_z_calibration_offset_mm,
                                 overlays.get("label_mode", "Red/Blue"),
                                 video_path)
             if overlay_targets["enable_binary"]:
                 draw_z_values_ext(bin3, pairs,
                                 calibration_working_distance_mm,
-                                calibration_magic_constant,
-                                calibration_magic_offset,
+                                calibration_z_calibration_scale_factor,
+                                calibration_z_calibration_offset_mm,
                                 overlays.get("label_mode", "Red/Blue"),
                                 video_path)
 
@@ -1064,10 +1065,10 @@ def export_video():
                     # Calculate B = (2*A*C)/(A+C)
                     b_val = (2 * r_a * r_c) / (r_a + r_c)
                     
-                    # Calculate Z = Zprime * magic_constant + magic_offset
-                    # Note: Z requires calibration JSON with magic_constant/offset
-                    if calibration_magic_constant is not None and calibration_magic_offset is not None:
-                        z_val = zprime_val * calibration_magic_constant + calibration_magic_offset
+                    # Calculate Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm
+                    # Note: Z requires calibration JSON with z_calibration_scale_factor/z_calibration_offset_mm
+                    if calibration_z_calibration_scale_factor is not None and calibration_z_calibration_offset_mm is not None:
+                        z_val = zprime_val * calibration_z_calibration_scale_factor + calibration_z_calibration_offset_mm
             
             # Build row - always include Zprime, Zdoubleprime, Z, B, X, Y columns (empty if constants not present)
             zprime_mm_val = ""
@@ -1085,8 +1086,8 @@ def export_video():
             if zprime_val is not None:
                 zprime_mm_val = round(zprime_val, 4)
             
-            if calibration_loaded and calibration_magic_constant is not None and calibration_magic_offset is not None:
-                # Z can only be calculated if magic_constant and magic_offset are available
+            if calibration_loaded and calibration_z_calibration_scale_factor is not None and calibration_z_calibration_offset_mm is not None:
+                # Z can only be calculated if z_calibration_scale_factor and z_calibration_offset_mm are available
                 if z_val is not None:
                     z_mm_val = round(z_val, 4)
             
@@ -1166,10 +1167,10 @@ def export_video():
         
         print(f"[INFO] Export complete. CSV → {out_csv}")
         if calibration_loaded:
-            print(f"[INFO] Calibration used: magic_constant={calibration_magic_constant:.6f}, "
-                  f"magic_offset={calibration_magic_offset:.6f} mm, "
+            print(f"[INFO] Calibration used: magic_constant={calibration_z_calibration_scale_factor:.6f}, "
+                  f"magic_offset={calibration_z_calibration_offset_mm:.6f} mm, "
                   f"working_distance={calibration_working_distance_mm:.2f} mm")
-            if calibration_magic_constant is not None and calibration_magic_offset is not None:
+            if calibration_z_calibration_scale_factor is not None and calibration_z_calibration_offset_mm is not None:
                 print(f"[INFO] Z, Zprime, and B values calculated and included in CSV.")
             else:
                 print(f"[INFO] Zprime and B values calculated and included in CSV.")
@@ -1205,8 +1206,8 @@ def export_video():
             # Add calibration data if available
             if calibration_loaded:
                 csv_metadata["calibration"] = {
-                    "magic_constant": float(calibration_magic_constant) if calibration_magic_constant is not None else None,
-                    "magic_offset": float(calibration_magic_offset) if calibration_magic_offset is not None else None,
+                    "magic_constant": float(calibration_z_calibration_scale_factor) if calibration_z_calibration_scale_factor is not None else None,
+                    "magic_offset": float(calibration_z_calibration_offset_mm) if calibration_z_calibration_offset_mm is not None else None,
                     "working_distance_mm": float(calibration_working_distance_mm) if calibration_working_distance_mm is not None else None,
                     "pixels_per_mm": float(calibration_pixels_per_mm) if calibration_pixels_per_mm is not None else None
                 }
@@ -1230,8 +1231,8 @@ def export_video():
     calibration_data = None
     if calibration_loaded:
         calibration_data = {
-            "magic_constant": calibration_magic_constant,
-            "magic_offset": calibration_magic_offset,
+            "magic_constant": calibration_z_calibration_scale_factor,
+            "magic_offset": calibration_z_calibration_offset_mm,
             "working_distance_mm": calibration_working_distance_mm,
             "pixels_per_mm": calibration_pixels_per_mm,
         }
@@ -1360,7 +1361,7 @@ def load_calibration_file(file_path: str, silent: bool = False) -> bool:
     Returns:
         True if calibration was successfully loaded, False otherwise
     """
-    global calibration_magic_constant, calibration_magic_offset, calibration_working_distance_mm, calibration_pixels_per_mm, calibration_loaded
+    global calibration_z_calibration_scale_factor, calibration_z_calibration_offset_mm, calibration_working_distance_mm, calibration_pixels_per_mm, calibration_loaded
     
     if not file_path or not os.path.exists(file_path):
         if not silent:
@@ -1372,8 +1373,8 @@ def load_calibration_file(file_path: str, silent: bool = False) -> bool:
             cal_data = json.load(f)
         
         if "magic_constant" in cal_data and "magic_offset" in cal_data:
-            calibration_magic_constant = float(cal_data["magic_constant"])
-            calibration_magic_offset = float(cal_data["magic_offset"])
+            calibration_z_calibration_scale_factor = float(cal_data["magic_constant"])
+            calibration_z_calibration_offset_mm = float(cal_data["magic_offset"])
             calibration_loaded = True
             
             # Extract working distance and pixels_per_mm from calibration file
@@ -1390,23 +1391,23 @@ def load_calibration_file(file_path: str, silent: bool = False) -> bool:
                 # Working distance not found
                 if not silent:
                     print("[WARN] Working distance not found in calibration file.")
-                    print(f"[INFO] Loaded calibration: magic_constant={calibration_magic_constant:.6f}, magic_offset={calibration_magic_offset:.6f}")
+                    print(f"[INFO] Loaded calibration: magic_constant={calibration_z_calibration_scale_factor:.6f}, magic_offset={calibration_z_calibration_offset_mm:.6f}")
                     messagebox.showinfo(
                         "Calibration Loaded",
-                        f"Magic Constant: {calibration_magic_constant:.6f}\n"
-                        f"Magic Offset: {calibration_magic_offset:.6f} mm\n\n"
+                        f"Magic Constant: {calibration_z_calibration_scale_factor:.6f}\n"
+                        f"Magic Offset: {calibration_z_calibration_offset_mm:.6f} mm\n\n"
                         "Note: Working distance not found. Please ensure it's set for Z/B calculation."
                     )
                 return True
             
-            print(f"[INFO] Calibration loaded: magic_constant={calibration_magic_constant:.6f}, "
-                  f"magic_offset={calibration_magic_offset:.6f} mm, "
+            print(f"[INFO] Calibration loaded: magic_constant={calibration_z_calibration_scale_factor:.6f}, "
+                  f"magic_offset={calibration_z_calibration_offset_mm:.6f} mm, "
                   f"working_distance={calibration_working_distance_mm:.2f} mm")
             if not silent:
                 messagebox.showinfo(
                     "Calibration Loaded",
-                    f"Magic Constant: {calibration_magic_constant:.6f}\n"
-                    f"Magic Offset: {calibration_magic_offset:.6f} mm\n"
+                    f"Magic Constant: {calibration_z_calibration_scale_factor:.6f}\n"
+                    f"Magic Offset: {calibration_z_calibration_offset_mm:.6f} mm\n"
                     f"Working Distance: {calibration_working_distance_mm:.2f} mm\n\n"
                     "Z and B will be calculated for exported pairs."
                 )
@@ -1801,15 +1802,15 @@ def preview_loop():
             if overlay_targets["enable_tracked"]:
                 draw_z_values_ext(color, pairs, 
                                 calibration_working_distance_mm,
-                                calibration_magic_constant,
-                                calibration_magic_offset,
+                                calibration_z_calibration_scale_factor,
+                                calibration_z_calibration_offset_mm,
                                 overlays.get("label_mode", "Red/Blue"),
                                 video_path)
             if overlay_targets["enable_binary"]:
                 draw_z_values_ext(bin3, pairs,
                                 calibration_working_distance_mm,
-                                calibration_magic_constant,
-                                calibration_magic_offset,
+                                calibration_z_calibration_scale_factor,
+                                calibration_z_calibration_offset_mm,
                                 overlays.get("label_mode", "Red/Blue"),
                                 video_path)
 

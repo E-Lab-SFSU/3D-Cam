@@ -1,5 +1,5 @@
 @echo off
-REM Run script for visualize3d.py on Windows
+REM Run script for visualize_3d.py on Windows
 REM Automatically sets up venv if needed and runs the program
 
 if not exist "venv" (
@@ -15,9 +15,9 @@ if not exist "venv" (
 echo Activating virtual environment...
 call venv\Scripts\activate.bat
 
-echo Running visualize3d.py...
+echo Running visualize_3d.py...
 set PYTHONPATH=%CD%
-python apps/visualize3d.py
+python apps/visualize_3d.py
 
 pause
 

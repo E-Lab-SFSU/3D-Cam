@@ -1,5 +1,5 @@
 @echo off
-REM Run script for pair_detect.py on Windows
+REM Run script for detect_pairs.py on Windows
 
 if not exist "venv" (
     echo Virtual environment not found. Running setup...
@@ -13,6 +13,6 @@ if not exist "venv" (
 
 call venv\Scripts\activate.bat
 set PYTHONPATH=%CD%
-python apps/pair_detect.py
+python apps/detect_pairs.py
 pause
 

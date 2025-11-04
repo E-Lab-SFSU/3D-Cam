@@ -21,9 +21,9 @@
     "pair_method": "Hungarian"
   },
   "calibration": {
-    "magic_constant": 0.5557391593819938,
-    "magic_offset": -0.06336336047988818,
     "working_distance_mm": 111.2075641524942,
-    "pixels_per_mm": null
+    "pixels_per_mm": null,
+    "z_calibration_scale_factor": 0.5557391593819938,
+    "z_calibration_offset_mm": -0.06336336047988818
   }
 }
