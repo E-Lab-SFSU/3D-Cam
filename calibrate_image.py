@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import json
 import os
+import sys
 from datetime import datetime
 from typing import Optional, Tuple
 
@@ -39,6 +40,10 @@ DEFAULT_PIXEL_SIZE_MICRONS = 3.0  # 3.00E-06 m = 3.0 microns
 DEFAULT_SENSOR_X_MM = 5.76  # 5.76E-03 m = 5.76 mm
 DEFAULT_SENSOR_Y_MM = 3.24  # 3.24E-03 m = 3.24 mm
 
+# Platform detection
+IS_LINUX = sys.platform.startswith('linux')
+IS_RASPBERRY_PI = os.path.exists('/proc/device-tree/model') and 'raspberry' in open('/proc/device-tree/model').read().lower() if os.path.exists('/proc/device-tree/model') else False
+
 
 def get_screen_size():
     """Get screen resolution using tkinter root window."""
@@ -54,6 +59,12 @@ def get_screen_size():
             screen_width = root_tmp.winfo_screenwidth()
             screen_height = root_tmp.winfo_screenheight()
             root_tmp.destroy()
+        # On Raspberry Pi, sometimes screen size is reported incorrectly
+        # Ensure minimum reasonable values
+        if screen_width < 640:
+            screen_width = 1920
+        if screen_height < 480:
+            screen_height = 1080
         return screen_width, screen_height
     except:
         # Fallback to common resolutions if tkinter fails
@@ -82,6 +93,12 @@ def get_display_size(image_shape, max_width=None, max_height=None):
             max_width = int(screen_width * 2 / 3)
         if max_height is None:
             max_height = int(screen_height * 2 / 3)
+        # On Raspberry Pi, use larger size - at least 1280x720 for better visibility
+        # but still respect 2/3 max
+        if IS_RASPBERRY_PI or IS_LINUX:
+            # On Linux/RPi, ensure minimum size for better visibility
+            max_width = max(max_width, min(1280, screen_width))
+            max_height = max(max_height, min(720, screen_height))
     
     aspect_ratio = img_width / img_height
     
@@ -209,7 +226,28 @@ def update_display():
     
     # Show image and process window events (required for Raspberry Pi)
     cv2.imshow(window_name, display_image)
-    cv2.waitKey(1)  # Process window events - crucial for Raspberry Pi compatibility
+    
+    # On Linux/RPi, need more waitKey calls and ensure window is active
+    if IS_RASPBERRY_PI or IS_LINUX:
+        # On RPi/Linux, need longer waits and more processing
+        cv2.waitKey(10)  # Longer wait for RPi
+        cv2.waitKey(1)   # Additional processing
+    else:
+        cv2.waitKey(1)  # Standard wait for Windows
+    
+    # Ensure window is brought to front and can receive mouse events on RPi
+    try:
+        if IS_RASPBERRY_PI or IS_LINUX:
+            # On Linux/RPi, ensure window receives focus for mouse events
+            # Cycle through topmost to ensure window is active
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+            cv2.waitKey(1)
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+            cv2.waitKey(1)
+        else:
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+    except:
+        pass
 
 
 def mouse_callback(event, x, y, flags, param):
@@ -280,10 +318,12 @@ def load_image():
     try:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.setMouseCallback(window_name, mouse_callback)
-        # Prevent window resizing by setting window property
-        # Note: This may not work on all platforms, but we'll handle it
+        # On Linux/Raspberry Pi, ensure window can receive focus and events
         try:
+            # Try to bring window to front and ensure it's focusable
             cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+            # Give window a moment to initialize
+            cv2.waitKey(10)
         except:
             pass
     except Exception as e:
@@ -293,9 +333,19 @@ def load_image():
     # Initial display update (this will set window size and show image)
     update_display()
     
-    # Additional waitKey calls to ensure window is fully rendered (important for Raspberry Pi)
-    cv2.waitKey(1)
-    cv2.waitKey(1)  # Extra call for Linux/raspberry Pi
+    # Additional waitKey calls to ensure window is fully rendered and focused (important for Raspberry Pi)
+    cv2.waitKey(10)  # Longer wait for RPi to initialize window
+    cv2.waitKey(10)  # Extra call for Linux/raspberry Pi
+    
+    # Try to bring window to front on Linux/RPi
+    try:
+        # Force window to be visible and focused
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+        cv2.waitKey(10)
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+        cv2.waitKey(10)
+    except:
+        pass
 
     print(f"[INFO] Image loaded: {file_path}")
     print(f"[INFO] Image size: {image_original.shape[1]}x{image_original.shape[0]} pixels")
@@ -450,9 +500,22 @@ def periodic_display_update():
             window_prop = cv2.getWindowImageRect(window_name)
             if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
                 current_size = (window_prop[2], window_prop[3])
-                # If window size changed (user tried to resize), reset it
-                if current_size != current_display_size:
+                # Allow small tolerance for window manager differences
+                size_tolerance = 5  # pixels
+                size_diff = abs(current_size[0] - current_display_size[0]) + abs(current_size[1] - current_display_size[1])
+                
+                # If window size changed significantly (user tried to resize), reset it
+                if size_diff > size_tolerance:
+                    # Reset window size
                     cv2.resizeWindow(window_name, current_display_size[0], current_display_size[1])
+                    # On Linux/RPi, update display immediately to avoid black borders
+                    if IS_RASPBERRY_PI or IS_LINUX:
+                        # Wait a bit for resize to take effect
+                        cv2.waitKey(50)
+                        # Update display to fill window properly
+                        update_display()
+                        # Additional processing for RPi
+                        cv2.waitKey(10)
         except (cv2.error, AttributeError, IndexError):
             # Window doesn't exist or error, ignore
             pass
