@@ -41,8 +41,8 @@ source venv/bin/activate
 echo "Upgrading pip..."
 pip install --upgrade pip
 
-# Install dependencies
-echo "Installing dependencies from requirements.txt..."
+# Install dependencies one by one (to handle failures gracefully)
+echo "Installing dependencies..."
 
 # Detect macOS
 IS_MACOS=false
