@@ -23,10 +23,12 @@ from typing import Optional, Tuple
 # Global state
 image_path: Optional[str] = None
 image: Optional[np.ndarray] = None
+image_original: Optional[np.ndarray] = None  # Store original unmodified image
 points: list = []  # Store clicked points
 window_name = "Image Calibration - Click Two Points"
 mm_measurement: Optional[float] = None
 pixels_per_mm: Optional[float] = None
+current_display_size = None  # (width, height) of current display window
 
 # Camera parameters with defaults
 DEFAULT_FOCAL_LENGTH_MM = 16.0
@@ -35,40 +37,107 @@ DEFAULT_SENSOR_X_MM = 5.76  # 5.76E-03 m = 5.76 mm
 DEFAULT_SENSOR_Y_MM = 3.24  # 3.24E-03 m = 3.24 mm
 
 
+def get_display_size(image_shape, max_width=1920, max_height=1080):
+    """
+    Calculate display size maintaining aspect ratio.
+    
+    Args:
+        image_shape: (height, width) or (height, width, channels) of the image
+        max_width: Maximum display width
+        max_height: Maximum display height
+    
+    Returns:
+        (display_width, display_height) tuple
+    """
+    img_height, img_width = image_shape[:2]
+    aspect_ratio = img_width / img_height
+    
+    # Calculate display size maintaining aspect ratio
+    if img_width > max_width or img_height > max_height:
+        if aspect_ratio > 1:
+            # Landscape
+            display_width = min(img_width, max_width)
+            display_height = int(display_width / aspect_ratio)
+            if display_height > max_height:
+                display_height = max_height
+                display_width = int(display_height * aspect_ratio)
+        else:
+            # Portrait
+            display_height = min(img_height, max_height)
+            display_width = int(display_height * aspect_ratio)
+            if display_width > max_width:
+                display_width = max_width
+                display_height = int(display_width / aspect_ratio)
+    else:
+        display_width = img_width
+        display_height = img_height
+    
+    return (display_width, display_height)
+
+
+def update_display():
+    """Update the display with current image and points."""
+    global image, image_original, window_name, current_display_size
+    
+    if image_original is None:
+        return
+    
+    # Start with a copy of the original
+    image = image_original.copy()
+    
+    # Draw existing points and line if applicable
+    if len(points) >= 1:
+        cv2.circle(image, points[0], 5, (0, 255, 0), -1)
+        cv2.putText(image, "Point 1", (points[0][0] + 10, points[0][1] - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    
+    if len(points) >= 2:
+        cv2.circle(image, points[1], 5, (0, 255, 0), -1)
+        cv2.putText(image, "Point 2", (points[1][0] + 10, points[1][1] - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # Draw line between points
+        cv2.line(image, points[0], points[1], (0, 255, 0), 2)
+        # Calculate distance in pixels
+        pixel_distance = np.sqrt((points[1][0] - points[0][0])**2 +
+                                (points[1][1] - points[0][1])**2)
+        cv2.putText(image, f"{pixel_distance:.1f} px",
+                   ((points[0][0] + points[1][0]) // 2,
+                    (points[0][1] + points[1][1]) // 2 - 10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    
+    # Calculate display size maintaining aspect ratio
+    display_width, display_height = get_display_size(image.shape)
+    current_display_size = (display_width, display_height)
+    
+    # Resize window to maintain aspect ratio (only if size changed or first time)
+    try:
+        cv2.resizeWindow(window_name, display_width, display_height)
+    except cv2.error:
+        # Window might not exist yet, will be created by imshow
+        pass
+    
+    # Show image and process window events (required for Raspberry Pi)
+    cv2.imshow(window_name, image)
+    cv2.waitKey(1)  # Process window events - crucial for Raspberry Pi compatibility
+
+
 def mouse_callback(event, x, y, flags, param):
     """Handle mouse clicks to select two points."""
-    global points, image
+    global points
     
     if event == cv2.EVENT_LBUTTONDOWN:
         if len(points) < 2:
             points.append((x, y))
             print(f"[INFO] Point {len(points)} selected: ({x}, {y})")
             
-            # Draw point on image
-            cv2.circle(image, (x, y), 5, (0, 255, 0), -1)
-            if len(points) == 1:
-                cv2.putText(image, "Point 1", (x + 10, y - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            elif len(points) == 2:
-                cv2.putText(image, "Point 2", (x + 10, y - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                # Draw line between points
-                cv2.line(image, points[0], points[1], (0, 255, 0), 2)
-                # Calculate distance in pixels
-                pixel_distance = np.sqrt((points[1][0] - points[0][0])**2 + 
-                                        (points[1][1] - points[0][1])**2)
-                cv2.putText(image, f"{pixel_distance:.1f} px", 
-                           ((points[0][0] + points[1][0]) // 2, 
-                            (points[0][1] + points[1][1]) // 2 - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            
-            cv2.imshow(window_name, image)
+            # Update display with new point
+            update_display()
 
 
 def load_image():
     """Load an image file."""
-    global image_path, image, points
-    
+    global image_path, image, image_original, points
+
     file_path = filedialog.askopenfilename(
         title="Select Image",
         filetypes=[
@@ -76,26 +145,43 @@ def load_image():
             ("All files", "*.*")
         ]
     )
-    
+
     if not file_path:
         return
-    
+
     image_path = file_path
-    image = cv2.imread(file_path)
-    
-    if image is None:
-        messagebox.showerror("Error", f"Could not load image: {file_path}")
+    image_original = cv2.imread(file_path)
+
+    if image_original is None:
+        messagebox.showerror("Error", f"Could not load image: {file_path}")     
         return
-    
+
     # Reset points
     points = []
-    
+
+    # Destroy existing window if it exists (for clean restart)
+    try:
+        cv2.destroyWindow(window_name)
+        cv2.waitKey(1)  # Process window events
+    except:
+        pass
+
     # Create window and set mouse callback
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.setMouseCallback(window_name, mouse_callback)
-    cv2.imshow(window_name, image)
+    try:
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback(window_name, mouse_callback)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to create preview window: {e}\n\nMake sure you have a display available.")
+        return
+
+    # Initial display update (this will set window size and show image)
+    update_display()
     
+    # Additional waitKey to ensure window is fully rendered (important for Raspberry Pi)
+    cv2.waitKey(1)
+
     print(f"[INFO] Image loaded: {file_path}")
+    print(f"[INFO] Image size: {image_original.shape[1]}x{image_original.shape[0]} pixels")
     print("[INFO] Click two points on the image to mark a known distance.")
 
 
@@ -221,14 +307,19 @@ def save_calibration():
 
 def reset_points():
     """Reset points and reload image."""
-    global points, image, image_path
-    
+    global points, image_original, image_path
+
     if image_path and os.path.exists(image_path):
         points = []
-        image = cv2.imread(image_path)
-        cv2.imshow(window_name, image)
-        result_label.config(text="Calibration: Not calculated")
-        print("[INFO] Points reset.")
+        image_original = cv2.imread(image_path)
+        if image_original is not None:
+            update_display()
+            # Additional waitKey to ensure window is updated (important for Raspberry Pi)
+            cv2.waitKey(1)
+            result_label.config(text="Calibration: Not calculated")
+            print("[INFO] Points reset.")
+        else:
+            messagebox.showerror("Error", f"Could not reload image: {image_path}")
 
 
 def on_closing():
