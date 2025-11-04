@@ -16,7 +16,8 @@ echo Activating virtual environment...
 call venv\Scripts\activate.bat
 
 echo Running visualize3d.py...
-python visualize3d.py
+set PYTHONPATH=%CD%
+python apps/visualize3d.py
 
 pause
 

@@ -11,6 +11,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
-python pair_detect.py
+$env:PYTHONPATH = $PWD
+python apps/pair_detect.py
 Read-Host "Press Enter to exit"
 

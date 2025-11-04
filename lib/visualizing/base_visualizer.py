@@ -18,7 +18,7 @@ from matplotlib import cm
 from matplotlib.animation import FFMpegWriter
 from typing import Dict, List, Tuple, Optional, Callable
 
-from lib.gui import apply_standard_theme, ScrollableFrame
+from lib.gui import apply_standard_theme
 
 
 class PlaybackController:
@@ -377,18 +377,21 @@ class Base3DVisualizer:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
         
-        # Left panel - controls (scrollable, two-column layout)
-        self.left_panel = ScrollableFrame(main_frame, width=600)
+        # Left panel - controls (no scrolling, three-column layout)
+        self.left_panel = ttk.Frame(main_frame, width=900)
         self.left_panel.pack(side="left", fill="y", padx=(0, 10))
         self.left_panel.pack_propagate(False)
         
-        # Container for two-column layout inside scrollable frame
-        columns_container = ttk.Frame(self.left_panel.inner_frame)
+        # Container for three-column layout
+        columns_container = ttk.Frame(self.left_panel)
         columns_container.pack(fill="both", expand=True)
         
-        # Create two-column layout
+        # Create three-column layout
         left_col = ttk.Frame(columns_container)
         left_col.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        
+        middle_col = ttk.Frame(columns_container)
+        middle_col.pack(side="left", fill="both", expand=True, padx=(5, 5))
         
         right_col = ttk.Frame(columns_container)
         right_col.pack(side="left", fill="both", expand=True, padx=(5, 0))
@@ -444,14 +447,15 @@ class Base3DVisualizer:
         export_frame.pack(fill="x", pady=5)
         self.setup_export_section(export_frame)
         
+        # MIDDLE COLUMN
         # Dataset specs display (scientific device info)
-        specs_frame = ttk.LabelFrame(left_col, text="Dataset Specifications", padding="10")
+        specs_frame = ttk.LabelFrame(middle_col, text="Dataset Specifications", padding="10")
         specs_frame.pack(fill="x", pady=5)
         self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=120, justify="left", font=("Courier", 8))
         self.specs_label.pack()
         
         # Info display
-        info_frame = ttk.LabelFrame(left_col, text="Info", padding="10")
+        info_frame = ttk.LabelFrame(middle_col, text="Info", padding="10")
         info_frame.pack(fill="x", pady=5)
         self.info_label = ttk.Label(info_frame, text="No data loaded", wraplength=120, justify="left")
         self.info_label.pack()
@@ -535,27 +539,64 @@ class Base3DVisualizer:
             initial_speed=1.0
         )
         
-        # Right panel - 3D plot
-        self.right_panel = ttk.Frame(main_frame)
-        self.right_panel.pack(side="right", fill="both", expand=True)
+        # Open plot window button (in middle column)
+        plot_btn_frame = ttk.LabelFrame(middle_col, text="3D Plot", padding="10")
+        plot_btn_frame.pack(fill="x", pady=5)
+        ttk.Button(plot_btn_frame, text="Open 3D Plot Window", command=self.open_plot_window).pack(pady=5, fill="x")
+        
+        # Initialize plot window reference
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
+        
+        # Initial empty plot (will be created when window opens)
+        # self.update_plot() - Don't call yet, wait for window to open
+    
+    def open_plot_window(self):
+        """Open 3D plot in a separate window."""
+        if self.plot_window is not None:
+            try:
+                self.plot_window.lift()
+                self.plot_window.focus_force()
+                return
+            except:
+                self.plot_window = None
+        
+        # Create new window for plot
+        self.plot_window = tk.Toplevel(self.root)
+        self.plot_window.title(self.root.title())
+        self.plot_window.geometry("1000x800")
+        self.plot_window.transient(self.root)
+        
+        # Handle window close
+        self.plot_window.protocol("WM_DELETE_WINDOW", self.on_plot_window_close)
         
         # Create matplotlib figure
         self.fig = Figure(figsize=(10, 8), dpi=100)
         self.ax = self.fig.add_subplot(111, projection='3d')
         
-        self.canvas = FigureCanvasTkAgg(self.fig, self.right_panel)
+        # Create canvas
+        self.canvas = FigureCanvasTkAgg(self.fig, self.plot_window)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         
         # Add matplotlib toolbar
-        toolbar = NavigationToolbar2Tk(self.canvas, self.right_panel)
+        toolbar = NavigationToolbar2Tk(self.canvas, self.plot_window)
         toolbar.update()
         
         # Bind mouse wheel events for zooming
         self.setup_zoom()
         
-        # Initial empty plot
+        # Update plot
         self.update_plot()
+    
+    def on_plot_window_close(self):
+        """Handle plot window close."""
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
     
     def setup_export_section(self, parent_frame):
         """Setup export section for video export."""
@@ -662,6 +703,9 @@ class Base3DVisualizer:
     
     def setup_zoom(self):
         """Setup mouse wheel zoom functionality and right-click drag panning."""
+        if not self.canvas:
+            return
+        
         canvas_widget = self.canvas.get_tk_widget()
         
         def on_scroll(event):
@@ -762,22 +806,8 @@ class Base3DVisualizer:
     
     def auto_load_latest_csv(self):
         """Automatically load the latest CSV file from inputs_outputs."""
-        output_dir = Path("inputs_outputs")
-        if not output_dir.exists():
-            return
-        
-        # Find all CSV files in inputs_outputs subdirectories
-        csv_files = list(output_dir.rglob("*.csv"))
-        if not csv_files:
-            return
-        
-        csv_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        latest_csv = csv_files[0]
-        
-        try:
-            self.load_csv_file(str(latest_csv))
-        except Exception as e:
-            print(f"Failed to auto-load {latest_csv}: {e}")
+        from lib.util import auto_load_latest_csv
+        auto_load_latest_csv(self.load_csv_file)
     
     def load_csv(self):
         """Open file dialog to load CSV file."""
@@ -1174,6 +1204,9 @@ class Base3DVisualizer:
     
     def update_plot(self):
         """Update the 3D plot - override in subclasses for custom plotting."""
+        if not self.ax or not self.plot_window:
+            return
+        
         self.ax.clear()
         
         if not self.data:

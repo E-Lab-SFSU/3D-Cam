@@ -1254,21 +1254,8 @@ def get_latest_image_calibration_file() -> Optional[str]:
     Find the latest image calibration JSON file in the calibrations folder.
     Returns the path to the latest file, or None if no file is found.
     """
-    calibrations_dir = Path("calibrations")
-    
-    if not calibrations_dir.exists():
-        return None
-    
-    # Find image calibration files
-    json_files = list(calibrations_dir.glob("image_calibration_*.json"))
-    
-    if not json_files:
-        return None
-    
-    # Sort by modification time (newest first)
-    json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    
-    return str(json_files[0])
+    from lib.util import find_latest_image_calibration_file
+    return find_latest_image_calibration_file()
 
 
 def get_pixels_per_mm() -> Optional[float]:

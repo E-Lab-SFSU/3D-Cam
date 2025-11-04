@@ -9,5 +9,6 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python capture_raspi.py
+export PYTHONPATH=$(pwd)
+python apps/capture_raspi.py
 

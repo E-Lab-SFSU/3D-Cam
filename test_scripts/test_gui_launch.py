@@ -71,7 +71,7 @@ def quick_test_gui(app_name, create_func, timeout=2):
 def test_calibrate_image():
     """Test calibrate_image.py GUI."""
     try:
-        import calibrate_image
+        from apps import calibrate_image
         
         def create():
             root = tk.Tk()
@@ -90,7 +90,7 @@ def test_calibrate_image():
 def test_calibrate_image_raspi():
     """Test calibrate_image_raspi.py GUI."""
     try:
-        import calibrate_image_raspi
+        from apps import calibrate_image_raspi
         
         def create():
             root = tk.Tk()
@@ -107,7 +107,7 @@ def test_calibrate_image_raspi():
 def test_calibrate_image_windows():
     """Test calibrate_image_windows.py GUI."""
     try:
-        import calibrate_image_windows
+        from apps import calibrate_image_windows
         
         def create():
             root = tk.Tk()
@@ -124,7 +124,7 @@ def test_calibrate_image_windows():
 def test_z_histogram():
     """Test z_histogram.py GUI."""
     try:
-        import z_histogram
+        from apps import z_histogram
         
         def create():
             # Try to create the viewer (will need a dummy CSV or handle the error)

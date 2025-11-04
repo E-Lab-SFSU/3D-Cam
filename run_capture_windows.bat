@@ -12,6 +12,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python capture_windows.py
+set PYTHONPATH=%CD%
+python apps/capture_windows.py
 pause
 

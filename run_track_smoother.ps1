@@ -6,6 +6,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
-python track_smoother.py
+$env:PYTHONPATH = $PWD
+python apps/track_smoother.py
 Read-Host "Press Enter to exit"
 

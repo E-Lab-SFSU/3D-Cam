@@ -21,7 +21,7 @@ import sys
 from datetime import datetime
 from typing import Optional, Tuple
 
-from lib.gui import apply_standard_theme, format_window_title, get_standard_size
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
 
 # Global state
 image_path: Optional[str] = None
@@ -541,86 +541,93 @@ root.minsize(width, height)
 root.title(format_window_title("Image Calibration Tool"))
 apply_standard_theme(root)
 
-# Main frame
-main_frame = ttk.Frame(root, padding="15")
+# Main frame with compact layout to fit without scrolling
+main_frame = ttk.Frame(root, padding=STANDARD_PADDING["medium"])
 main_frame.pack(fill="both", expand=True)
 
-# Instructions
+# Instructions section (compact, no frame)
 instructions = ttk.Label(
     main_frame,
-    text="1. Load an image\n2. Click two points\n3. Enter mm measurement\n4. Enter camera parameters\n5. Calculate & Save",
-    justify="left"
+    text="1. Load image  •  2. Click two points  •  3. Enter measurement  •  4. Calculate & Save",
+    justify="left",
+    font=("TkDefaultFont", 8)
 )
-instructions.pack(pady=(0, 15))
+instructions.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Load image button
-load_btn = ttk.Button(main_frame, text="📂 Load Image", command=load_image)
-load_btn.pack(pady=5, fill="x")
+# File operations section
+file_section = ttk.LabelFrame(main_frame, text="File", padding=STANDARD_PADDING["small"])
+file_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# MM measurement entry
-mm_frame = ttk.Frame(main_frame)
-mm_frame.pack(pady=10, fill="x")
+load_btn = ttk.Button(file_section, text="📂 Load Image", command=load_image)
+load_btn.pack(fill="x")
 
-ttk.Label(mm_frame, text="Measurement (mm):").pack(side="left", padx=(0, 10))
-mm_entry = ttk.Entry(mm_frame, width=15)
-mm_entry.pack(side="left")
+# Measurement section
+measurement_section = ttk.LabelFrame(main_frame, text="Measurement", padding=STANDARD_PADDING["small"])
+measurement_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+mm_frame = ttk.Frame(measurement_section)
+mm_frame.pack(fill="x")
+ttk.Label(mm_frame, text="Distance (mm):", width=16, anchor="w").pack(side="left", padx=(0, 8))
+mm_entry = ttk.Entry(mm_frame, width=18)
+mm_entry.pack(side="left", fill="x", expand=True)
 mm_entry.bind("<Return>", lambda e: calculate_calibration())
 
-# Camera parameters frame
-camera_frame = ttk.LabelFrame(main_frame, text="Camera Parameters", padding="10")
-camera_frame.pack(pady=10, fill="x")
+# Camera parameters frame (compact)
+camera_frame = ttk.LabelFrame(main_frame, text="Camera Parameters", padding=STANDARD_PADDING["small"])
+camera_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Focal length
+# Use grid for better alignment
 focal_frame = ttk.Frame(camera_frame)
-focal_frame.pack(fill="x", pady=3)
-ttk.Label(focal_frame, text="Focal Length (mm):").pack(side="left", padx=(0, 10))
-focal_length_entry = ttk.Entry(focal_frame, width=15)
-focal_length_entry.pack(side="left")
+focal_frame.pack(fill="x", pady=1)
+ttk.Label(focal_frame, text="Focal Length (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+focal_length_entry = ttk.Entry(focal_frame, width=18)
+focal_length_entry.pack(side="left", fill="x", expand=True)
 focal_length_entry.insert(0, str(DEFAULT_FOCAL_LENGTH_MM))
 
-# Pixel size
 pixel_frame = ttk.Frame(camera_frame)
-pixel_frame.pack(fill="x", pady=3)
-ttk.Label(pixel_frame, text="Pixel Size (microns):").pack(side="left", padx=(0, 10))
-pixel_size_entry = ttk.Entry(pixel_frame, width=15)
-pixel_size_entry.pack(side="left")
+pixel_frame.pack(fill="x", pady=1)
+ttk.Label(pixel_frame, text="Pixel Size (μm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+pixel_size_entry = ttk.Entry(pixel_frame, width=18)
+pixel_size_entry.pack(side="left", fill="x", expand=True)
 pixel_size_entry.insert(0, str(DEFAULT_PIXEL_SIZE_MICRONS))
 
-# Sensor X size
 sensor_x_frame = ttk.Frame(camera_frame)
-sensor_x_frame.pack(fill="x", pady=3)
-ttk.Label(sensor_x_frame, text="Sensor X Size (mm):").pack(side="left", padx=(0, 10))
-sensor_x_entry = ttk.Entry(sensor_x_frame, width=15)
-sensor_x_entry.pack(side="left")
+sensor_x_frame.pack(fill="x", pady=1)
+ttk.Label(sensor_x_frame, text="Sensor X (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+sensor_x_entry = ttk.Entry(sensor_x_frame, width=18)
+sensor_x_entry.pack(side="left", fill="x", expand=True)
 sensor_x_entry.insert(0, str(DEFAULT_SENSOR_X_MM))
 
-# Sensor Y size
 sensor_y_frame = ttk.Frame(camera_frame)
-sensor_y_frame.pack(fill="x", pady=3)
-ttk.Label(sensor_y_frame, text="Sensor Y Size (mm):").pack(side="left", padx=(0, 10))
-sensor_y_entry = ttk.Entry(sensor_y_frame, width=15)
-sensor_y_entry.pack(side="left")
+sensor_y_frame.pack(fill="x", pady=1)
+ttk.Label(sensor_y_frame, text="Sensor Y (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+sensor_y_entry = ttk.Entry(sensor_y_frame, width=18)
+sensor_y_entry.pack(side="left", fill="x", expand=True)
 sensor_y_entry.insert(0, str(DEFAULT_SENSOR_Y_MM))
 
-# Calculate button
-calc_btn = ttk.Button(main_frame, text="Calculate", command=calculate_calibration)
-calc_btn.pack(pady=5, fill="x")
+# Results section
+results_section = ttk.LabelFrame(main_frame, text="Results", padding=STANDARD_PADDING["small"])
+results_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Result label
-result_label = ttk.Label(main_frame, text="Calibration: Not calculated", justify="left")
-result_label.pack(pady=10)
+calc_btn = ttk.Button(results_section, text="⚙ Calculate Calibration", command=calculate_calibration)
+calc_btn.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Save button
-save_btn = ttk.Button(main_frame, text="💾 Save Calibration", command=save_calibration)
-save_btn.pack(pady=5, fill="x")
+result_label = ttk.Label(results_section, text="Calibration: Not calculated", justify="left", 
+                        wraplength=350, font=("TkDefaultFont", 8))
+result_label.pack(anchor="w")
 
-# Reset button
-reset_btn = ttk.Button(main_frame, text="🔄 Reset Points", command=reset_points)
-reset_btn.pack(pady=5, fill="x")
+# Actions section
+actions_section = ttk.LabelFrame(main_frame, text="Actions", padding=STANDARD_PADDING["small"])
+actions_section.pack(fill="x")
 
-# Exit button
-exit_btn = ttk.Button(main_frame, text="Exit", command=on_closing)
-exit_btn.pack(pady=(10, 0), fill="x")
+save_btn = ttk.Button(actions_section, text="💾 Save Calibration", command=save_calibration)
+save_btn.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+reset_btn = ttk.Button(actions_section, text="🔄 Reset Points", command=reset_points)
+reset_btn.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+exit_btn = ttk.Button(actions_section, text="Exit", command=on_closing)
+exit_btn.pack(fill="x")
 
 # Handle window closing
 root.protocol("WM_DELETE_WINDOW", on_closing)

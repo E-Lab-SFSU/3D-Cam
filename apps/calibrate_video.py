@@ -44,21 +44,8 @@ def get_latest_calibration_file() -> Optional[str]:
     Find the latest calibration JSON file in the calibrations folder.
     Returns the path to the latest file, or None if no file is found.
     """
-    calibrations_dir = Path("calibrations")
-    
-    if not calibrations_dir.exists():
-        return None
-    
-    # Find all JSON files in the calibrations directory
-    json_files = list(calibrations_dir.glob("*.json"))
-    
-    if not json_files:
-        return None
-    
-    # Sort by modification time (newest first)
-    json_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    
-    return str(json_files[0])
+    from lib.util import find_latest_calibration_file
+    return find_latest_calibration_file()
 
 
 class VideoEntry:
@@ -469,7 +456,8 @@ class VideoCalibrationApp:
         # Create scrollable container for left column
         left_canvas = tk.Canvas(left_pane, highlightthickness=0)
         left_scrollbar = ttk.Scrollbar(left_pane, orient="vertical", command=left_canvas.yview)
-        left_frame = ttk.Frame(left_canvas, padding="15")
+        from lib.gui import STANDARD_PADDING
+        left_frame = ttk.Frame(left_canvas, padding=STANDARD_PADDING["large"])
         
         left_frame.bind(
             "<Configure>",
@@ -496,12 +484,13 @@ class VideoCalibrationApp:
         main_container.add(middle_pane, weight=1)
         self.setup_metrics_column(middle_pane)
         
-        # RIGHT COLUMN: 3D Visualization
-        right_pane = ttk.Frame(main_container)
-        main_container.add(right_pane, weight=3)
+        # Add button to open 3D plot window in middle column
+        viz_button_frame = ttk.LabelFrame(middle_pane, text="3D Visualization", padding="10")
+        viz_button_frame.pack(fill="x", pady=5)
+        ttk.Button(viz_button_frame, text="Open 3D Plot Window", command=self.open_3d_plot_window).pack(pady=5, fill="x")
         
-        # Setup 3D plot in right pane
-        self.setup_3d_visualization(right_pane)
+        # Initialize 3D plot window reference
+        self.viz_window = None
         
         # Store reference for later updates
         self.main_frame = left_frame
@@ -680,19 +669,36 @@ class VideoCalibrationApp:
         self.metrics_text.grid(row=0, column=0, sticky="nsew")
         self.metrics_text_scrollbar.grid(row=0, column=1, sticky="ns")
     
-    def setup_3d_visualization(self, parent_frame):
-        """Setup 3D visualization in the right pane."""
+    def open_3d_plot_window(self):
+        """Open 3D visualization in a separate window."""
+        if self.viz_window is not None:
+            try:
+                self.viz_window.lift()
+                self.viz_window.focus_force()
+                return
+            except:
+                self.viz_window = None
+        
+        # Create new window for 3D plot
+        self.viz_window = tk.Toplevel(self.root)
+        self.viz_window.title("Calibration Pairs 3D Visualization")
+        self.viz_window.geometry("1000x800")
+        self.viz_window.transient(self.root)
+        
+        # Handle window close
+        self.viz_window.protocol("WM_DELETE_WINDOW", self.on_viz_window_close)
+        
         # Create figure for 3D plot
         self.viz_fig = Figure(figsize=(10, 8), dpi=100)
         self.viz_ax = self.viz_fig.add_subplot(111, projection='3d')
         
         # Create canvas
-        self.viz_canvas = FigureCanvasTkAgg(self.viz_fig, parent_frame)
-        self.viz_canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.viz_canvas = FigureCanvasTkAgg(self.viz_fig, self.viz_window)
+        self.viz_canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
         
         # Add toolbar
         from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
-        toolbar = NavigationToolbar2Tk(self.viz_canvas, parent_frame)
+        toolbar = NavigationToolbar2Tk(self.viz_canvas, self.viz_window)
         toolbar.update()
         
         # Initial empty plot
@@ -701,10 +707,23 @@ class VideoCalibrationApp:
         self.viz_ax.set_zlabel('Z (mm)')
         self.viz_ax.set_title('Calibration Pairs Visualization')
         self.viz_canvas.draw()
+        
+        # Update visualization if data already exists
+        if self.viz_data:
+            self.update_3d_visualization()
+    
+    def on_viz_window_close(self):
+        """Handle closing of 3D visualization window."""
+        self.viz_window.destroy()
+        self.viz_window = None
+        # Clear references but keep data
+        self.viz_fig = None
+        self.viz_ax = None
+        self.viz_canvas = None
     
     def update_3d_visualization(self):
         """Update 3D visualization with current filtered pairs."""
-        if not hasattr(self, 'viz_ax'):
+        if not hasattr(self, 'viz_ax') or self.viz_ax is None:
             return
             
         self.viz_ax.clear()

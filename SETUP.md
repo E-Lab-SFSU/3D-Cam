@@ -127,9 +127,9 @@ You'll see `(venv)` at the beginning of your command prompt, indicating the virt
 While the virtual environment is active, run your scripts normally:
 
 ```bash
-python visualize3d.py
-python pair_detect.py
-python capture_raspi.py
+python apps/visualize3d.py
+python apps/pair_detect.py
+python apps/capture_raspi.py
 # etc.
 ```
 

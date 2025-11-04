@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Image Calibration Tool - Raspberry Pi
-Simple, efficient calibration tool for Raspberry Pi
+Image Calibration Tool - Windows
+Simple, efficient calibration tool for Windows
 """
 
 import cv2
@@ -13,7 +13,7 @@ import json
 import os
 from datetime import datetime
 
-from lib.gui import apply_standard_theme, format_window_title, get_standard_size
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
 
 # Global state
 image_original = None
@@ -21,7 +21,6 @@ points = []
 scale_x = 1.0
 scale_y = 1.0
 window_name = "Calibration - Click Two Points"
-display_update_scheduled = False
 
 # Defaults
 DEFAULT_FOCAL_LENGTH_MM = 16.0
@@ -36,8 +35,8 @@ def mouse_callback(event, x, y, flags, param):
     
     if event == cv2.EVENT_LBUTTONDOWN and len(points) < 2:
         # Convert to original image coordinates
-        orig_x = int(x / scale_x) if scale_x > 0 else x
-        orig_y = int(y / scale_y) if scale_y > 0 else y
+        orig_x = int(x / scale_x)
+        orig_y = int(y / scale_y)
         
         # Clamp to image bounds
         if image_original is not None:
@@ -47,22 +46,7 @@ def mouse_callback(event, x, y, flags, param):
         
         points.append((orig_x, orig_y))
         print(f"Point {len(points)}: ({orig_x}, {orig_y})")
-        schedule_update()
-
-
-def schedule_update():
-    """Schedule display update via tkinter to avoid blocking."""
-    global display_update_scheduled
-    if not display_update_scheduled:
-        display_update_scheduled = True
-        root.after(10, do_update_display)
-
-
-def do_update_display():
-    """Perform the actual display update."""
-    global display_update_scheduled
-    display_update_scheduled = False
-    update_display()
+        update_display()
 
 
 def update_display():
@@ -95,18 +79,11 @@ def update_display():
         cv2.putText(img, f"{dist:.1f} px", (mid_x, mid_y - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
-    # Resize for display (max 80% of screen, but ensure minimum size for visibility)
+    # Resize for display (max 80% of screen)
     screen_w = root.winfo_screenwidth()
     screen_h = root.winfo_screenheight()
-    
-    # Ensure reasonable screen size (RPi sometimes reports incorrectly)
-    if screen_w < 640:
-        screen_w = 1920
-    if screen_h < 480:
-        screen_h = 1080
-    
-    max_w = max(int(screen_w * 0.8), 1280)
-    max_h = max(int(screen_h * 0.8), 720)
+    max_w = int(screen_w * 0.8)
+    max_h = int(screen_h * 0.8)
     
     img_h, img_w = img.shape[:2]
     aspect = img_w / img_h
@@ -127,9 +104,9 @@ def update_display():
     scale_x = display_w / img_w
     scale_y = display_h / img_h
     
-    # Show image - minimal waitKey to avoid blocking
+    # Show image
     cv2.imshow(window_name, display_img)
-    cv2.waitKey(1)  # Single minimal wait
+    cv2.waitKey(1)
 
 
 def load_image():
@@ -154,26 +131,14 @@ def load_image():
     # Create window if needed
     try:
         cv2.destroyWindow(window_name)
-        cv2.waitKey(1)
     except:
         pass
     
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, mouse_callback)
     
-    # Initial display
     update_display()
     cv2.waitKey(1)
-    
-    # Schedule window focus setup (non-blocking)
-    def setup_focus():
-        try:
-            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
-            cv2.waitKey(1)
-        except:
-            pass
-    
-    root.after(100, setup_focus)
     
     image_path_var.set(file_path)
     result_label.config(text="Click two points on the image")
@@ -292,15 +257,8 @@ def reset_points():
     global points
     points = []
     if image_original is not None:
-        schedule_update()
+        update_display()
     result_label.config(text="Click two points on the image")
-
-
-def periodic_update():
-    """Periodic update to keep OpenCV window responsive."""
-    if image_original is not None:
-        cv2.waitKey(1)
-    root.after(100, periodic_update)
 
 
 def on_closing():
@@ -314,85 +272,93 @@ root = tk.Tk()
 width, height = get_standard_size("small")
 root.geometry(f"{width}x{height}")
 root.minsize(width, height)
-root.title(format_window_title("Image Calibration Tool", platform="Raspberry Pi"))
+root.title(format_window_title("Image Calibration Tool", platform="Windows"))
 apply_standard_theme(root)
 
-main = ttk.Frame(root, padding="15")
+main = ttk.Frame(root, padding=STANDARD_PADDING["medium"])
 main.pack(fill="both", expand=True)
 
-# Instructions
-ttk.Label(main, text="1. Load image\n2. Click two points\n3. Enter mm\n4. Calculate & Save",
-          justify="left").pack(pady=(0, 10))
+# Instructions section (compact, no frame)
+ttk.Label(main, 
+          text="1. Load image  •  2. Click two points  •  3. Enter mm  •  4. Calculate & Save",
+          justify="left", font=("TkDefaultFont", 8)).pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Load button
-ttk.Button(main, text="📂 Load Image", command=load_image).pack(pady=5, fill="x")
+# File operations section
+file_section = ttk.LabelFrame(main, text="File", padding=STANDARD_PADDING["small"])
+file_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+ttk.Button(file_section, text="📂 Load Image", command=load_image).pack(fill="x")
 
 image_path_var = tk.StringVar()
-ttk.Label(main, textvariable=image_path_var, wraplength=350, 
-          foreground="gray").pack(pady=2)
+ttk.Label(file_section, textvariable=image_path_var, wraplength=350, 
+          foreground="gray", font=("TkDefaultFont", 8)).pack(anchor="w", pady=(STANDARD_PADDING["small"], 0))
 
-# MM entry
-mm_frame = ttk.Frame(main)
-mm_frame.pack(pady=10, fill="x")
-ttk.Label(mm_frame, text="Measurement (mm):").pack(side="left", padx=(0, 10))
-mm_entry = ttk.Entry(mm_frame, width=15)
-mm_entry.pack(side="left")
+# Measurement section
+measurement_section = ttk.LabelFrame(main, text="Measurement", padding=STANDARD_PADDING["small"])
+measurement_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+mm_frame = ttk.Frame(measurement_section)
+mm_frame.pack(fill="x")
+ttk.Label(mm_frame, text="Distance (mm):", width=16, anchor="w").pack(side="left", padx=(0, 8))
+mm_entry = ttk.Entry(mm_frame, width=18)
+mm_entry.pack(side="left", fill="x", expand=True)
 mm_entry.bind("<Return>", lambda e: calculate())
 
 # Camera parameters
-cam_frame = ttk.LabelFrame(main, text="Camera Parameters", padding="10")
-cam_frame.pack(pady=10, fill="x")
+cam_frame = ttk.LabelFrame(main, text="Camera Parameters", padding=STANDARD_PADDING["small"])
+cam_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
 focal_frame = ttk.Frame(cam_frame)
-focal_frame.pack(fill="x", pady=3)
-ttk.Label(focal_frame, text="Focal Length (mm):").pack(side="left", padx=(0, 10))
-focal_entry = ttk.Entry(focal_frame, width=15)
-focal_entry.pack(side="left")
+focal_frame.pack(fill="x", pady=1)
+ttk.Label(focal_frame, text="Focal Length (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+focal_entry = ttk.Entry(focal_frame, width=18)
+focal_entry.pack(side="left", fill="x", expand=True)
 focal_entry.insert(0, str(DEFAULT_FOCAL_LENGTH_MM))
 
 pixel_frame = ttk.Frame(cam_frame)
-pixel_frame.pack(fill="x", pady=3)
-ttk.Label(pixel_frame, text="Pixel Size (microns):").pack(side="left", padx=(0, 10))
-pixel_entry = ttk.Entry(pixel_frame, width=15)
-pixel_entry.pack(side="left")
+pixel_frame.pack(fill="x", pady=1)
+ttk.Label(pixel_frame, text="Pixel Size (μm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+pixel_entry = ttk.Entry(pixel_frame, width=18)
+pixel_entry.pack(side="left", fill="x", expand=True)
 pixel_entry.insert(0, str(DEFAULT_PIXEL_SIZE_MICRONS))
 
 sensor_x_frame = ttk.Frame(cam_frame)
-sensor_x_frame.pack(fill="x", pady=3)
-ttk.Label(sensor_x_frame, text="Sensor X (mm):").pack(side="left", padx=(0, 10))
-sensor_x_entry = ttk.Entry(sensor_x_frame, width=15)
-sensor_x_entry.pack(side="left")
+sensor_x_frame.pack(fill="x", pady=1)
+ttk.Label(sensor_x_frame, text="Sensor X (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+sensor_x_entry = ttk.Entry(sensor_x_frame, width=18)
+sensor_x_entry.pack(side="left", fill="x", expand=True)
 sensor_x_entry.insert(0, str(DEFAULT_SENSOR_X_MM))
 
 sensor_y_frame = ttk.Frame(cam_frame)
-sensor_y_frame.pack(fill="x", pady=3)
-ttk.Label(sensor_y_frame, text="Sensor Y (mm):").pack(side="left", padx=(0, 10))
-sensor_y_entry = ttk.Entry(sensor_y_frame, width=15)
-sensor_y_entry.pack(side="left")
+sensor_y_frame.pack(fill="x", pady=1)
+ttk.Label(sensor_y_frame, text="Sensor Y (mm):", width=18, anchor="w").pack(side="left", padx=(0, 8))
+sensor_y_entry = ttk.Entry(sensor_y_frame, width=18)
+sensor_y_entry.pack(side="left", fill="x", expand=True)
 sensor_y_entry.insert(0, str(DEFAULT_SENSOR_Y_MM))
 
-# Calculate button
-ttk.Button(main, text="Calculate", command=calculate).pack(pady=5, fill="x")
+# Results section
+results_section = ttk.LabelFrame(main, text="Results", padding=STANDARD_PADDING["small"])
+results_section.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Result
-result_label = ttk.Label(main, text="Calibration: Not calculated", justify="left")
-result_label.pack(pady=10)
+ttk.Button(results_section, text="⚙ Calculate Calibration", command=calculate).pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
 
-# Save button
-ttk.Button(main, text="💾 Save Calibration", command=save_calibration).pack(pady=5, fill="x")
+result_label = ttk.Label(results_section, text="Calibration: Not calculated", justify="left", 
+                        wraplength=350, font=("TkDefaultFont", 8))
+result_label.pack(anchor="w")
 
-# Reset button
-ttk.Button(main, text="🔄 Reset Points", command=reset_points).pack(pady=5, fill="x")
+# Actions section
+actions_section = ttk.LabelFrame(main, text="Actions", padding=STANDARD_PADDING["small"])
+actions_section.pack(fill="x")
 
-# Exit
-ttk.Button(main, text="Exit", command=on_closing).pack(pady=(10, 0), fill="x")
+ttk.Button(actions_section, text="💾 Save Calibration", command=save_calibration).pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+ttk.Button(actions_section, text="🔄 Reset Points", command=reset_points).pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+
+ttk.Button(actions_section, text="Exit", command=on_closing).pack(fill="x")
 
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
-# Start periodic update for OpenCV window responsiveness
-root.after(100, periodic_update)
-
 if __name__ == "__main__":
-    print("Image Calibration Tool - Raspberry Pi")
+    print("Image Calibration Tool - Windows")
     root.mainloop()
 

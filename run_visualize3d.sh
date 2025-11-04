@@ -13,5 +13,6 @@ echo "Activating virtual environment..."
 source venv/bin/activate
 
 echo "Running visualize3d.py..."
-python visualize3d.py
+export PYTHONPATH=$(pwd)
+python apps/visualize3d.py
 

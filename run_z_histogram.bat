@@ -10,6 +10,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python z_histogram.py
+set PYTHONPATH=%CD%
+python apps/z_histogram.py
 pause
 

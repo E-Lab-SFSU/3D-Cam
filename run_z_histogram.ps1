@@ -6,6 +6,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
-python z_histogram.py
+$env:PYTHONPATH = $PWD
+python apps/z_histogram.py
 Read-Host "Press Enter to exit"
 

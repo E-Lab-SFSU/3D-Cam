@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from lib.gui import apply_standard_theme, format_window_title, get_standard_size, ScrollableFrame
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
 
 
 def set_controls_enabled(widgets: dict, enabled: bool):
@@ -37,10 +37,10 @@ def build_gui(
     root.title(format_window_title("Pair Detector", version="v4.5"))
     apply_standard_theme(root)
 
-    # Main content frame (scrollable)
-    content_frame = ScrollableFrame(root)
+    # Main content frame (no scrolling)
+    content_frame = ttk.Frame(root)
     content_frame.pack(fill="both", expand=True, padx=8, pady=6)
-    content = content_frame.inner_frame
+    content = content_frame
 
     # Top row buttons (2 rows for better layout)
     frm_btn = ttk.Frame(content)
@@ -78,7 +78,7 @@ def build_gui(
     def create_slider_funcs(parent_frame):
         """Create slider functions that operate on a specific parent frame."""
         def add_slider(row, label, key, from_, to_):
-            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=0)
             var = tk.IntVar(value=int(params[key]))
             scale = ttk.Scale(
                 parent_frame,
@@ -89,9 +89,9 @@ def build_gui(
                 command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
             )
             scale.set(params[key])
-            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=0)
             lbl_val = ttk.Label(parent_frame, text=str(var.get()), width=6, anchor="e")
-            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e", pady=0)
 
             def on_var(*_):
                 v = int(var.get())
@@ -109,7 +109,7 @@ def build_gui(
             gui_vars_numeric[key] = var
 
         def add_slider_float(row, label, key, from_, to_):
-            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=0)
             var = tk.IntVar(value=int(params[key] * 100))
             scale = ttk.Scale(
                 parent_frame,
@@ -120,9 +120,9 @@ def build_gui(
                 command=lambda _v, k=key, _var=var: _var.set(int(float(_v))),
             )
             scale.set(int(params[key] * 100))
-            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=0)
             lbl_val = ttk.Label(parent_frame, text=f"{params[key]*100:.0f}%", width=6, anchor="e")
-            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e", pady=0)
 
             def on_var(*_):
                 params[key] = max(0.0, min(1.0, float(var.get()) / 100.0))
@@ -133,7 +133,7 @@ def build_gui(
             gui_vars_numeric[key] = var
 
         def add_slider_float_track(row, label, key, from_, to_):
-            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=1)
+            ttk.Label(parent_frame, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=0)
             var = tk.DoubleVar(value=float(params[key]))
             scale = ttk.Scale(
                 parent_frame,
@@ -144,9 +144,9 @@ def build_gui(
                 command=lambda _v, k=key, _var=var: _var.set(float(_v)),
             )
             scale.set(float(params[key]))
-            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=1)
+            scale.grid(row=row, column=1, sticky="ew", padx=4, pady=0)
             lbl_val = ttk.Label(parent_frame, text=f"{params[key]:.1f}", width=6, anchor="e")
-            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e")
+            lbl_val.grid(row=row, column=2, padx=(0, 4), sticky="e", pady=0)
 
             def on_var(*_):
                 params[key] = max(float(from_), min(float(to_), float(var.get())))
@@ -195,8 +195,8 @@ def build_gui(
         return add_slider, add_slider_float, add_slider_float_track, add_slider_smin, add_slider_contrast
 
     # Blobbing Parameters frame
-    frm_blobbing = ttk.LabelFrame(content, text="Blobbing Parameters")
-    frm_blobbing.grid(row=2, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_blobbing = ttk.LabelFrame(content, text="Blobbing Parameters", padding=STANDARD_PADDING["small"])
+    frm_blobbing.grid(row=2, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     frm_blobbing.grid_columnconfigure(0, weight=0, minsize=130)
     frm_blobbing.grid_columnconfigure(1, weight=1, minsize=260)
     frm_blobbing.grid_columnconfigure(2, weight=0, minsize=56)
@@ -224,8 +224,8 @@ def build_gui(
     add_slider(row_blob, "Max Blob Width/Height (px)", "maxW", 1, 200); row_blob += 1
 
     # Pairing Parameters frame
-    frm_pairing = ttk.LabelFrame(content, text="Pairing Parameters")
-    frm_pairing.grid(row=3, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_pairing = ttk.LabelFrame(content, text="Pairing Parameters", padding=STANDARD_PADDING["small"])
+    frm_pairing.grid(row=3, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     frm_pairing.grid_columnconfigure(0, weight=0, minsize=130)
     frm_pairing.grid_columnconfigure(1, weight=1, minsize=260)
     frm_pairing.grid_columnconfigure(2, weight=0, minsize=56)
@@ -242,8 +242,8 @@ def build_gui(
     add_slider_smin_pair(row_pair); row_pair += 1
 
     # Tracking Parameters frame
-    frm_tracking = ttk.LabelFrame(content, text="Tracking Parameters")
-    frm_tracking.grid(row=4, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_tracking = ttk.LabelFrame(content, text="Tracking Parameters", padding=STANDARD_PADDING["small"])
+    frm_tracking.grid(row=4, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     frm_tracking.grid_columnconfigure(0, weight=0, minsize=130)
     frm_tracking.grid_columnconfigure(1, weight=1, minsize=260)
     frm_tracking.grid_columnconfigure(2, weight=0, minsize=56)
@@ -255,8 +255,8 @@ def build_gui(
     add_slider_track(row_track, "Max Misses Before Retire", "track_max_misses", 1, 30); row_track += 1
 
     # Pairing method
-    frm_method = ttk.LabelFrame(content, text="Pairing Method")
-    frm_method.grid(row=5, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_method = ttk.LabelFrame(content, text="Pairing Method", padding=STANDARD_PADDING["small"])
+    frm_method.grid(row=5, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     frm_method.grid_columnconfigure(0, weight=0)
     frm_method.grid_columnconfigure(1, weight=1)
 
@@ -299,8 +299,8 @@ def build_gui(
     widgets["cmb_pair_method"] = cmb
 
     # Overlay Targets
-    frm_target = ttk.LabelFrame(content, text="Overlay Targets")
-    frm_target.grid(row=6, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
+    frm_target = ttk.LabelFrame(content, text="Overlay Targets", padding=STANDARD_PADDING["small"])
+    frm_target.grid(row=6, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     frm_target.grid_columnconfigure((0, 1), weight=1)
 
     def add_target_check(col, text, key):
@@ -315,8 +315,8 @@ def build_gui(
     add_target_check(1, "Enable Binary", "enable_binary")
 
     # Overlays
-    frm_ov = ttk.LabelFrame(content, text="Overlays")
-    frm_ov.grid(row=7, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_ov = ttk.LabelFrame(content, text="Overlays", padding=STANDARD_PADDING["small"])
+    frm_ov.grid(row=7, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     for i in range(3):
         frm_ov.grid_columnconfigure(i, weight=1)
 
@@ -371,8 +371,8 @@ def build_gui(
     add_check(4, 0, "Real point", "show_real_point")
 
     # Preview Overlay section
-    frm_preview_ov = ttk.LabelFrame(content, text="Preview Overlay")
-    frm_preview_ov.grid(row=8, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
+    frm_preview_ov = ttk.LabelFrame(content, text="Preview Overlay", padding=STANDARD_PADDING["small"])
+    frm_preview_ov.grid(row=8, column=0, sticky="ew", padx=STANDARD_PADDING["small"], pady=(0, STANDARD_PADDING["small"]))
     for i in range(2):
         frm_preview_ov.grid_columnconfigure(i, weight=1)
 

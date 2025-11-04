@@ -10,6 +10,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python track_smoother.py
+set PYTHONPATH=%CD%
+python apps/track_smoother.py
 pause
 

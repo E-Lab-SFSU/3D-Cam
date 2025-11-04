@@ -18,7 +18,7 @@ def test_capture_raspi():
     """Test capture_raspi.py can be imported and GUI instantiated."""
     print("\nTesting capture_raspi.py...")
     try:
-        import capture_raspi
+        from apps import capture_raspi
         print("[OK] Module imported")
         
         # Check if CaptureApp class exists
@@ -35,7 +35,7 @@ def test_capture_windows():
     """Test capture_windows.py can be imported and GUI instantiated."""
     print("\nTesting capture_windows.py...")
     try:
-        import capture_windows
+        from apps import capture_windows
         print("[OK] Module imported")
         
         # Check if CaptureApp class exists
@@ -52,7 +52,7 @@ def test_calibrate_image():
     """Test calibrate_image.py can be imported."""
     print("\nTesting calibrate_image.py...")
     try:
-        import calibrate_image
+        from apps import calibrate_image
         print("[OK] Module imported")
         return True
     except Exception as e:
@@ -64,7 +64,7 @@ def test_calibrate_image_raspi():
     """Test calibrate_image_raspi.py can be imported."""
     print("\nTesting calibrate_image_raspi.py...")
     try:
-        import calibrate_image_raspi
+        from apps import calibrate_image_raspi
         print("[OK] Module imported")
         return True
     except Exception as e:
@@ -76,7 +76,7 @@ def test_calibrate_image_windows():
     """Test calibrate_image_windows.py can be imported."""
     print("\nTesting calibrate_image_windows.py...")
     try:
-        import calibrate_image_windows
+        from apps import calibrate_image_windows
         print("[OK] Module imported")
         return True
     except Exception as e:
@@ -88,7 +88,7 @@ def test_calibrate_video():
     """Test calibrate_video.py can be imported."""
     print("\nTesting calibrate_video.py...")
     try:
-        import calibrate_video
+        from apps import calibrate_video
         print("[OK] Module imported")
         
         # Check if VideoCalibrationApp class exists
@@ -105,7 +105,7 @@ def test_z_histogram():
     """Test z_histogram.py can be imported."""
     print("\nTesting z_histogram.py...")
     try:
-        import z_histogram
+        from apps import z_histogram
         print("[OK] Module imported")
         
         # Check if ZHistogramViewer class exists

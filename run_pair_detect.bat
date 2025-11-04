@@ -12,6 +12,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python pair_detect.py
+set PYTHONPATH=%CD%
+python apps/pair_detect.py
 pause
 

@@ -56,37 +56,34 @@ class TrackSmoother(Base3DVisualizer):
         self.show_smooth_var = tk.BooleanVar(value=True)
         self.show_spikes_var = tk.BooleanVar(value=True)
         
+        # Initialize smoothing window references
+        self.smoothing_window = None
+        self.metrics_text = None  # Will be created in smoothing window
+        
         # Initialize base class (this will call setup_ui() which may call update_plot())
         super().__init__(root, "Track Smoother and Cleaner", "1400x900")
         
         # Setup custom UI elements for smoothing (after base class setup)
-        self.setup_smoothing_ui()
+        # Use after() to ensure UI is fully initialized
+        self.root.after(100, self.setup_smoothing_ui)
     
     def setup_smoothing_ui(self):
         """Add button to open smoothing window in the custom section."""
-        # Add a button to open the smoothing window
-        smooth_button_frame = ttk.Frame(self.custom_section)
-        smooth_button_frame.pack(fill="x", pady=5)
-        ttk.Button(smooth_button_frame, text="Open Smoothing Controls", 
-                  command=self.open_smoothing_window).pack(pady=5, fill="x")
+        # Ensure custom_section exists (should always exist after base class init)
+        if not hasattr(self, 'custom_section') or self.custom_section is None:
+            print("[WARN] custom_section not available, skipping smoothing UI setup")
+            return
         
-        # Display options specific to smoothing (keep in main window for quick access)
-        display_orig_frame = ttk.LabelFrame(self.custom_section, text="Smoothing Display", padding="10")
-        display_orig_frame.pack(fill="x", pady=5)
-        
-        # Variables are already initialized in __init__, just create the UI widgets
-        ttk.Checkbutton(display_orig_frame, text="Show Original", variable=self.show_orig_var,
-                       command=self.update_plot).pack(anchor="w")
-        
-        ttk.Checkbutton(display_orig_frame, text="Show Smoothed", variable=self.show_smooth_var,
-                       command=self.update_plot).pack(anchor="w")
-        
-        ttk.Checkbutton(display_orig_frame, text="Show Detected Spikes", variable=self.show_spikes_var,
-                       command=self.update_plot).pack(anchor="w")
-        
-        # Initialize smoothing window reference
-        self.smoothing_window = None
-        self.metrics_text = None  # Will be created in smoothing window
+        try:
+            # Add a button to open the smoothing window
+            smooth_button_frame = ttk.Frame(self.custom_section)
+            smooth_button_frame.pack(fill="x", pady=5)
+            ttk.Button(smooth_button_frame, text="Open Smoothing Controls", 
+                      command=self.open_smoothing_window).pack(pady=5, fill="x")
+        except Exception as e:
+            print(f"[WARN] Failed to setup smoothing UI: {e}")
+            import traceback
+            traceback.print_exc()
     
     def open_smoothing_window(self):
         """Open a separate window for smoothing controls."""
@@ -102,7 +99,7 @@ class TrackSmoother(Base3DVisualizer):
             # Create new window
             self.smoothing_window = tk.Toplevel(self.root)
             self.smoothing_window.title("Track Smoothing Controls")
-            self.smoothing_window.geometry("400x650")
+            self.smoothing_window.geometry("400x750")
             self.smoothing_window.transient(self.root)
             
             # Handle window close
@@ -167,6 +164,20 @@ class TrackSmoother(Base3DVisualizer):
             
             # Apply button
             ttk.Button(smooth_frame, text="Apply Smoothing", command=self.apply_smoothing).pack(pady=10, fill="x")
+            
+            # Display options specific to smoothing
+            display_frame = ttk.LabelFrame(main_frame, text="Smoothing Display", padding="10")
+            display_frame.pack(fill="x", pady=5)
+            
+            # Variables are already initialized in __init__, just create the UI widgets
+            ttk.Checkbutton(display_frame, text="Show Original", variable=self.show_orig_var,
+                           command=self.update_plot).pack(anchor="w")
+            
+            ttk.Checkbutton(display_frame, text="Show Smoothed", variable=self.show_smooth_var,
+                           command=self.update_plot).pack(anchor="w")
+            
+            ttk.Checkbutton(display_frame, text="Show Detected Spikes", variable=self.show_spikes_var,
+                           command=self.update_plot).pack(anchor="w")
             
             # Smoothness metrics
             metrics_frame = ttk.LabelFrame(main_frame, text="Smoothness Metrics", padding="10")
@@ -732,6 +743,10 @@ class TrackSmoother(Base3DVisualizer):
     
     def update_plot(self):
         """Override to show original, smoothed, and spikes."""
+        # Check if plot window is open
+        if not self.ax or not self.plot_window:
+            return
+        
         self.ax.clear()
         
         # If original_data is empty but self.data exists (initial load), initialize from self.data

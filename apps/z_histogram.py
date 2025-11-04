@@ -25,13 +25,13 @@ from typing import List, Optional
 from datetime import datetime
 import os
 
-from lib.gui import apply_standard_theme, format_window_title, get_standard_size, ScrollableFrame
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
 
 
 class ZHistogramViewer:
     def __init__(self, root):
         self.root = root
-        width, height = get_standard_size("large")
+        width, height = get_standard_size("medium")
         self.root.geometry(f"{width}x{height}")
         self.root.title(format_window_title("Z Height Histogram"))
         apply_standard_theme(self.root)
@@ -52,39 +52,37 @@ class ZHistogramViewer:
     
     def setup_ui(self):
         """Create the user interface."""
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
+        from lib.gui import STANDARD_PADDING
+        
+        # Main container - controls only
+        main_frame = ttk.Frame(self.root, padding=STANDARD_PADDING["medium"])
         main_frame.pack(fill="both", expand=True)
         
-        # Left panel - controls (scrollable)
-        left_panel = ScrollableFrame(main_frame, width=250)
-        left_panel.pack(side="left", fill="y", padx=(0, 10))
+        # Left panel - controls (no scrolling)
+        left_panel = ttk.Frame(main_frame, width=250)
+        left_panel.pack(side="left", fill="y", padx=(0, STANDARD_PADDING["medium"]))
         left_panel.pack_propagate(False)
-        left_content = left_panel.inner_frame
         
         # Load button
-        ttk.Button(left_content, text="Load CSV File", command=self.load_csv).pack(pady=5, fill="x")
+        ttk.Button(left_panel, text="Load CSV File", command=self.load_csv).pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
         
         # File label
-        self.file_label = ttk.Label(left_content, text="No file loaded", wraplength=230)
-        self.file_label.pack(pady=5)
+        self.file_label = ttk.Label(left_panel, text="No file loaded", wraplength=230, font=("TkDefaultFont", 8))
+        self.file_label.pack(pady=(0, STANDARD_PADDING["small"]))
         
         # Dataset specs display (scientific device info)
-        specs_frame = ttk.LabelFrame(left_content, text="Dataset Specifications", padding="10")
-        specs_frame.pack(fill="x", pady=5)
-        self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=230, justify="left", font=("Courier", 8))
+        specs_frame = ttk.LabelFrame(left_panel, text="Dataset Specifications", padding=STANDARD_PADDING["small"])
+        specs_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
+        self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=230, justify="left", font=("Courier", 7))
         self.specs_label.pack()
         
-        # Separator
-        ttk.Separator(left_content, orient="horizontal").pack(fill="x", pady=10)
-        
         # Histogram settings
-        settings_frame = ttk.LabelFrame(left_content, text="Histogram Settings", padding="10")
-        settings_frame.pack(fill="x", pady=5)
+        settings_frame = ttk.LabelFrame(left_panel, text="Histogram Settings", padding=STANDARD_PADDING["small"])
+        settings_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
         
         # Bin count control
         bin_frame = ttk.Frame(settings_frame)
-        bin_frame.pack(fill="x", pady=5)
+        bin_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
         ttk.Label(bin_frame, text="Bins:").pack(side="left")
         self.bin_var = tk.IntVar(value=50)
         bin_scale = ttk.Scale(
@@ -108,55 +106,94 @@ class ZHistogramViewer:
             variable=self.log_y_var,
             command=self.on_log_y_changed
         )
-        log_y_check.pack(fill="x", pady=5)
+        log_y_check.pack(fill="x")
         
         # Statistics display
-        stats_frame = ttk.LabelFrame(left_content, text="Statistics", padding="10")
-        stats_frame.pack(fill="x", pady=5)
+        stats_frame = ttk.LabelFrame(left_panel, text="Statistics", padding=STANDARD_PADDING["small"])
+        stats_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
         
         self.stats_label = ttk.Label(
             stats_frame,
             text="No data loaded",
             wraplength=230,
-            justify="left"
+            justify="left",
+            font=("TkDefaultFont", 8)
         )
         self.stats_label.pack()
         
         # Info display
-        info_frame = ttk.LabelFrame(left_content, text="Info", padding="10")
-        info_frame.pack(fill="x", pady=5)
+        info_frame = ttk.LabelFrame(left_panel, text="Info", padding=STANDARD_PADDING["small"])
+        info_frame.pack(fill="x", pady=(0, STANDARD_PADDING["small"]))
         
         self.info_label = ttk.Label(
             info_frame,
             text="No data loaded",
             wraplength=230,
-            justify="left"
+            justify="left",
+            font=("TkDefaultFont", 8)
         )
         self.info_label.pack()
         
         # Export button
-        export_frame = ttk.LabelFrame(left_content, text="Export", padding="10")
-        export_frame.pack(fill="x", pady=5)
-        ttk.Button(export_frame, text="Save Histogram Image", command=self.save_image).pack(pady=5, fill="x")
+        export_frame = ttk.LabelFrame(left_panel, text="Export", padding=STANDARD_PADDING["small"])
+        export_frame.pack(fill="x")
+        ttk.Button(export_frame, text="Save Histogram Image", command=self.save_image).pack(fill="x")
         
-        # Right panel - histogram plot
-        right_panel = ttk.Frame(main_frame)
-        right_panel.pack(side="right", fill="both", expand=True)
+        # Open plot window button
+        plot_btn_frame = ttk.LabelFrame(left_panel, text="Plot", padding=STANDARD_PADDING["small"])
+        plot_btn_frame.pack(fill="x", pady=(STANDARD_PADDING["small"], 0))
+        ttk.Button(plot_btn_frame, text="Open Histogram Plot", command=self.open_plot_window).pack(fill="x")
+        
+        # Initialize plot window reference
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
+        
+        # Initial empty plot
+        self.update_histogram()
+    
+    def open_plot_window(self):
+        """Open histogram plot in a separate window."""
+        if self.plot_window is not None:
+            try:
+                self.plot_window.lift()
+                self.plot_window.focus_force()
+                return
+            except:
+                self.plot_window = None
+        
+        # Create new window for plot
+        self.plot_window = tk.Toplevel(self.root)
+        self.plot_window.title("Z Height Histogram")
+        self.plot_window.geometry("800x600")
+        self.plot_window.transient(self.root)
+        
+        # Handle window close
+        self.plot_window.protocol("WM_DELETE_WINDOW", self.on_plot_window_close)
         
         # Create matplotlib figure
         self.fig = Figure(figsize=(8, 6), dpi=100)
         self.ax = self.fig.add_subplot(111)
         
-        self.canvas = FigureCanvasTkAgg(self.fig, right_panel)
+        # Create canvas
+        self.canvas = FigureCanvasTkAgg(self.fig, self.plot_window)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         
         # Add matplotlib toolbar
-        toolbar = NavigationToolbar2Tk(self.canvas, right_panel)
+        toolbar = NavigationToolbar2Tk(self.canvas, self.plot_window)
         toolbar.update()
         
-        # Initial empty plot
+        # Update plot
         self.update_histogram()
+    
+    def on_plot_window_close(self):
+        """Handle plot window close."""
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
     
     def on_bin_count_changed(self, value=None):
         """Handle bin count change."""
@@ -171,24 +208,8 @@ class ZHistogramViewer:
     
     def auto_load_latest_csv(self):
         """Automatically load the latest CSV file from inputs_outputs."""
-        output_dir = Path("inputs_outputs")
-        if not output_dir.exists():
-            return
-        
-        # Find all CSV files in inputs_outputs subdirectories
-        csv_files = list(output_dir.rglob("*.csv"))
-        if not csv_files:
-            return
-        
-        # Sort by modification time (newest first)
-        csv_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        latest_csv = csv_files[0]
-        
-        # Try to load it
-        try:
-            self.load_csv_file(str(latest_csv))
-        except Exception as e:
-            print(f"Failed to auto-load {latest_csv}: {e}")
+        from lib.util import auto_load_latest_csv
+        auto_load_latest_csv(self.load_csv_file)
     
     def load_csv(self):
         """Open file dialog to load CSV file."""
@@ -365,6 +386,9 @@ class ZHistogramViewer:
     
     def update_histogram(self):
         """Update the histogram plot."""
+        if not self.ax or not self.plot_window:
+            return
+        
         self.ax.clear()
         
         if not self.z_values:
@@ -418,6 +442,10 @@ class ZHistogramViewer:
         """Save histogram as image file."""
         if not self.z_values:
             messagebox.showwarning("No Data", "Please load a CSV file first.")
+            return
+        
+        if not self.fig:
+            messagebox.showwarning("No Plot", "Please open the plot window first.")
             return
         
         # Generate filename based on CSV filename and save in same folder as CSV

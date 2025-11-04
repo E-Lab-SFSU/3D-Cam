@@ -10,6 +10,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python calibrate_video.py
+set PYTHONPATH=%CD%
+python apps/calibrate_video.py
 pause
 

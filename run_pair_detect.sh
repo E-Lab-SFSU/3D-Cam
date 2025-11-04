@@ -9,5 +9,6 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python pair_detect.py
+export PYTHONPATH=$(pwd)
+python apps/pair_detect.py
 

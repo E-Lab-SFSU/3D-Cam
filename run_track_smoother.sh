@@ -8,5 +8,6 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python track_smoother.py
+export PYTHONPATH=$(pwd)
+python apps/track_smoother.py
 

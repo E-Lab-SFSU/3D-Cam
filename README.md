@@ -16,39 +16,39 @@ This project implements a cost-effective alternative to multi-camera stereo visi
 
 The system consists of several components:
 
-1. **Video Capture** (`capture_raspi.py`, `capture_windows.py`): Record video from USB cameras
-2. **Image Calibration** (`calibrate_image_windows.py`, `calibrate_image_raspi.py`): Determine pixels-per-millimeter scale (platform-specific versions)
-3. **Pair Detection** (`pair_detect.py`): Detect and track particle pairs in video
-4. **Video Calibration** (`calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
-5. **Track Smoothing** (`track_smoother.py`): Smooth and clean trajectories, remove spikes
-6. **3D Visualization** (`visualize3d.py`): Visualize 3D trajectories interactively
-7. **Z Height Histogram** (`z_histogram.py`): Analyze and visualize Z height distribution
+1. **Video Capture** (`apps/capture_raspi.py`, `apps/capture_windows.py`): Record video from USB cameras
+2. **Image Calibration** (`apps/calibrate_image_windows.py`, `apps/calibrate_image_raspi.py`): Determine pixels-per-millimeter scale (platform-specific versions)
+3. **Pair Detection** (`apps/pair_detect.py`): Detect and track particle pairs in video
+4. **Video Calibration** (`apps/calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
+5. **Track Smoothing** (`apps/track_smoother.py`): Smooth and clean trajectories, remove spikes
+6. **3D Visualization** (`apps/visualize3d.py`): Visualize 3D trajectories interactively
+7. **Z Height Histogram** (`apps/z_histogram.py`): Analyze and visualize Z height distribution
 
 ## Tools Summary
 
 ### Core Processing Tools
 
-- **`pair_detect.py`** - Main pair detection and tracking tool. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata.
+- **`apps/pair_detect.py`** - Main pair detection and tracking tool. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata.
 
-- **`calibrate_image_windows.py`** / **`calibrate_image_raspi.py`** - Image scale calibration tool (platform-specific versions). Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements. The Windows version uses direct synchronous updates, while the Raspberry Pi version uses async updates to prevent GUI freezing.
+- **`apps/calibrate_image_windows.py`** / **`apps/calibrate_image_raspi.py`** - Image scale calibration tool (platform-specific versions). Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements. The Windows version uses direct synchronous updates, while the Raspberry Pi version uses async updates to prevent GUI freezing.
 
-- **`calibrate_video.py`** - Z-height calibration tool. Uses CSV files from pair detection at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights. Automatically saves calibration files.
+- **`apps/calibrate_video.py`** - Z-height calibration tool. Uses CSV files from pair detection at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights. Automatically saves calibration files.
 
 ### Post-Processing Tools
 
-- **`track_smoother.py`** - Track smoothing and cleaning tool. Removes spikes, applies smoothing filters, and compares original vs smoothed trajectories interactively.
+- **`apps/track_smoother.py`** - Track smoothing and cleaning tool. Removes spikes, applies smoothing filters, and compares original vs smoothed trajectories interactively.
 
 ### Visualization Tools
 
-- **`visualize3d.py`** - Interactive 3D trajectory visualizer. Displays particle trajectories in 3D space with time scrubbing, track selection, trail visualization, and video export capabilities.
+- **`apps/visualize3d.py`** - Interactive 3D trajectory visualizer. Displays particle trajectories in 3D space with time scrubbing, track selection, trail visualization, and video export capabilities.
 
-- **`z_histogram.py`** - Z height distribution analyzer. Creates histograms showing the frequency distribution of Z heights with logarithmic scale, adjustable bins, and statistical summaries (mean, median, standard deviation).
+- **`apps/z_histogram.py`** - Z height distribution analyzer. Creates histograms showing the frequency distribution of Z heights with logarithmic scale, adjustable bins, and statistical summaries (mean, median, standard deviation).
 
 ### Capture Tools
 
-- **`capture_raspi.py`** - Raspberry Pi video capture application for recording videos from UVC cameras.
+- **`apps/capture_raspi.py`** - Raspberry Pi video capture application for recording videos from UVC cameras.
 
-- **`capture_windows.py`** - Windows video capture application for recording videos from USB cameras.
+- **`apps/capture_windows.py`** - Windows video capture application for recording videos from USB cameras.
 
 ## Quick Start
 
@@ -121,7 +121,7 @@ If you prefer to set up manually, see the [Setup Instructions](#setup-instructio
 #### On Raspberry Pi:
 ```bash
 ./run_capture_raspi.sh
-# Or manually: python capture_raspi.py
+# Or manually: python apps/capture_raspi.py
 ```
 - UVC cameras are tested and supported
 - PiCamera support coming soon
@@ -129,7 +129,7 @@ If you prefer to set up manually, see the [Setup Instructions](#setup-instructio
 #### On Windows:
 ```bash
 run_capture_windows.bat
-# Or manually: python capture_windows.py
+# Or manually: python apps/capture_windows.py
 ```
 
 **Procedure:**
@@ -150,7 +150,7 @@ run_capture_windows.bat
 
 # Windows:
 run_calibrate_image.bat
-# Or manually: python calibrate_image_windows.py
+# Or manually: python apps/calibrate_image_windows.py
 ```
 
 **Purpose:** Determine the pixels-per-millimeter (px/mm) scale and working distance.
@@ -195,7 +195,7 @@ where:
 
 # Windows:
 run_pair_detect.bat
-# Or manually: python pair_detect.py
+# Or manually: python apps/pair_detect.py
 ```
 
 **Purpose:** Detect particle pairs (direct view + mirror reflection) and track them through the video.
@@ -360,7 +360,7 @@ The system uses a sophisticated multi-frame tracking algorithm that maintains st
 
 # Windows:
 run_calibrate_video.bat
-# Or manually: python calibrate_video.py
+# Or manually: python apps/calibrate_video.py
 ```
 
 **Purpose:** Calibrate the Z-height measurement by using videos of objects at known heights. You need at least 2 videos at different Z heights to perform linear regression.
@@ -429,7 +429,7 @@ The system uses a two-stage calibration process:
 
 # Windows:
 run_track_smoother.bat
-# Or manually: python track_smoother.py
+# Or manually: python apps/track_smoother.py
 ```
 
 **Purpose:** Smooth trajectories and remove noise spikes from tracking data.
@@ -457,7 +457,7 @@ run_track_smoother.bat
 
 # Windows:
 run_visualize3d.bat
-# Or manually: python visualize3d.py
+# Or manually: python apps/visualize3d.py
 ```
 
 **Purpose:** Interactively visualize 3D trajectories from processed pair data.
@@ -529,7 +529,7 @@ The coordinate calculation happens in two stages:
 
 # Windows:
 run_z_histogram.bat
-# Or manually: python z_histogram.py
+# Or manually: python apps/z_histogram.py
 ```
 
 **Purpose:** Analyze and visualize the distribution of Z heights in your tracked data.
@@ -768,7 +768,7 @@ chmod +x setup_venv.sh
 source venv/bin/activate
 
 # Now you can run scripts manually
-python visualize3d.py
+python apps/visualize3d.py
 ```
 
 **Windows:**

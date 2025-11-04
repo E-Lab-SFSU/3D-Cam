@@ -8,5 +8,6 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python z_histogram.py
+export PYTHONPATH=$(pwd)
+python apps/z_histogram.py
 

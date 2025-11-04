@@ -6,6 +6,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
-python calibrate_image_windows.py
+$env:PYTHONPATH = $PWD
+python apps/calibrate_image_windows.py
 Read-Host "Press Enter to exit"
 

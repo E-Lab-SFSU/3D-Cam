@@ -23,6 +23,7 @@ from lib.capture import (
     make_capture_output_path, make_capture_frame_path,
     set_camera_control, get_camera_control_range,  # For V4L2
 )
+from lib.gui import apply_standard_theme
 
 
 class BaseCaptureApp(ABC):
@@ -53,6 +54,7 @@ class BaseCaptureApp(ABC):
         self.root.title(self.get_window_title())
         width, height = self.get_window_size()
         self.root.geometry(f"{width}x{height}")
+        apply_standard_theme(self.root)
         
         # Camera state
         self.cam: Optional[Camera] = None
@@ -231,7 +233,7 @@ class BaseCaptureApp(ABC):
         self.open_camera_btn.pack(fill=tk.X, pady=(4, 0))
         
         # Camera controls (stacked sliders) - platform-specific
-        self.param_frame = ttk.LabelFrame(ctrl, text="Controls", padding="3")
+        self.param_frame = ttk.LabelFrame(ctrl, text="Camera Controls", padding="3")
         self.param_frame.pack(fill=tk.X, pady=(0, 4))
         self._build_camera_controls()
         
@@ -240,14 +242,14 @@ class BaseCaptureApp(ABC):
         btn_frame.pack(fill=tk.X, pady=(0, 4))
         
         # Record/Stop Record button
-        self.record_btn = ttk.Button(btn_frame, text="Record", command=self.toggle_record)
+        self.record_btn = ttk.Button(btn_frame, text="🎬 Record", command=self.toggle_record)
         self.record_btn.pack(fill=tk.X, pady=(0, 2))
         
         # Capture Frame button
-        ttk.Button(btn_frame, text="Capture Frame", command=self.capture_frame).pack(fill=tk.X, pady=(0, 2))
+        ttk.Button(btn_frame, text="📸 Capture Frame", command=self.capture_frame).pack(fill=tk.X, pady=(0, 2))
         
         # Reset Controls button
-        ttk.Button(btn_frame, text="Reset Controls", command=self.reset_controls).pack(fill=tk.X, pady=(0, 2))
+        ttk.Button(btn_frame, text="🔄 Reset Controls", command=self.reset_controls).pack(fill=tk.X, pady=(0, 2))
         
         # Exit button
         ttk.Button(btn_frame, text="Exit", command=self.on_close).pack(fill=tk.X)

@@ -10,6 +10,7 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python calibrate_image_windows.py
+set PYTHONPATH=%CD%
+python apps/calibrate_image_windows.py
 pause
 

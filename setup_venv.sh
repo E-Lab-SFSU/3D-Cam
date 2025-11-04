@@ -96,5 +96,5 @@ echo "To deactivate, run:"
 echo "  deactivate"
 echo ""
 echo "You can now run your scripts while the virtual environment is active:"
-echo "  python visualize3d.py"
+echo "  python apps/visualize3d.py"
 

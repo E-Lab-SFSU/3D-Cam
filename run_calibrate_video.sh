@@ -8,5 +8,6 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python calibrate_video.py
+export PYTHONPATH=$(pwd)
+python apps/calibrate_video.py
 

@@ -15,7 +15,8 @@ Write-Host "Activating virtual environment..." -ForegroundColor Cyan
 & "venv\Scripts\Activate.ps1"
 
 Write-Host "Running visualize3d.py..." -ForegroundColor Cyan
-python visualize3d.py
+$env:PYTHONPATH = $PWD
+python apps/visualize3d.py
 
 Read-Host "Press Enter to exit"
 
