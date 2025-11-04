@@ -1,0 +1,29 @@
+{
+  "csv_file": "video_640x480_30fps_20251103_175547-paired-tracked-1.csv",
+  "video_path": "C:/Users/mattc/OneDrive/Desktop/3D-Cam/inputs_outputs/video_640x480_30fps_20251103_175547\\video_640x480_30fps_20251103_175547.mp4",
+  "exported_at": "2025-11-03T18:37:53.365112",
+  "video_specs": {
+    "frame_width_px": 640,
+    "frame_height_px": 480,
+    "frame_count": 247,
+    "fps": 30.0
+  },
+  "optical_center": {
+    "x": 272,
+    "y": 212,
+    "valid": true
+  },
+  "processing_params": {
+    "threshold": 110,
+    "blur": 1,
+    "min_area": 4,
+    "max_area": 5000,
+    "pair_method": "Hungarian"
+  },
+  "calibration": {
+    "magic_constant": 0.69968447333975,
+    "magic_offset": 0.047173375927419874,
+    "working_distance_mm": 110.66912507024917,
+    "pixels_per_mm": null
+  }
+}

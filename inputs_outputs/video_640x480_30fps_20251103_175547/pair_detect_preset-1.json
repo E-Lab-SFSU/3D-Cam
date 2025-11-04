@@ -1,0 +1,55 @@
+{
+  "params": {
+    "threshold": 110,
+    "blur": 1,
+    "invert_threshold": 0,
+    "minArea": 4,
+    "maxArea": 5000,
+    "maxW": 100,
+    "maxRadGap": 71,
+    "maxDMR": 10,
+    "maxCenterOff": 15,
+    "w_theta": 0.35,
+    "w_area": 0.35,
+    "w_center": 0.3,
+    "Smin": 0.1,
+    "pair_method": "Hungarian",
+    "track_max_match_dist": 25.0,
+    "track_max_misses": 10,
+    "bg_alpha": 0.95,
+    "bg_static_thresh": 6,
+    "bg_min_static_ratio": 0.8,
+    "contrast": 100
+  },
+  "overlays": {
+    "show_blobs": 1,
+    "show_center": 1,
+    "show_pair_center": 0,
+    "show_lines": 1,
+    "show_rays": 1,
+    "show_pair_points": 0,
+    "label_mode": "Random",
+    "show_text_labels": 0,
+    "show_z_value": 0,
+    "show_xy_values": 0,
+    "show_real_point": 1,
+    "show_current_stats": 0,
+    "show_total_stats": 1
+  },
+  "overlay_targets": {
+    "enable_tracked": 1,
+    "enable_binary": 0
+  },
+  "center": {
+    "x": 272,
+    "y": 212,
+    "valid": true
+  },
+  "video_path": "C:/Users/mattc/OneDrive/Desktop/3D-Cam/inputs_outputs/video_640x480_30fps_20251103_175547\\video_640x480_30fps_20251103_175547.mp4",
+  "calibration": {
+    "magic_constant": 0.69968447333975,
+    "magic_offset": 0.047173375927419874,
+    "working_distance_mm": 110.66912507024917,
+    "pixels_per_mm": null
+  }
+}

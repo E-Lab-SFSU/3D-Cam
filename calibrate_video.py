@@ -792,6 +792,39 @@ class VideoCalibrationApp:
         self.viz_ax.set_zlabel(z_label)
         self.viz_ax.set_title('Calibration Pairs Visualization\n(Bright trails = Selected pairs)')
         
+        # Update chart limits based on all data points
+        # Collect all x, y, z values from all tracks
+        all_xs = []
+        all_ys = []
+        all_zs = []
+        for csv_name in csv_names:
+            data = self.viz_data[csv_name]
+            for track_id, points in data.items():
+                if points:
+                    for p in points:
+                        all_xs.append(p[1])  # x coordinate
+                        all_ys.append(p[2])  # y coordinate
+                        all_zs.append(p[3])  # z coordinate
+        
+        # Set axis limits if we have data
+        if all_xs and all_ys and all_zs:
+            x_min, x_max = min(all_xs), max(all_xs)
+            y_min, y_max = min(all_ys), max(all_ys)
+            z_min, z_max = min(all_zs), max(all_zs)
+            
+            # Add small padding to limits (5% of range)
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            z_range = z_max - z_min
+            
+            x_padding = x_range * 0.05 if x_range > 0 else 1.0
+            y_padding = y_range * 0.05 if y_range > 0 else 1.0
+            z_padding = z_range * 0.05 if z_range > 0 else 1.0
+            
+            self.viz_ax.set_xlim(x_min - x_padding, x_max + x_padding)
+            self.viz_ax.set_ylim(y_min - y_padding, y_max + y_padding)
+            self.viz_ax.set_zlim(z_min - z_padding, z_max + z_padding)
+        
         # Add legend if not too many tracks
         handles, labels = self.viz_ax.get_legend_handles_labels()
         if handles and len(handles) <= 20:
