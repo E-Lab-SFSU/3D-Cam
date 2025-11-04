@@ -1,6 +1,6 @@
 {
   "params": {
-    "threshold": 27,
+    "threshold": 110,
     "blur": 1,
     "invert_threshold": 0,
     "minArea": 4,
@@ -45,8 +45,11 @@
     "y": 217,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z3mm_objects\\z3mm_objects.mp4",
+  "video_path": "C:/Users/mattc/OneDrive/Desktop/3D-Cam/inputs_outputs/video_640x480_30fps_20251103_175547\\video_640x480_30fps_20251103_175547.mp4",
   "calibration": {
-    "pixels_per_mm": 39.85
+    "magic_constant": 0.69968447333975,
+    "magic_offset": 0.047173375927419874,
+    "working_distance_mm": 110.66912507024917,
+    "pixels_per_mm": null
   }
 }
