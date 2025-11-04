@@ -23,12 +23,17 @@ from typing import Optional, Tuple
 # Global state
 image_path: Optional[str] = None
 image: Optional[np.ndarray] = None
-image_original: Optional[np.ndarray] = None  # Store original unmodified image
+image_original: Optional[np.ndarray] = None  # Store original unmodified image  
 points: list = []  # Store clicked points
 window_name = "Image Calibration - Click Two Points"
 mm_measurement: Optional[float] = None
 pixels_per_mm: Optional[float] = None
 current_display_size = None  # (width, height) of current display window
+window_initialized = False  # Track if window has been initialized
+user_resizing = False  # Track if user is manually resizing
+current_scale_x = 1.0  # Current scale factor for X (display to original)
+current_scale_y = 1.0  # Current scale factor for Y (display to original)
+last_window_size = None  # Track last known window size to detect changes
 
 # Camera parameters with defaults
 DEFAULT_FOCAL_LENGTH_MM = 16.0
@@ -42,7 +47,7 @@ def get_display_size(image_shape, max_width=1920, max_height=1080):
     Calculate display size maintaining aspect ratio.
     
     Args:
-        image_shape: (height, width) or (height, width, channels) of the image
+        image_shape: (height, width) or (height, width, channels) of the image  
         max_width: Maximum display width
         max_height: Maximum display height
     
@@ -75,9 +80,44 @@ def get_display_size(image_shape, max_width=1920, max_height=1080):
     return (display_width, display_height)
 
 
+def resize_image_to_fit(image, target_width, target_height):
+    """
+    Resize image to fit within target dimensions while maintaining aspect ratio.
+    
+    Args:
+        image: Input image (numpy array)
+        target_width: Target width
+        target_height: Target height
+    
+    Returns:
+        Resized image and scale factor
+    """
+    img_height, img_width = image.shape[:2]
+    img_aspect = img_width / img_height
+    target_aspect = target_width / target_height
+    
+    if img_aspect > target_aspect:
+        # Image is wider - fit to width
+        new_width = target_width
+        new_height = int(target_width / img_aspect)
+    else:
+        # Image is taller - fit to height
+        new_height = target_height
+        new_width = int(target_height * img_aspect)
+    
+    if new_width > 0 and new_height > 0:
+        resized = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        scale_x = new_width / img_width
+        scale_y = new_height / img_height
+        return resized, scale_x, scale_y
+    else:
+        return image, 1.0, 1.0
+
+
 def update_display():
     """Update the display with current image and points."""
-    global image, image_original, window_name, current_display_size
+    global image, image_original, window_name, current_display_size, window_initialized
+    global current_scale_x, current_scale_y, last_window_size
     
     if image_original is None:
         return
@@ -85,7 +125,7 @@ def update_display():
     # Start with a copy of the original
     image = image_original.copy()
     
-    # Draw existing points and line if applicable
+    # Draw existing points and line if applicable (in original image coordinates)
     if len(points) >= 1:
         cv2.circle(image, points[0], 5, (0, 255, 0), -1)
         cv2.putText(image, "Point 1", (points[0][0] + 10, points[0][1] - 10),
@@ -105,30 +145,74 @@ def update_display():
                     (points[0][1] + points[1][1]) // 2 - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
-    # Calculate display size maintaining aspect ratio
-    display_width, display_height = get_display_size(image.shape)
-    current_display_size = (display_width, display_height)
-    
-    # Resize window to maintain aspect ratio (only if size changed or first time)
+    # Get current window size (if window exists)
+    win_width, win_height = get_display_size(image.shape)  # Default to calculated size
     try:
-        cv2.resizeWindow(window_name, display_width, display_height)
-    except cv2.error:
-        # Window might not exist yet, will be created by imshow
+        # Try to get current window size
+        # getWindowImageRect returns (x, y, width, height) of the image area in the window
+        window_prop = cv2.getWindowImageRect(window_name)
+        if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
+            # Window exists and has valid size
+            win_width = window_prop[2]
+            win_height = window_prop[3]
+    except (cv2.error, AttributeError, IndexError):
+        # Window doesn't exist yet, error getting size, or invalid return value
+        # Use calculated size as fallback
         pass
     
+    # Only resize window programmatically on first initialization
+    if not window_initialized:
+        display_width, display_height = get_display_size(image.shape)
+        try:
+            cv2.resizeWindow(window_name, display_width, display_height)
+            current_display_size = (display_width, display_height)
+            last_window_size = (display_width, display_height)
+            window_initialized = True
+        except cv2.error:
+            # Window might not exist yet, will be created by imshow
+            pass
+    
+    # Resize image to fit current window size while maintaining aspect ratio
+    # This ensures the image always fills the window properly (fixes Linux black background issue)
+    display_image, scale_x, scale_y = resize_image_to_fit(image, win_width, win_height)
+    
+    # Store scale factors for mouse coordinate conversion
+    current_scale_x = scale_x
+    current_scale_y = scale_y
+    
+    # Update last known window size to prevent unnecessary updates
+    last_window_size = (win_width, win_height)
+    
     # Show image and process window events (required for Raspberry Pi)
-    cv2.imshow(window_name, image)
+    cv2.imshow(window_name, display_image)
     cv2.waitKey(1)  # Process window events - crucial for Raspberry Pi compatibility
 
 
 def mouse_callback(event, x, y, flags, param):
     """Handle mouse clicks to select two points."""
-    global points
+    global points, current_scale_x, current_scale_y
     
     if event == cv2.EVENT_LBUTTONDOWN:
         if len(points) < 2:
-            points.append((x, y))
-            print(f"[INFO] Point {len(points)} selected: ({x}, {y})")
+            # Convert coordinates from scaled display image to original image coordinates
+            # Mouse coordinates are in the displayed/scaled image coordinate system
+            # Safety check to avoid division by zero
+            if current_scale_x > 0 and current_scale_y > 0:
+                original_x = int(x / current_scale_x)
+                original_y = int(y / current_scale_y)
+            else:
+                # Fallback if scale factors are invalid
+                original_x = x
+                original_y = y
+            
+            # Clamp to image bounds
+            if image_original is not None:
+                img_height, img_width = image_original.shape[:2]
+                original_x = max(0, min(original_x, img_width - 1))
+                original_y = max(0, min(original_y, img_height - 1))
+            
+            points.append((original_x, original_y))
+            print(f"[INFO] Point {len(points)} selected: ({original_x}, {original_y}) (display: {x}, {y})")
             
             # Update display with new point
             update_display()
@@ -136,7 +220,7 @@ def mouse_callback(event, x, y, flags, param):
 
 def load_image():
     """Load an image file."""
-    global image_path, image, image_original, points
+    global image_path, image, image_original, points, window_initialized
 
     file_path = filedialog.askopenfilename(
         title="Select Image",
@@ -156,8 +240,9 @@ def load_image():
         messagebox.showerror("Error", f"Could not load image: {file_path}")     
         return
 
-    # Reset points
+    # Reset points and window initialization flag
     points = []
+    window_initialized = False
 
     # Destroy existing window if it exists (for clean restart)
     try:
@@ -177,8 +262,9 @@ def load_image():
     # Initial display update (this will set window size and show image)
     update_display()
     
-    # Additional waitKey to ensure window is fully rendered (important for Raspberry Pi)
+    # Additional waitKey calls to ensure window is fully rendered (important for Raspberry Pi)
     cv2.waitKey(1)
+    cv2.waitKey(1)  # Extra call for Linux/raspberry Pi
 
     print(f"[INFO] Image loaded: {file_path}")
     print(f"[INFO] Image size: {image_original.shape[1]}x{image_original.shape[0]} pixels")
@@ -322,6 +408,29 @@ def reset_points():
             messagebox.showerror("Error", f"Could not reload image: {image_path}")
 
 
+def periodic_display_update():
+    """Periodically update display to handle window resizing."""
+    global window_initialized, image_original, last_window_size
+    
+    # Only update if window is initialized and image is loaded
+    if window_initialized and image_original is not None:
+        try:
+            # Check if window still exists and get its size
+            window_prop = cv2.getWindowImageRect(window_name)
+            if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
+                current_size = (window_prop[2], window_prop[3])
+                # Only update if window size has changed
+                if last_window_size != current_size:
+                    last_window_size = current_size
+                    update_display()
+        except (cv2.error, AttributeError, IndexError):
+            # Window doesn't exist or error, ignore
+            pass
+    
+    # Schedule next update (every 200ms to reduce overhead)
+    root.after(200, periodic_display_update)
+
+
 def on_closing():
     """Handle window closing."""
     cv2.destroyAllWindows()
@@ -429,5 +538,9 @@ root.protocol("WM_DELETE_WINDOW", on_closing)
 if __name__ == "__main__":
     print("[INFO] Image Calibration Tool started.")
     print("[INFO] Use the GUI to load an image and calibrate.")
+    
+    # Start periodic display update to handle window resizing
+    root.after(100, periodic_display_update)
+    
     root.mainloop()
 
