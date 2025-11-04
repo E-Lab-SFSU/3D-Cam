@@ -706,8 +706,9 @@ class TrackSmoother(Base3DVisualizer):
                     # Update the plot
                     self.update_plot()
                     
-                    # Draw the frame
-                    self.canvas.draw()
+                    # Draw the frame (only if plot window is open)
+                    if self.canvas:
+                        self.canvas.draw()
                     
                     # Grab the frame
                     writer.grab_frame()
