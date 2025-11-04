@@ -794,6 +794,8 @@ sudo apt install python3-venv python3-full
 - Python 3.7+ from [python.org](https://www.python.org/downloads/)
 - Make sure Python is added to PATH during installation
 
+**Note:** This project supports Windows and Raspberry Pi (Linux) only. macOS support has been removed.
+
 See `SETUP.md` for detailed setup instructions and troubleshooting.
 
 ## Troubleshooting
@@ -810,16 +812,6 @@ See `SETUP.md` for detailed setup instructions and troubleshooting.
 - Reinstall dependencies: `pip install -r requirements.txt --upgrade`
 - Make sure virtual environment is activated
 
-**SciPy build errors on macOS**
-- SciPy 1.16+ requires clang 15.0+ to build from source
-- **Recommended solution**: Install SciPy via conda (has pre-built binaries):
-  ```bash
-  source venv/bin/activate
-  conda install scipy -c conda-forge
-  pip install numpy "numpy<3.0.0,>=2.0.0" opencv-python matplotlib
-  ```
-- **Alternative**: Update Xcode Command Line Tools: `xcode-select --install`
-- See `setup_macos.md` for detailed macOS setup instructions
 
 ### Poor Pair Detection
 - Adjust threshold and blur parameters

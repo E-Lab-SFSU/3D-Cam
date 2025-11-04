@@ -34,8 +34,6 @@ def get_camera_backend():
         return cv2.CAP_V4L2
     elif system == "Windows":
         return cv2.CAP_DSHOW  # DirectShow
-    elif system == "Darwin":  # macOS
-        return cv2.CAP_AVFOUNDATION
     else:
         return cv2.CAP_ANY  # Auto-detect
 
