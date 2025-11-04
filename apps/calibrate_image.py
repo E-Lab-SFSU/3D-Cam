@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import Optional, Tuple
 
 from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
+from lib.util import save_json, load_json, JSON_KEY_CALIBRATION, JSON_KEY_PARAMS, JSON_KEY_OVERLAYS
 
 # Global state
 image_path: Optional[str] = None
@@ -471,13 +472,11 @@ def save_calibration():
         }
     }
     
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(calibration_data, f, indent=2)
+    if save_json(file_path, calibration_data):
         messagebox.showinfo("Success", f"Calibration saved to:\n{file_path}")
         print(f"[INFO] Calibration saved to: {file_path}")
-    except Exception as e:
-        messagebox.showerror("Error", f"Failed to save calibration: {e}")
+    else:
+        messagebox.showerror("Error", f"Failed to save calibration to:\n{file_path}")
 
 
 def reset_points():

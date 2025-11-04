@@ -24,10 +24,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 from matplotlib.animation import FFMpegWriter
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any, Optional
 from datetime import datetime
 
 from lib.visualizing import Base3DVisualizer
+from lib.util import save_json, load_json, update_json, get_json_value, JSON_KEY_CALIBRATION, JSON_KEY_PARAMS, JSON_KEY_OVERLAYS
 
 
 class TrackSmoother(Base3DVisualizer):
@@ -1031,6 +1032,7 @@ class TrackSmoother(Base3DVisualizer):
                 while preset_path.exists():
                     preset_path = csv_dir / f"track_smoother_preset-{counter}.json"
                     counter += 1
+                
                 # Get the actual smoothing window size from UI if available
                 window_size = self.window_var.get() if hasattr(self, 'window_var') else self.smoothing_window_size
                 
@@ -1042,12 +1044,10 @@ class TrackSmoother(Base3DVisualizer):
                     "enable_spike_removal": self.enable_spike_removal,
                 }
                 
-                try:
-                    with open(preset_path, 'w', encoding='utf-8') as f:
-                        json.dump(smoothing_data, f, indent=2)
+                if save_json(str(preset_path), smoothing_data):
                     print(f"[INFO] Smoothing preset saved to folder: {preset_path}")
-                except Exception as e:
-                    print(f"[WARN] Failed to save smoothing preset: {e}")
+                else:
+                    print(f"[WARN] Failed to save smoothing preset: {preset_path}")
         
         except Exception as e:
             messagebox.showerror("Export Error", f"Failed to export CSV:\n{e}")

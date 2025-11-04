@@ -18,8 +18,8 @@ This app lets you:
   • Save/restore default settings + optical center + last video path to pair_detect_default.json
 
 NOTES
-  - “Tracked” OpenCV window: click once to update the optical center (yellow crosshair)
-  - “Binary” window shows the thresholded/blurred mask used for detection
+  - "Tracked" OpenCV window: click once to update the optical center (yellow crosshair)
+  - "Binary" window shows the thresholded/blurred mask used for detection
   - Checkboxes in GUI toggle overlays on both preview and export
   - Export prints progress (%) in the terminal
 """
@@ -52,7 +52,7 @@ from lib.capture.util_paths import ts_name, path_stem, export_paths_for
 from lib.pair.preset_io import save_preset_file, load_preset_file
 from lib.pair.ui import build_gui as ui_build_gui, set_controls_enabled as ui_set_controls_enabled, reset_defaults_ui as ui_reset_defaults_ui
 from lib.pair.pair_tracker import PairTracker
-from lib.xyzcalc import extract_working_distance, extract_pixels_per_mm
+from lib.calibration import extract_working_distance, extract_pixels_per_mm
 
 # ============ Persistent default settings file ============
 # This file stores default settings that load when pair_detect.py starts or when a new video is opened.

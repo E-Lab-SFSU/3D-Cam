@@ -26,6 +26,7 @@ from datetime import datetime
 import os
 
 from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
+from lib.util import load_json
 
 
 class ZHistogramViewer:

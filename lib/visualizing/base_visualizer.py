@@ -21,6 +21,7 @@ from typing import Dict, List, Tuple, Optional, Callable
 from lib.gui import apply_standard_theme
 from lib.gui.playback_controller import PlaybackController
 from lib.gui.dialogs import FPSDialog
+from lib.util import load_json
 
 
 # PlaybackController and FPSDialog have been moved to lib/gui/

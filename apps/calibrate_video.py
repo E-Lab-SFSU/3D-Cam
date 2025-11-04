@@ -24,15 +24,15 @@ import numpy as np
 from typing import List, Optional
 from pathlib import Path
 from datetime import datetime
-from lib.xyzcalc import (
+from lib.calibration import (
+    VideoCalibrator,
     extract_working_distance,
     extract_pixels_per_mm,
     calculate_b_px,
     calculate_b_mm,
     calculate_xy_mm,
 )
-from lib.calibration import VideoCalibrator
-from lib.visualizing.calibration_viz import CalibrationVisualizer
+from lib.calibration import CalibrationVisualizer
 from lib.gui.calibration_gui import VideoEntry, display_metrics
 from lib.util import find_latest_calibration_file
 

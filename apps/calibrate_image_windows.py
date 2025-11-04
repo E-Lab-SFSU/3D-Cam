@@ -14,6 +14,7 @@ import os
 from datetime import datetime
 
 from lib.gui import apply_standard_theme, format_window_title, get_standard_size, STANDARD_PADDING
+from lib.util import save_json, load_json, update_json, get_json_value, JSON_KEY_CALIBRATION, JSON_KEY_PARAMS, JSON_KEY_OVERLAYS
 
 # Global state
 image_original = None
@@ -242,11 +243,11 @@ def save_calibration():
             }
         }
         
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(full_data, f, indent=2)
-        
-        messagebox.showinfo("Success", f"Saved to:\n{file_path}")
-        print(f"Calibration saved: {file_path}")
+        if save_json(file_path, full_data):
+            messagebox.showinfo("Success", f"Saved to:\n{file_path}")
+            print(f"Calibration saved: {file_path}")
+        else:
+            messagebox.showerror("Error", f"Failed to save: {file_path}")
         
     except Exception as e:
         messagebox.showerror("Error", f"Failed to save: {e}")
