@@ -30,7 +30,9 @@ class Pair3DVisualizer(Base3DVisualizer):
         self.use_smoothed_mm = tk.StringVar(value="original")  # "original" or "smoothed"
         
         # Initialize base class - wider window for 3-column layout
-        super().__init__(root, "3D Pair Trajectory Visualizer", "1400x800")
+        from lib.gui import get_standard_size
+        width, height = get_standard_size("large")
+        super().__init__(root, "3D Pair Trajectory Visualizer", f"{width}x{height}")
         
         # Setup coordinate column selection dropdown
         self.setup_coordinate_selection()

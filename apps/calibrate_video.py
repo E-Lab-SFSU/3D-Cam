@@ -439,9 +439,9 @@ class VideoCalibrationApp:
         """Create the GUI layout with three columns."""
         from lib.gui import apply_standard_theme, format_window_title, get_standard_size
         
-        width, height = get_standard_size("xlarge")
+        width, height = get_standard_size("large")
         self.root.geometry(f"{width}x{height}")
-        self.root.minsize(1600, 700)
+        self.root.minsize(width, height)
         self.root.title(format_window_title("Video Calibration Tool"))
         apply_standard_theme(self.root)
         

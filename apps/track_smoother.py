@@ -61,7 +61,9 @@ class TrackSmoother(Base3DVisualizer):
         self.metrics_text = None  # Will be created in smoothing window
         
         # Initialize base class (this will call setup_ui() which may call update_plot())
-        super().__init__(root, "Track Smoother and Cleaner", "1400x900")
+        from lib.gui import get_standard_size
+        width, height = get_standard_size("large")
+        super().__init__(root, "Track Smoother and Cleaner", f"{width}x{height}")
         
         # Setup custom UI elements for smoothing (after base class setup)
         # Use after() to ensure UI is fully initialized
