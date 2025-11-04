@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run script for calibrate_image.py on Linux/Raspberry Pi
+# Run script for calibrate_image_raspi.py on Linux/Raspberry Pi
 
 set -e
 
@@ -8,5 +8,5 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
-python calibrate_image.py
+python calibrate_image_raspi.py
 

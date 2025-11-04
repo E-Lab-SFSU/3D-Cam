@@ -22,7 +22,7 @@ These scripts automatically set up the virtual environment (if needed) and run t
 - `run_pair_detect.bat` - Run pair detection and tracking
 - `run_capture_windows.bat` - Run video capture (Windows)
 - `run_track_smoother.bat` - Run track smoothing tool
-- `run_calibrate_image.bat` - Run image calibration
+- `run_calibrate_image.bat` - Run image calibration (Windows version)
 - `run_calibrate_video.bat` - Run video calibration
 - `run_z_histogram.bat` - Run Z height histogram
 
@@ -31,7 +31,7 @@ These scripts automatically set up the virtual environment (if needed) and run t
 - `run_pair_detect.ps1`
 - `run_capture_windows.ps1`
 - `run_track_smoother.ps1`
-- `run_calibrate_image.ps1`
+- `run_calibrate_image.ps1` - Run image calibration (Windows version, PowerShell)
 - `run_calibrate_video.ps1`
 - `run_z_histogram.ps1`
 
@@ -40,7 +40,7 @@ These scripts automatically set up the virtual environment (if needed) and run t
 - `run_pair_detect.sh` - Run pair detection and tracking
 - `run_capture_raspi.sh` - Run video capture (Raspberry Pi)
 - `run_track_smoother.sh` - Run track smoothing tool
-- `run_calibrate_image.sh` - Run image calibration
+- `run_calibrate_image.sh` - Run image calibration (Raspberry Pi version)
 - `run_calibrate_video.sh` - Run video calibration
 - `run_z_histogram.sh` - Run Z height histogram
 

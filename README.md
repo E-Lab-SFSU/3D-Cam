@@ -17,7 +17,7 @@ This project implements a cost-effective alternative to multi-camera stereo visi
 The system consists of several components:
 
 1. **Video Capture** (`capture_raspi.py`, `capture_windows.py`): Record video from USB cameras
-2. **Image Calibration** (`calibrate_image.py`): Determine pixels-per-millimeter scale
+2. **Image Calibration** (`calibrate_image_windows.py`, `calibrate_image_raspi.py`): Determine pixels-per-millimeter scale (platform-specific versions)
 3. **Pair Detection** (`pair_detect.py`): Detect and track particle pairs in video
 4. **Video Calibration** (`calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
 5. **Track Smoothing** (`track_smoother.py`): Smooth and clean trajectories, remove spikes
@@ -30,7 +30,7 @@ The system consists of several components:
 
 - **`pair_detect.py`** - Main pair detection and tracking tool. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata.
 
-- **`calibrate_image.py`** - Image scale calibration tool. Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements.
+- **`calibrate_image_windows.py`** / **`calibrate_image_raspi.py`** - Image scale calibration tool (platform-specific versions). Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements. The Windows version uses direct synchronous updates, while the Raspberry Pi version uses async updates to prevent GUI freezing.
 
 - **`calibrate_video.py`** - Z-height calibration tool. Uses CSV files from pair detection at known heights to calculate the linear transformation constants needed to convert geometric Z measurements into calibrated heights. Automatically saves calibration files.
 
@@ -150,7 +150,7 @@ run_capture_windows.bat
 
 # Windows:
 run_calibrate_image.bat
-# Or manually: python calibrate_image.py
+# Or manually: python calibrate_image_windows.py
 ```
 
 **Purpose:** Determine the pixels-per-millimeter (px/mm) scale and working distance.
@@ -158,6 +158,7 @@ run_calibrate_image.bat
 **Procedure:**
 1. Load the captured frame image with the millimeter scale
 2. Click two points that correspond to a known distance (e.g., 34 mm between two ruler marks)
+   - **Note**: The window is resizable on both platforms for better visibility
 3. Enter the measurement in millimeters
 4. Enter camera parameters:
    - Focal length (mm)
@@ -166,6 +167,10 @@ run_calibrate_image.bat
 5. Click "Calculate" to compute:
    - `pixels_per_mm`: Scale factor for converting pixel measurements to millimeters
    - `working_distance_mm`: Distance from camera to the reflection surface
+
+**Platform-Specific Notes:**
+- **Windows**: Uses direct synchronous updates for optimal performance
+- **Raspberry Pi**: Uses async updates to prevent GUI freezing after clicking points
 
 **Math Behind It:**
 
@@ -646,7 +651,8 @@ The system builds an averaged background model from the entire video before proc
 3D-Cam/
 ├── capture_raspi.py          # Raspberry Pi camera capture
 ├── capture_windows.py         # Windows camera capture
-├── calibrate_image.py         # Image scale calibration
+├── calibrate_image_windows.py # Image scale calibration (Windows)
+├── calibrate_image_raspi.py   # Image scale calibration (Raspberry Pi)
 ├── calibrate_video.py         # Z-height calibration
 ├── pair_detect.py             # Main pair detection and tracking
 ├── track_smoother.py          # Track smoothing and cleaning

@@ -1,5 +1,5 @@
 @echo off
-REM Run script for calibrate_image.py on Windows
+REM Run script for calibrate_image_windows.py on Windows
 
 if not exist "venv" (
     call setup_venv.bat
@@ -10,6 +10,6 @@ if not exist "venv" (
 )
 
 call venv\Scripts\activate.bat
-python calibrate_image.py
+python calibrate_image_windows.py
 pause
 
