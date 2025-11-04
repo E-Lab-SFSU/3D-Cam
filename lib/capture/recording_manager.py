@@ -88,9 +88,15 @@ class RecordingManager:
         self.stop_flag = False
         self.video_writer = None
         self.record_thread = None
+        self.prefix = None  # Store prefix for recording
     
-    def start(self):
-        """Start video recording."""
+    def start(self, prefix: str = None):
+        """
+        Start video recording.
+        
+        Args:
+            prefix: Optional prefix for folder and filename
+        """
         camera = self.get_camera()
         if not camera or not camera.is_open():
             from tkinter import messagebox
@@ -100,12 +106,14 @@ class RecordingManager:
         if self.recording:
             return
         
+        self.prefix = prefix  # Store prefix for this recording session
+        
         w, h = self.scaled_size()
         
         actual_fps = camera.cap.get(cv2.CAP_PROP_FPS) if camera.cap else 0
         output_fps = actual_fps if actual_fps > 0 else 30.0
         
-        output_path = make_capture_output_path(w, h, int(output_fps))
+        output_path = make_capture_output_path(w, h, int(output_fps), prefix)
         
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.video_writer = cv2.VideoWriter(output_path, fourcc, output_fps, (w, h))

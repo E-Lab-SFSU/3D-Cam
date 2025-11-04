@@ -79,12 +79,30 @@ _script_dir = get_script_dir()
 CAPTURE_OUTPUT_DIR = os.path.join(_script_dir, "inputs_outputs/videos")
 
 
-def make_capture_output_path(width: int, height: int, fps: int) -> str:
+def make_capture_output_path(width: int, height: int, fps: int, prefix: str = None) -> str:
     """
     Create output path for captured video in its own folder.
-    Returns: inputs_outputs/video_WxH_YYYYmmdd_HHMMSS/video_WxH_YYYYmmdd_HHMMSS.mp4
+    Returns: inputs_outputs/<prefix>_YYYYmmdd_HHMMSS/<prefix>_YYYYmmdd_HHMMSS.mp4
+    or if no prefix: inputs_outputs/video_WxH_YYYYmmdd_HHMMSS/video_WxH_YYYYmmdd_HHMMSS.mp4
+    
+    Args:
+        width: Video width
+        height: Video height
+        fps: Video FPS
+        prefix: Optional prefix for folder and filename (if None, uses default naming)
     """
-    base_name = ts_name(f"video_{width}x{height}_{fps}fps", "")
+    if prefix:
+        # Sanitize prefix (remove invalid filename characters)
+        import re
+        prefix = re.sub(r'[<>:"/\\|?*]', '_', prefix).strip()
+        if not prefix:
+            prefix = None  # If prefix becomes empty after sanitization, use default
+    
+    if prefix:
+        base_name = ts_name(prefix, "")
+    else:
+        base_name = ts_name(f"video_{width}x{height}_{fps}fps", "")
+    
     # Remove trailing period if present (from ts_name when ext is empty)
     base_name = base_name.rstrip(".")
     # Use clean base_name for folder (no periods after stripping)
@@ -98,12 +116,29 @@ def make_capture_output_path(width: int, height: int, fps: int) -> str:
     return path
 
 
-def make_capture_frame_path(width: int, height: int) -> str:
+def make_capture_frame_path(width: int, height: int, prefix: str = None) -> str:
     """
     Create output path for captured frame in its own folder.
-    Returns: inputs_outputs/frame_WxH_YYYYmmdd_HHMMSS/frame_WxH_YYYYmmdd_HHMMSS.png
+    Returns: inputs_outputs/<prefix>_YYYYmmdd_HHMMSS/<prefix>_YYYYmmdd_HHMMSS.png
+    or if no prefix: inputs_outputs/frame_WxH_YYYYmmdd_HHMMSS/frame_WxH_YYYYmmdd_HHMMSS.png
+    
+    Args:
+        width: Frame width
+        height: Frame height
+        prefix: Optional prefix for folder and filename (if None, uses default naming)
     """
-    base_name = ts_name(f"frame_{width}x{height}", "")
+    if prefix:
+        # Sanitize prefix (remove invalid filename characters)
+        import re
+        prefix = re.sub(r'[<>:"/\\|?*]', '_', prefix).strip()
+        if not prefix:
+            prefix = None  # If prefix becomes empty after sanitization, use default
+    
+    if prefix:
+        base_name = ts_name(prefix, "")
+    else:
+        base_name = ts_name(f"frame_{width}x{height}", "")
+    
     # Remove trailing period if present (from ts_name when ext is empty)
     base_name = base_name.rstrip(".")
     # Use clean base_name for folder (no periods after stripping)

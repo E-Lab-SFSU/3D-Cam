@@ -45,7 +45,7 @@
     "y": 212,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744\\one_slide_video_20251103_163744.mp4",
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/two_slide_20251103_163835\\two_slide_20251103_163835.mp4",
   "calibration": {
     "magic_constant": 3.495043867524603,
     "magic_offset": 0.10596743780294696,

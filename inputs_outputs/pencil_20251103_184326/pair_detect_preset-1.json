@@ -1,12 +1,12 @@
 {
   "params": {
-    "threshold": 20,
-    "blur": 3,
+    "threshold": 83,
+    "blur": 1,
     "invert_threshold": 0,
     "minArea": 4,
     "maxArea": 5000,
     "maxW": 100,
-    "maxRadGap": 71,
+    "maxRadGap": 123,
     "maxDMR": 10,
     "maxCenterOff": 15,
     "w_theta": 0.35,
@@ -30,9 +30,9 @@
     "show_pair_points": 1,
     "label_mode": "Random",
     "show_text_labels": 0,
-    "show_z_value": 0,
-    "show_xy_values": 0,
-    "show_real_point": 0,
+    "show_z_value": 1,
+    "show_xy_values": 1,
+    "show_real_point": 1,
     "show_current_stats": 1,
     "show_total_stats": 0
   },
@@ -45,11 +45,11 @@
     "y": 212,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744\\one_slide_video_20251103_163744.mp4",
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/pencil_20251103_184326\\pencil_video_20251103_184326.mp4",
   "calibration": {
-    "magic_constant": 3.495043867524603,
-    "magic_offset": 0.10596743780294696,
-    "working_distance_mm": 21.74,
+    "magic_constant": 0.5557391593819938,
+    "magic_offset": -0.06336336047988818,
+    "working_distance_mm": 111.2075641524942,
     "pixels_per_mm": null
   }
 }
