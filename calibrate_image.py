@@ -30,10 +30,8 @@ mm_measurement: Optional[float] = None
 pixels_per_mm: Optional[float] = None
 current_display_size = None  # (width, height) of current display window
 window_initialized = False  # Track if window has been initialized
-user_resizing = False  # Track if user is manually resizing
 current_scale_x = 1.0  # Current scale factor for X (display to original)
 current_scale_y = 1.0  # Current scale factor for Y (display to original)
-last_window_size = None  # Track last known window size to detect changes
 
 # Camera parameters with defaults
 DEFAULT_FOCAL_LENGTH_MM = 16.0
@@ -42,38 +40,73 @@ DEFAULT_SENSOR_X_MM = 5.76  # 5.76E-03 m = 5.76 mm
 DEFAULT_SENSOR_Y_MM = 3.24  # 3.24E-03 m = 3.24 mm
 
 
-def get_display_size(image_shape, max_width=1920, max_height=1080):
+def get_screen_size():
+    """Get screen resolution using tkinter root window."""
+    try:
+        # Use the existing root window if available, otherwise create temporary
+        if 'root' in globals() and root.winfo_exists():
+            screen_width = root.winfo_screenwidth()
+            screen_height = root.winfo_screenheight()
+        else:
+            # Fallback: create temporary window
+            root_tmp = tk.Tk()
+            root_tmp.withdraw()  # Hide the temporary window
+            screen_width = root_tmp.winfo_screenwidth()
+            screen_height = root_tmp.winfo_screenheight()
+            root_tmp.destroy()
+        return screen_width, screen_height
+    except:
+        # Fallback to common resolutions if tkinter fails
+        return 1920, 1080
+
+
+def get_display_size(image_shape, max_width=None, max_height=None):
     """
     Calculate display size maintaining aspect ratio.
+    Full image will be visible, resized to max 2/3 of screen if needed.
     
     Args:
         image_shape: (height, width) or (height, width, channels) of the image  
-        max_width: Maximum display width
-        max_height: Maximum display height
+        max_width: Maximum display width (if None, uses 2/3 of screen width)
+        max_height: Maximum display height (if None, uses 2/3 of screen height)
     
     Returns:
         (display_width, display_height) tuple
     """
     img_height, img_width = image_shape[:2]
+    
+    # Get screen size and calculate max as 2/3 of screen
+    if max_width is None or max_height is None:
+        screen_width, screen_height = get_screen_size()
+        if max_width is None:
+            max_width = int(screen_width * 2 / 3)
+        if max_height is None:
+            max_height = int(screen_height * 2 / 3)
+    
     aspect_ratio = img_width / img_height
     
     # Calculate display size maintaining aspect ratio
+    # Ensure full image is visible, scale down if larger than max
     if img_width > max_width or img_height > max_height:
+        # Image is larger than max - scale down while maintaining aspect ratio
         if aspect_ratio > 1:
-            # Landscape
-            display_width = min(img_width, max_width)
-            display_height = int(display_width / aspect_ratio)
+            # Landscape - fit to width
+            display_width = max_width
+            display_height = int(max_width / aspect_ratio)
+            # Check if height exceeds max (shouldn't happen, but double-check)
             if display_height > max_height:
                 display_height = max_height
-                display_width = int(display_height * aspect_ratio)
+                display_width = int(max_height * aspect_ratio)
         else:
-            # Portrait
-            display_height = min(img_height, max_height)
-            display_width = int(display_height * aspect_ratio)
+            # Portrait - fit to height
+            display_height = max_height
+            display_width = int(max_height * aspect_ratio)
+            # Check if width exceeds max (shouldn't happen, but double-check)
             if display_width > max_width:
                 display_width = max_width
-                display_height = int(display_width / aspect_ratio)
+                display_height = int(max_width / aspect_ratio)
     else:
+        # Image fits within max - display at original size
         display_width = img_width
         display_height = img_height
     
@@ -117,7 +150,7 @@ def resize_image_to_fit(image, target_width, target_height):
 def update_display():
     """Update the display with current image and points."""
     global image, image_original, window_name, current_display_size, window_initialized
-    global current_scale_x, current_scale_y, last_window_size
+    global current_scale_x, current_scale_y
     
     if image_original is None:
         return
@@ -145,43 +178,34 @@ def update_display():
                     (points[0][1] + points[1][1]) // 2 - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
-    # Get current window size (if window exists)
-    win_width, win_height = get_display_size(image.shape)  # Default to calculated size
-    try:
-        # Try to get current window size
-        # getWindowImageRect returns (x, y, width, height) of the image area in the window
-        window_prop = cv2.getWindowImageRect(window_name)
-        if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
-            # Window exists and has valid size
-            win_width = window_prop[2]
-            win_height = window_prop[3]
-    except (cv2.error, AttributeError, IndexError):
-        # Window doesn't exist yet, error getting size, or invalid return value
-        # Use calculated size as fallback
-        pass
+    # Calculate display size (max 2/3 of screen, full image visible)
+    display_width, display_height = get_display_size(image.shape)
     
     # Only resize window programmatically on first initialization
+    # Window will be fixed size, we'll prevent resizing via periodic check
     if not window_initialized:
-        display_width, display_height = get_display_size(image.shape)
         try:
             cv2.resizeWindow(window_name, display_width, display_height)
             current_display_size = (display_width, display_height)
-            last_window_size = (display_width, display_height)
             window_initialized = True
         except cv2.error:
             # Window might not exist yet, will be created by imshow
             pass
+    else:
+        # If already initialized, ensure window is still at correct size
+        if current_display_size is not None:
+            try:
+                cv2.resizeWindow(window_name, current_display_size[0], current_display_size[1])
+            except cv2.error:
+                pass
     
-    # Resize image to fit current window size while maintaining aspect ratio
-    # This ensures the image always fills the window properly (fixes Linux black background issue)
-    display_image, scale_x, scale_y = resize_image_to_fit(image, win_width, win_height)
+    # Resize image to the fixed display size while maintaining aspect ratio
+    # This ensures the full image is visible at the calculated size
+    display_image, scale_x, scale_y = resize_image_to_fit(image, display_width, display_height)
     
     # Store scale factors for mouse coordinate conversion
     current_scale_x = scale_x
     current_scale_y = scale_y
-    
-    # Update last known window size to prevent unnecessary updates
-    last_window_size = (win_width, win_height)
     
     # Show image and process window events (required for Raspberry Pi)
     cv2.imshow(window_name, display_image)
@@ -252,9 +276,16 @@ def load_image():
         pass
 
     # Create window and set mouse callback
+    # Use WINDOW_NORMAL but we'll set fixed size and prevent resizing
     try:
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.setMouseCallback(window_name, mouse_callback)
+        # Prevent window resizing by setting window property
+        # Note: This may not work on all platforms, but we'll handle it
+        try:
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+        except:
+            pass
     except Exception as e:
         messagebox.showerror("Error", f"Failed to create preview window: {e}\n\nMake sure you have a display available.")
         return
@@ -409,26 +440,25 @@ def reset_points():
 
 
 def periodic_display_update():
-    """Periodically update display to handle window resizing."""
-    global window_initialized, image_original, last_window_size
+    """Periodically check and enforce fixed window size (prevent resizing)."""
+    global window_initialized, image_original, current_display_size
     
-    # Only update if window is initialized and image is loaded
-    if window_initialized and image_original is not None:
+    # Only enforce if window is initialized and image is loaded
+    if window_initialized and image_original is not None and current_display_size is not None:
         try:
             # Check if window still exists and get its size
             window_prop = cv2.getWindowImageRect(window_name)
             if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
                 current_size = (window_prop[2], window_prop[3])
-                # Only update if window size has changed
-                if last_window_size != current_size:
-                    last_window_size = current_size
-                    update_display()
+                # If window size changed (user tried to resize), reset it
+                if current_size != current_display_size:
+                    cv2.resizeWindow(window_name, current_display_size[0], current_display_size[1])
         except (cv2.error, AttributeError, IndexError):
             # Window doesn't exist or error, ignore
             pass
     
-    # Schedule next update (every 200ms to reduce overhead)
-    root.after(200, periodic_display_update)
+    # Schedule next update (every 300ms to check for resize attempts)
+    root.after(300, periodic_display_update)
 
 
 def on_closing():
@@ -539,8 +569,8 @@ if __name__ == "__main__":
     print("[INFO] Image Calibration Tool started.")
     print("[INFO] Use the GUI to load an image and calibrate.")
     
-    # Start periodic display update to handle window resizing
-    root.after(100, periodic_display_update)
+    # Start periodic check to enforce fixed window size (prevent resizing)
+    root.after(300, periodic_display_update)
     
     root.mainloop()
 
