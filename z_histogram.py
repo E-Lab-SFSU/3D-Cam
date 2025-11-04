@@ -25,12 +25,16 @@ from typing import List, Optional
 from datetime import datetime
 import os
 
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, ScrollableFrame
+
 
 class ZHistogramViewer:
     def __init__(self, root):
         self.root = root
-        self.root.title("Z Height Histogram")
-        self.root.geometry("1000x700")
+        width, height = get_standard_size("large")
+        self.root.geometry(f"{width}x{height}")
+        self.root.title(format_window_title("Z Height Histogram"))
+        apply_standard_theme(self.root)
         
         # Data storage
         self.csv_path = None
@@ -52,29 +56,30 @@ class ZHistogramViewer:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
         
-        # Left panel - controls
-        left_panel = ttk.Frame(main_frame, width=250)
+        # Left panel - controls (scrollable)
+        left_panel = ScrollableFrame(main_frame, width=250)
         left_panel.pack(side="left", fill="y", padx=(0, 10))
         left_panel.pack_propagate(False)
+        left_content = left_panel.inner_frame
         
         # Load button
-        ttk.Button(left_panel, text="Load CSV File", command=self.load_csv).pack(pady=5, fill="x")
+        ttk.Button(left_content, text="Load CSV File", command=self.load_csv).pack(pady=5, fill="x")
         
         # File label
-        self.file_label = ttk.Label(left_panel, text="No file loaded", wraplength=230)
+        self.file_label = ttk.Label(left_content, text="No file loaded", wraplength=230)
         self.file_label.pack(pady=5)
         
         # Dataset specs display (scientific device info)
-        specs_frame = ttk.LabelFrame(left_panel, text="Dataset Specifications", padding="10")
+        specs_frame = ttk.LabelFrame(left_content, text="Dataset Specifications", padding="10")
         specs_frame.pack(fill="x", pady=5)
         self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=230, justify="left", font=("Courier", 8))
         self.specs_label.pack()
         
         # Separator
-        ttk.Separator(left_panel, orient="horizontal").pack(fill="x", pady=10)
+        ttk.Separator(left_content, orient="horizontal").pack(fill="x", pady=10)
         
         # Histogram settings
-        settings_frame = ttk.LabelFrame(left_panel, text="Histogram Settings", padding="10")
+        settings_frame = ttk.LabelFrame(left_content, text="Histogram Settings", padding="10")
         settings_frame.pack(fill="x", pady=5)
         
         # Bin count control
@@ -106,7 +111,7 @@ class ZHistogramViewer:
         log_y_check.pack(fill="x", pady=5)
         
         # Statistics display
-        stats_frame = ttk.LabelFrame(left_panel, text="Statistics", padding="10")
+        stats_frame = ttk.LabelFrame(left_content, text="Statistics", padding="10")
         stats_frame.pack(fill="x", pady=5)
         
         self.stats_label = ttk.Label(
@@ -118,7 +123,7 @@ class ZHistogramViewer:
         self.stats_label.pack()
         
         # Info display
-        info_frame = ttk.LabelFrame(left_panel, text="Info", padding="10")
+        info_frame = ttk.LabelFrame(left_content, text="Info", padding="10")
         info_frame.pack(fill="x", pady=5)
         
         self.info_label = ttk.Label(
@@ -130,7 +135,7 @@ class ZHistogramViewer:
         self.info_label.pack()
         
         # Export button
-        export_frame = ttk.LabelFrame(left_panel, text="Export", padding="10")
+        export_frame = ttk.LabelFrame(left_content, text="Export", padding="10")
         export_frame.pack(fill="x", pady=5)
         ttk.Button(export_frame, text="Save Histogram Image", command=self.save_image).pack(pady=5, fill="x")
         

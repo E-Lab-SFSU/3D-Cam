@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size, ScrollableFrame
+
 
 def set_controls_enabled(widgets: dict, enabled: bool):
     state = "normal" if enabled else "disabled"
@@ -29,22 +31,19 @@ def build_gui(
     gui_vars_check: dict = {}
 
     root = tk.Tk()
-    root.title("Pair Detector v4.5 — Controls")
-    root.geometry("540x950+60+60")
+    width, height = get_standard_size("medium")
+    root.geometry(f"{width}x{height}+60+60")
     root.resizable(True, True)
+    root.title(format_window_title("Pair Detector", version="v4.5"))
+    apply_standard_theme(root)
 
-    s = ttk.Style(root)
-    try:
-        s.theme_use("clam")
-    except Exception:
-        pass
-
-    # Main content frame (no scrolling - everything fits)
-    content_frame = ttk.Frame(root)
+    # Main content frame (scrollable)
+    content_frame = ScrollableFrame(root)
     content_frame.pack(fill="both", expand=True, padx=8, pady=6)
+    content = content_frame.inner_frame
 
     # Top row buttons (2 rows for better layout)
-    frm_btn = ttk.Frame(content_frame)
+    frm_btn = ttk.Frame(content)
     frm_btn.grid(row=0, column=0, sticky="ew", padx=2, pady=(2, 4))
     frm_btn.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
@@ -196,7 +195,7 @@ def build_gui(
         return add_slider, add_slider_float, add_slider_float_track, add_slider_smin, add_slider_contrast
 
     # Blobbing Parameters frame
-    frm_blobbing = ttk.LabelFrame(content_frame, text="Blobbing Parameters")
+    frm_blobbing = ttk.LabelFrame(content, text="Blobbing Parameters")
     frm_blobbing.grid(row=2, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
     frm_blobbing.grid_columnconfigure(0, weight=0, minsize=130)
     frm_blobbing.grid_columnconfigure(1, weight=1, minsize=260)
@@ -225,7 +224,7 @@ def build_gui(
     add_slider(row_blob, "Max Blob Width/Height (px)", "maxW", 1, 200); row_blob += 1
 
     # Pairing Parameters frame
-    frm_pairing = ttk.LabelFrame(content_frame, text="Pairing Parameters")
+    frm_pairing = ttk.LabelFrame(content, text="Pairing Parameters")
     frm_pairing.grid(row=3, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_pairing.grid_columnconfigure(0, weight=0, minsize=130)
     frm_pairing.grid_columnconfigure(1, weight=1, minsize=260)
@@ -243,7 +242,7 @@ def build_gui(
     add_slider_smin_pair(row_pair); row_pair += 1
 
     # Tracking Parameters frame
-    frm_tracking = ttk.LabelFrame(content_frame, text="Tracking Parameters")
+    frm_tracking = ttk.LabelFrame(content, text="Tracking Parameters")
     frm_tracking.grid(row=4, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_tracking.grid_columnconfigure(0, weight=0, minsize=130)
     frm_tracking.grid_columnconfigure(1, weight=1, minsize=260)
@@ -256,7 +255,7 @@ def build_gui(
     add_slider_track(row_track, "Max Misses Before Retire", "track_max_misses", 1, 30); row_track += 1
 
     # Pairing method
-    frm_method = ttk.LabelFrame(content_frame, text="Pairing Method")
+    frm_method = ttk.LabelFrame(content, text="Pairing Method")
     frm_method.grid(row=5, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_method.grid_columnconfigure(0, weight=0)
     frm_method.grid_columnconfigure(1, weight=1)
@@ -300,7 +299,7 @@ def build_gui(
     widgets["cmb_pair_method"] = cmb
 
     # Overlay Targets
-    frm_target = ttk.LabelFrame(content_frame, text="Overlay Targets")
+    frm_target = ttk.LabelFrame(content, text="Overlay Targets")
     frm_target.grid(row=6, column=0, sticky="ew", padx=2, pady=(2, 1), ipadx=3, ipady=2)
     frm_target.grid_columnconfigure((0, 1), weight=1)
 
@@ -316,7 +315,7 @@ def build_gui(
     add_target_check(1, "Enable Binary", "enable_binary")
 
     # Overlays
-    frm_ov = ttk.LabelFrame(content_frame, text="Overlays")
+    frm_ov = ttk.LabelFrame(content, text="Overlays")
     frm_ov.grid(row=7, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
     for i in range(3):
         frm_ov.grid_columnconfigure(i, weight=1)
@@ -372,7 +371,7 @@ def build_gui(
     add_check(4, 0, "Real point", "show_real_point")
 
     # Preview Overlay section
-    frm_preview_ov = ttk.LabelFrame(content_frame, text="Preview Overlay")
+    frm_preview_ov = ttk.LabelFrame(content, text="Preview Overlay")
     frm_preview_ov.grid(row=8, column=0, sticky="ew", padx=2, pady=3, ipadx=3, ipady=2)
     for i in range(2):
         frm_preview_ov.grid_columnconfigure(i, weight=1)
@@ -390,12 +389,12 @@ def build_gui(
     add_preview_check(0, 1, "Total Stats", "show_total_stats")
 
     ttk.Label(
-        content_frame,
+        content,
         text="Tip: Click in the 'Tracked' window to set optical center. ESC closes preview windows.",
     ).grid(row=9, column=0, sticky="w", padx=4, pady=(4, 2))
     
     # Configure content frame column to expand
-    content_frame.grid_columnconfigure(0, weight=1)
+    content.grid_columnconfigure(0, weight=1)
 
     return root, widgets, gui_vars_numeric, gui_vars_check
 

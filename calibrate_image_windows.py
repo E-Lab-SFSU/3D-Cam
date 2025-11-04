@@ -13,6 +13,8 @@ import json
 import os
 from datetime import datetime
 
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size
+
 # Global state
 image_original = None
 points = []
@@ -267,9 +269,11 @@ def on_closing():
 
 # Create GUI
 root = tk.Tk()
-root.title("Image Calibration - Windows")
-root.geometry("400x550")
-root.minsize(400, 550)
+width, height = get_standard_size("small")
+root.geometry(f"{width}x{height}")
+root.minsize(width, height)
+root.title(format_window_title("Image Calibration Tool", platform="Windows"))
+apply_standard_theme(root)
 
 main = ttk.Frame(root, padding="15")
 main.pack(fill="both", expand=True)

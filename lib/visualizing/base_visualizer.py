@@ -18,6 +18,8 @@ from matplotlib import cm
 from matplotlib.animation import FFMpegWriter
 from typing import Dict, List, Tuple, Optional, Callable
 
+from lib.gui import apply_standard_theme, ScrollableFrame
+
 
 class PlaybackController:
     """Internal playback control widget."""
@@ -339,6 +341,7 @@ class Base3DVisualizer:
         self.root = root
         self.root.title(title)
         self.root.geometry(geometry)
+        apply_standard_theme(self.root)
         
         # Data storage (to be populated by subclasses)
         self.csv_path = None
@@ -374,16 +377,20 @@ class Base3DVisualizer:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
         
-        # Left panel - controls (two-column layout)
-        self.left_panel = ttk.Frame(main_frame, width=600)
+        # Left panel - controls (scrollable, two-column layout)
+        self.left_panel = ScrollableFrame(main_frame, width=600)
         self.left_panel.pack(side="left", fill="y", padx=(0, 10))
         self.left_panel.pack_propagate(False)
         
+        # Container for two-column layout inside scrollable frame
+        columns_container = ttk.Frame(self.left_panel.inner_frame)
+        columns_container.pack(fill="both", expand=True)
+        
         # Create two-column layout
-        left_col = ttk.Frame(self.left_panel)
+        left_col = ttk.Frame(columns_container)
         left_col.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
-        right_col = ttk.Frame(self.left_panel)
+        right_col = ttk.Frame(columns_container)
         right_col.pack(side="left", fill="both", expand=True, padx=(5, 0))
         
         # LEFT COLUMN

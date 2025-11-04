@@ -450,15 +450,13 @@ class VideoCalibrationApp:
     
     def setup_gui(self):
         """Create the GUI layout with three columns."""
-        self.root.title("Video Calibration Tool")
-        self.root.geometry("2000x900")
-        self.root.minsize(1600, 700)
+        from lib.gui import apply_standard_theme, format_window_title, get_standard_size
         
-        style = ttk.Style(self.root)
-        try:
-            style.theme_use("clam")
-        except:
-            pass
+        width, height = get_standard_size("xlarge")
+        self.root.geometry(f"{width}x{height}")
+        self.root.minsize(1600, 700)
+        self.root.title(format_window_title("Video Calibration Tool"))
+        apply_standard_theme(self.root)
         
         # Create three-column layout using PanedWindow
         main_container = ttk.PanedWindow(self.root, orient="horizontal")

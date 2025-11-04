@@ -21,6 +21,8 @@ import sys
 from datetime import datetime
 from typing import Optional, Tuple
 
+from lib.gui import apply_standard_theme, format_window_title, get_standard_size
+
 # Global state
 image_path: Optional[str] = None
 image: Optional[np.ndarray] = None
@@ -532,17 +534,12 @@ def on_closing():
 
 # Create GUI
 root = tk.Tk()
-root.title("Image Calibration Tool")
-root.geometry("400x550")
+width, height = get_standard_size("small")
+root.geometry(f"{width}x{height}")
 root.resizable(True, True)
-root.minsize(400, 550)
-
-# Style
-style = ttk.Style(root)
-try:
-    style.theme_use("clam")
-except:
-    pass
+root.minsize(width, height)
+root.title(format_window_title("Image Calibration Tool"))
+apply_standard_theme(root)
 
 # Main frame
 main_frame = ttk.Frame(root, padding="15")

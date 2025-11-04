@@ -18,6 +18,7 @@ from lib.capture import (
     PreviewManager, FrameGrabber, RecordingManager,
     make_capture_output_path, make_capture_frame_path
 )
+from lib.gui import tooltip, apply_standard_theme, format_window_title, get_standard_size, ScrollableFrame
 
 
 # ============ Debug Configuration ============
@@ -43,28 +44,15 @@ CONTROL_TO_PROP = {
 }
 
 
-def tooltip(widget, text):
-    """Create a tooltip for a widget."""
-    tip = tk.Toplevel(widget)
-    tip.withdraw()
-    tip.overrideredirect(True)
-    lbl = tk.Label(tip, text=text, bg="#ffffe0", relief="solid", borderwidth=1, font=("TkDefaultFont", 9))
-    lbl.pack()
-    def show(_): 
-        tip.geometry(f"+{widget.winfo_rootx()+30}+{widget.winfo_rooty()+10}")
-        tip.deiconify()
-    def hide(_): 
-        tip.withdraw()
-    widget.bind("<Enter>", show)
-    widget.bind("<Leave>", hide)
-
-
 class CaptureApp:
     """Windows UVC Camera GUI."""
     
     def __init__(self, root):
         self.root = root
-        self.root.title("UVC Camera Capture — Windows")
+        width, height = get_standard_size("capture")
+        self.root.geometry(f"{width}x{height}")
+        self.root.title(format_window_title("UVC Camera Capture", platform="Windows"))
+        apply_standard_theme(self.root)
         
         # Camera state
         self.cam = None
@@ -114,12 +102,13 @@ class CaptureApp:
         main = ttk.Frame(self.root, padding="5")
         main.pack(fill=tk.BOTH, expand=True)
 
-        # Right side: Controls
-        ctrl = ttk.Frame(main)
+        # Right side: Controls (scrollable)
+        ctrl = ScrollableFrame(main)
         ctrl.pack(side=tk.RIGHT, fill=tk.Y, padx=3, pady=3)
+        ctrl_content = ctrl.inner_frame
         
         # Camera selection
-        cam_frame = ttk.LabelFrame(ctrl, text="Camera", padding="3")
+        cam_frame = ttk.LabelFrame(ctrl_content, text="Camera", padding="3")
         cam_frame.pack(fill=tk.X, pady=(0, 4))
         
         cam_row = ttk.Frame(cam_frame)
@@ -140,7 +129,7 @@ class CaptureApp:
         self.camera_info_label.pack(fill=tk.X, pady=(2, 0))
         
         # Format selection
-        format_frame = ttk.LabelFrame(ctrl, text="Format", padding="3")
+        format_frame = ttk.LabelFrame(ctrl_content, text="Format", padding="3")
         format_frame.pack(fill=tk.X, pady=(0, 4))
         
         fmt_row = ttk.Frame(format_frame)
@@ -166,7 +155,7 @@ class CaptureApp:
         self.scale_label.pack(side=tk.LEFT)
         
         # Status section
-        status_frame = ttk.LabelFrame(ctrl, text="Status", padding="3")
+        status_frame = ttk.LabelFrame(ctrl_content, text="Status", padding="3")
         status_frame.pack(fill=tk.X, pady=(0, 4))
         
         self.status_label = ttk.Label(status_frame, text="Ready", font=("TkDefaultFont", 9))
@@ -179,12 +168,12 @@ class CaptureApp:
         self.open_camera_btn.pack(fill=tk.X, pady=(4, 0))
         
         # Camera controls
-        self.param_frame = ttk.LabelFrame(ctrl, text="Controls", padding="3")
+        self.param_frame = ttk.LabelFrame(ctrl_content, text="Controls", padding="3")
         self.param_frame.pack(fill=tk.X, pady=(0, 4))
         self._build_camera_controls()
         
         # Actions section
-        btn_frame = ttk.LabelFrame(ctrl, text="Actions", padding="3")
+        btn_frame = ttk.LabelFrame(ctrl_content, text="Actions", padding="3")
         btn_frame.pack(fill=tk.X, pady=(0, 4))
         
         self.record_btn = ttk.Button(btn_frame, text="Record", command=self.toggle_record)
@@ -483,69 +472,6 @@ class CaptureApp:
         self.scale_label.config(text=f"{sw}×{sh}")
         print(f"[INFO] {self.format_var.get()} {self.cam.w}×{self.cam.h} → {sw}×{sh} ({p:.1f}%)")
     
-    def _prompt_prefix(self, action_name: str):
-        """
-        Prompt user for prefix filename.
-        
-        Args:
-            action_name: Name of the action (e.g., "Video Recording", "Frame Capture")
-            
-        Returns:
-            Prefix string if user entered one, empty string if user entered empty (for default naming),
-            None if cancelled
-        """
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f"{action_name} - Enter Prefix")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Center the dialog
-        dialog.geometry("400x150")
-        dialog.resizable(False, False)
-        
-        # Calculate center position
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
-        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        result = [None]  # Use list to allow modification in nested functions
-        
-        ttk.Label(
-            dialog, 
-            text=f"Enter prefix for {action_name.lower()}:\n(Leave empty for default naming)",
-            font=("TkDefaultFont", 10)
-        ).pack(pady=(10, 5))
-        
-        prefix_var = tk.StringVar()
-        entry = ttk.Entry(dialog, textvariable=prefix_var, width=40, font=("TkDefaultFont", 10))
-        entry.pack(pady=5)
-        entry.focus()
-        
-        def on_ok():
-            prefix = prefix_var.get().strip()
-            # Return empty string for default naming, or the prefix if provided
-            result[0] = prefix  # Empty string means use default, non-empty means use prefix
-            dialog.destroy()
-        
-        def on_cancel():
-            result[0] = None  # None means cancelled
-            dialog.destroy()
-        
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(pady=10)
-        
-        ttk.Button(button_frame, text="OK", command=on_ok, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Cancel", command=on_cancel, width=10).pack(side=tk.LEFT, padx=5)
-        
-        # Bind Enter key to OK
-        entry.bind("<Return>", lambda e: on_ok())
-        # Bind Escape key to Cancel
-        dialog.bind("<Escape>", lambda e: on_cancel())
-        
-        dialog.wait_window()
-        return result[0]
-    
     def reset_controls(self):
         """Reset camera controls to defaults."""
         if not self.cam or not self.camera_info:
@@ -576,13 +502,6 @@ class CaptureApp:
             messagebox.showinfo("Camera", "Open camera first.")
             return
         
-        # Prompt for prefix
-        prefix = self._prompt_prefix("Frame Capture")
-        if prefix is None:
-            return  # User cancelled
-        # Convert empty string to None for default naming
-        prefix = prefix if prefix else None
-        
         try:
             frame = self.frame_queue.get(timeout=1.0)
         except Empty:
@@ -604,7 +523,7 @@ class CaptureApp:
         else:
             frame_bgr = cv2.cvtColor(frame_resized, cv2.COLOR_YUV2BGR_YUY2)
         
-        output_path = make_capture_frame_path(w, h, prefix)
+        output_path = make_capture_frame_path(w, h)
         cv2.imwrite(output_path, frame_bgr)
         print(f"[INFO] Saved {output_path}")
         self.status_label.config(text=f"Saved: {os.path.basename(output_path)}", foreground="blue")
@@ -618,13 +537,7 @@ class CaptureApp:
         if self.recording_manager.recording:
             self.recording_manager.stop()
         else:
-            # Prompt for prefix before starting recording
-            prefix = self._prompt_prefix("Video Recording")
-            if prefix is None:
-                return  # User cancelled
-            # Convert empty string to None for default naming
-            prefix = prefix if prefix else None
-            self.recording_manager.start(prefix)
+            self.recording_manager.start()
     
     def on_close(self):
         """Handle application close."""
