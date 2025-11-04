@@ -45,5 +45,8 @@
     "y": 217,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z3mm_objects\\z3mm_objects.mp4"
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/z3mm_objects\\z3mm_objects.mp4",
+  "calibration": {
+    "pixels_per_mm": 39.85
+  }
 }
