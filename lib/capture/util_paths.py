@@ -85,10 +85,14 @@ def make_capture_output_path(width: int, height: int, fps: int) -> str:
     Returns: inputs_outputs/video_WxH_YYYYmmdd_HHMMSS/video_WxH_YYYYmmdd_HHMMSS.mp4
     """
     base_name = ts_name(f"video_{width}x{height}_{fps}fps", "")
+    # Remove trailing period if present (from ts_name when ext is empty)
+    base_name = base_name.rstrip(".")
+    # Use clean base_name for folder (no periods after stripping)
     folder_path = os.path.join("inputs_outputs", base_name)
     ensure_dir(folder_path)
     
-    video_filename = base_name + ".mp4"
+    # Remove any double periods from filename
+    video_filename = base_name.replace("..", ".") + ".mp4"
     path = os.path.join(folder_path, video_filename)
     print(f"[DEBUG] Video will be saved to: {os.path.abspath(path)}")
     return path
@@ -100,10 +104,14 @@ def make_capture_frame_path(width: int, height: int) -> str:
     Returns: inputs_outputs/frame_WxH_YYYYmmdd_HHMMSS/frame_WxH_YYYYmmdd_HHMMSS.png
     """
     base_name = ts_name(f"frame_{width}x{height}", "")
+    # Remove trailing period if present (from ts_name when ext is empty)
+    base_name = base_name.rstrip(".")
+    # Use clean base_name for folder (no periods after stripping)
     folder_path = os.path.join("inputs_outputs", base_name)
     ensure_dir(folder_path)
     
-    frame_filename = base_name + ".png"
+    # Remove any double periods from filename
+    frame_filename = base_name.replace("..", ".") + ".png"
     path = os.path.join(folder_path, frame_filename)
     print(f"[DEBUG] Frame will be saved to: {os.path.abspath(path)}")
     return path
