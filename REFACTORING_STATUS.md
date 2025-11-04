@@ -102,21 +102,24 @@
 
 ---
 
-## ❌ Phase 5: Refactor Large Files (NOT STARTED)
+## ⚠️ Phase 5: Refactor Large Files (IN PROGRESS)
 
-### ❌ Split `calibrate_video.py`
-- **Status**: ❌ NOT STARTED
-- **Action Needed**: Split into:
-  - `apps/calibrate_video.py` (~200 lines) - Entry point
-  - `lib/calibration/video_calibrator.py` (~400 lines) - Logic
-  - `lib/gui/calibration_gui.py` (~600 lines) - GUI
-  - `lib/visualizing/calibration_viz.py` (~300 lines) - 3D viz
+### ⚠️ Split `calibrate_video.py`
+- **Status**: ⚠️ IN PROGRESS
+- **Completed**:
+  - ✅ `lib/calibration/video_calibrator.py` (~200 lines) - Core calibration calculation logic
+  - ✅ `lib/visualizing/calibration_viz.py` (~400 lines) - 3D visualization
+- **Remaining**:
+  - ⏳ `lib/gui/calibration_gui.py` (~600 lines) - GUI components (VideoEntry, filters, metrics)
+  - ⏳ `apps/calibrate_video.py` (~200 lines) - Entry point that coordinates modules
 
-### ❌ Extract additional components
-- **Status**: ❌ NOT STARTED
-- **Action Needed**: Extract from `base_visualizer.py`:
-  - `PlaybackController` → `lib/gui/playback_controller.py`
-  - `FPSDialog` → `lib/gui/dialogs.py`
+### ✅ Extract additional components
+- **Status**: ✅ COMPLETE
+- **Completed**:
+  - ✅ `PlaybackController` → `lib/gui/playback_controller.py`
+  - ✅ `FPSDialog` → `lib/gui/dialogs.py`
+  - ✅ Updated `base_visualizer.py` to import from new locations
+  - ✅ Updated `lib/visualizing/__init__.py` and `lib/gui/__init__.py`
 
 ---
 

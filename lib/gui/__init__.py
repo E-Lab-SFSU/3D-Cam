@@ -13,6 +13,8 @@ from .styles import (
     STANDARD_PADDING,
 )
 from .common import tooltip, ScrollableFrame
+from .playback_controller import PlaybackController
+from .dialogs import FPSDialog
 
 __all__ = [
     "WindowSize",
@@ -23,5 +25,7 @@ __all__ = [
     "STANDARD_PADDING",
     "tooltip",
     "ScrollableFrame",
+    "PlaybackController",
+    "FPSDialog",
 ]
 

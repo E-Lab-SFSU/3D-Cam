@@ -21,396 +21,23 @@ import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
-from typing import List, Tuple, Dict, Optional
+from typing import List, Optional
 from pathlib import Path
 from datetime import datetime
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-import matplotlib.pyplot as plt
 from lib.xyzcalc import (
     extract_working_distance,
     extract_pixels_per_mm,
     calculate_b_px,
     calculate_b_mm,
     calculate_xy_mm,
-    calculate_b_xy_from_pair
 )
+from lib.calibration import VideoCalibrator
+from lib.visualizing.calibration_viz import CalibrationVisualizer
+from lib.gui.calibration_gui import VideoEntry, display_metrics
+from lib.util import find_latest_calibration_file
 
 
-def get_latest_calibration_file() -> Optional[str]:
-    """
-    Find the latest calibration JSON file in the calibrations folder.
-    Returns the path to the latest file, or None if no file is found.
-    """
-    from lib.util import find_latest_calibration_file
-    return find_latest_calibration_file()
-
-
-class VideoEntry:
-    """Container for a single video calibration entry."""
-    def __init__(self, frame, row):
-        self.frame = frame
-        self.row = row
-        self.csv_var = tk.StringVar()
-        self.height_var = tk.StringVar()
-        self.csv_path = ""
-        self.mm_height: Optional[float] = None
-        
-        # Create widgets
-        ttk.Label(frame, text=f"CSV {row + 1}:").grid(row=0, column=0, sticky="w", padx=(0, 5))
-        
-        csv_label = ttk.Label(frame, text="No CSV selected", foreground="gray")
-        csv_label.grid(row=0, column=1, sticky="w", padx=5)
-        self.csv_label = csv_label
-        
-        csv_btn = ttk.Button(frame, text="📂 Browse", 
-                            command=lambda: self.select_csv())
-        csv_btn.grid(row=0, column=2, padx=5)
-        
-        ttk.Label(frame, text="Height (mm):").grid(row=1, column=0, sticky="w", padx=(0, 5), pady=(5, 0))
-        height_entry = ttk.Entry(frame, textvariable=self.height_var, width=15)
-        height_entry.grid(row=1, column=1, sticky="w", padx=5, pady=(5, 0))
-        self.height_entry = height_entry
-        
-        remove_btn = ttk.Button(frame, text="✖ Remove", 
-                               command=lambda: self.remove())
-        remove_btn.grid(row=1, column=2, padx=5, pady=(5, 0))
-        self.remove_btn = remove_btn
-        
-        # Store reference to main app for removal
-        self.app = None
-    
-    def set_app(self, app):
-        """Set reference to main app."""
-        self.app = app
-    
-    def select_csv(self):
-        """Open file dialog to select CSV file."""
-        csv_file = filedialog.askopenfilename(
-            title=f"Select CSV File for Calibration {self.row + 1}",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialdir="inputs_outputs" if os.path.exists("inputs_outputs") else "."
-        )
-        
-        if csv_file:
-            self.csv_path = csv_file
-            csv_name = os.path.basename(csv_file)
-            self.csv_label.config(text=csv_name, foreground="black")
-            print(f"[INFO] CSV {self.row + 1}: Selected {csv_name}")
-            # Update live metrics when CSV is loaded
-            if self.app:
-                # Load CSV data for visualization
-                csv_name = os.path.basename(csv_file)
-                self.app.load_csv_for_visualization(csv_file, csv_name)
-                self.app.update_live_metrics()
-                self.app.update_3d_visualization()
-    
-    def get_data(self) -> Optional[Tuple[str, float, float, float, float, Dict, Dict]]:
-        """
-        Get CSV path, mm height, working distance, average Zprime, and average B from highest quality pairs.
-        Also returns metrics for input and chosen datasets.
-        Returns None if invalid.
-        Returns: (csv_path, mm_height, working_distance_mm, avg_zprime, avg_b, input_metrics, chosen_metrics)
-        """
-        if not self.csv_path or not os.path.exists(self.csv_path):
-            return None
-        
-        if not self.app:
-            return None
-        
-        try:
-            mm_val = float(self.height_var.get())
-            if mm_val <= 0:
-                return None
-            
-            # Get working distance from app's global field
-            working_dist_val = float(self.app.working_dist_var.get())
-            if working_dist_val <= 0:
-                return None
-        except (ValueError, tk.TclError):
-            return None
-        
-        # Load pairs from the selected CSV file
-        if not os.path.exists(self.csv_path):
-            return None
-        
-        try:
-            pairs_data = []
-            with open(self.csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        # Try new A/C notation first, fall back to old notation for backward compatibility
-                        r_a = float(row.get("A_px", row.get("Radius_A_px", 0)))  # Inner radius (A)
-                        r_c = float(row.get("C_px", row.get("Radius_B_px", 0)))  # Outer radius (C)
-                        score = float(row.get("Pair_Score", 0))
-                        track_id = int(row.get("Track_ID", 0))
-                        
-                        if r_a > 0 and r_c > 0 and score > 0:
-                            frame_num = int(row.get('Frame_Number', 0))
-                            pairs_data.append({
-                                "r_a": r_a,
-                                "r_c": r_c,
-                                "score": score,
-                                "track_id": track_id,
-                                "frame": frame_num  # Store frame number for visualization
-                            })
-                    except (ValueError, KeyError):
-                        continue
-            
-            if len(pairs_data) == 0:
-                return None
-            
-            # STEP 1: First, isolate near-mean pairs (Z-based filtering)
-            # Calculate Zprime, Zdoubleprime for ALL pairs first
-            all_pairs_zprimes = []
-            all_pairs_zdoubleprimes = []
-            all_pairs_z_values = []  # Store (pair_idx, zprime, zdoubleprime, z_mm)
-            
-            for idx, p in enumerate(pairs_data):
-                r_a = p["r_a"]
-                r_c = p["r_c"]
-                if r_a + r_c > 0:
-                    zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                    zdoubleprime = (r_c - r_a) / (r_a + r_c)
-                    all_pairs_zprimes.append(zprime)
-                    all_pairs_zdoubleprimes.append(zdoubleprime)
-                    all_pairs_z_values.append((idx, zprime, zdoubleprime, None))
-            
-            # Try to load Z_mm from CSV if available
-            if hasattr(self, 'app') and self.app:
-                try:
-                    with open(self.csv_path, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        z_mm_map = {}
-                        for row in reader:
-                            try:
-                                track_id = int(row.get('Track_ID', 0))
-                                z_mm_str = row.get('Z_mm', '').strip()
-                                if z_mm_str and track_id not in z_mm_map:
-                                    z_mm_val = float(z_mm_str)
-                                    if z_mm_val > 0:
-                                        z_mm_map[track_id] = z_mm_val
-                            except (ValueError, KeyError):
-                                continue
-                    
-                    for i, (idx, zp, zdp, _) in enumerate(all_pairs_z_values):
-                        pair_track_id = pairs_data[idx].get("track_id", 0)
-                        if pair_track_id in z_mm_map:
-                            all_pairs_z_values[i] = (idx, zp, zdp, z_mm_map[pair_track_id])
-                except Exception:
-                    pass
-            
-            # Apply Z-based filtering if enabled (isolate near-mean pairs)
-            near_mean_pairs_indices = list(range(len(pairs_data)))
-            z_filter_stats = None
-            
-            if hasattr(self, 'app') and self.app and self.app.enable_z_filter_var.get():
-                filter_type = self.app.z_filter_type_var.get()
-                threshold_std = self.app.z_filter_threshold_var.get()
-                
-                # Select which Z values to use for filtering
-                z_values_for_filter = []
-                if filter_type == "Zprime":
-                    z_values_for_filter = [zv[1] for zv in all_pairs_z_values]
-                elif filter_type == "Zdoubleprime":
-                    z_values_for_filter = [zv[2] for zv in all_pairs_z_values]
-                elif filter_type == "Z_mm":
-                    z_values_for_filter = [zv[3] for zv in all_pairs_z_values if zv[3] is not None]
-                
-                if len(z_values_for_filter) > 0 and len(z_values_for_filter) == len(all_pairs_z_values):
-                    # Calculate mean and std of Z values
-                    mean_z = np.mean(z_values_for_filter)
-                    std_z = np.std(z_values_for_filter)
-                    
-                    if std_z > 0:
-                        # Filter pairs: keep those within threshold_std standard deviations
-                        filtered_indices = []
-                        for i, zv in enumerate(all_pairs_z_values):
-                            idx, zp, zdp, zmm = zv
-                            
-                            z_to_check = None
-                            if filter_type == "Zprime":
-                                z_to_check = zp
-                            elif filter_type == "Zdoubleprime":
-                                z_to_check = zdp
-                            elif filter_type == "Z_mm":
-                                z_to_check = zmm
-                            
-                            if z_to_check is not None:
-                                z_score = abs(z_to_check - mean_z) / std_z
-                                if z_score <= threshold_std:
-                                    filtered_indices.append(idx)
-                        
-                        if len(filtered_indices) > 0:
-                            near_mean_pairs_indices = filtered_indices
-                            z_filter_stats = {
-                                "filter_type": filter_type,
-                                "threshold_std": float(threshold_std),
-                                "mean_z": float(mean_z),
-                                "std_z": float(std_z),
-                                "pairs_before": len(pairs_data),
-                                "pairs_after": len(filtered_indices),
-                                "omitted": len(pairs_data) - len(filtered_indices)
-                            }
-            
-            # STEP 2: Then, choose high quality pairs from near-mean pairs
-            min_score_threshold = 0.9
-            if hasattr(self, 'app') and self.app:
-                min_score_threshold = self.app.min_score_var.get()
-            
-            # Filter by quality score
-            quality_pairs = []
-            if hasattr(self, 'app') and self.app and self.app.enable_quality_filter_var.get():
-                quality_pairs = [pairs_data[i] for i in near_mean_pairs_indices 
-                               if pairs_data[i]["score"] >= min_score_threshold]
-            else:
-                quality_pairs = [pairs_data[i] for i in near_mean_pairs_indices]
-            
-            # Check if we have enough good data - no fallbacks!
-            if len(quality_pairs) < 10:
-                # Warning will be shown when get_data returns insufficient data
-                pass  # Let the caller handle the warning
-            
-            # Calculate Zprime, Zdoubleprime, and B for each quality pair
-            # Zprime = working_distance * (C-A)/(A+C)
-            # Zdoubleprime = (C-A)/(A+C)  (working_distance = 1)
-            # B = (2*A*C)/(A+C)
-            zprimes = []
-            zdoubleprimes = []
-            b_values = []
-            pair_z_values = []  # Store Z values with their corresponding pair indices
-            
-            for idx, p in enumerate(quality_pairs):
-                r_a = p["r_a"]  # A is the inner radius (smaller)
-                r_c = p["r_c"]  # C is the outer radius (larger)
-                if r_a + r_c > 0:
-                    zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                    zdoubleprime = (r_c - r_a) / (r_a + r_c)  # working_distance = 1
-                    zprimes.append(zprime)
-                    zdoubleprimes.append(zdoubleprime)
-                    # Calculate B = (2*A*C)/(A+C)
-                    b_val = (2 * r_a * r_c) / (r_a + r_c)
-                    b_values.append(b_val)
-                    pair_z_values.append((idx, zprime, zdoubleprime, None))  # Z_mm will be filled if available
-            
-            if len(quality_pairs) == 0:
-                # Not enough data - return None to trigger warning
-                return None
-            
-            if len(quality_pairs) < 10:
-                # Warning: insufficient good data
-                if hasattr(self, 'app') and self.app:
-                    # Warning will be shown in calculate() method
-                    pass
-            
-            # Final quality pairs are already filtered
-            final_quality_pairs = quality_pairs
-            
-            # Store calibration pairs for visualization
-            if hasattr(self, 'app') and self.app:
-                csv_name = os.path.basename(self.csv_path)
-                # Track which frames are calibration pairs
-                calibration_frames_map = {}  # {track_id: set of frames}
-                
-                # Collect frames for all calibration pairs
-                for p in final_quality_pairs:
-                    track_id = p.get("track_id", 0)
-                    frame = p.get("frame", 0)
-                    if track_id > 0 and frame > 0:
-                        if track_id not in calibration_frames_map:
-                            calibration_frames_map[track_id] = set()
-                        calibration_frames_map[track_id].add(frame)
-                
-                if csv_name not in self.app.viz_calibration_pairs:
-                    self.app.viz_calibration_pairs[csv_name] = {}
-                self.app.viz_calibration_pairs[csv_name] = calibration_frames_map
-                
-                # Load full CSV data for visualization if not already loaded
-                if csv_name not in self.app.viz_data:
-                    self.app.load_csv_for_visualization(self.csv_path, csv_name)
-            
-            if len(zprimes) == 0:
-                return None
-            
-            avg_zprime = np.mean(zprimes)
-            avg_b = np.mean(b_values)
-            
-            # Calculate metrics for chosen/quality pairs
-            chosen_metrics = {
-                "count": len(final_quality_pairs),
-                "zprime": {
-                    "mean": float(np.mean(zprimes)),
-                    "std": float(np.std(zprimes)),
-                    "min": float(np.min(zprimes)),
-                    "max": float(np.max(zprimes))
-                },
-                "b": {
-                    "mean": float(np.mean(b_values)),
-                    "std": float(np.std(b_values)),
-                    "min": float(np.min(b_values)),
-                    "max": float(np.max(b_values))
-                },
-                "score": {
-                    "mean": float(np.mean([p["score"] for p in final_quality_pairs])),
-                    "std": float(np.std([p["score"] for p in final_quality_pairs])),
-                    "min": float(np.min([p["score"] for p in final_quality_pairs])),
-                    "max": float(np.max([p["score"] for p in final_quality_pairs]))
-                }
-            }
-            
-            # Add Z filtering statistics to chosen_metrics if available
-            if z_filter_stats:
-                chosen_metrics["z_filter"] = z_filter_stats
-            
-            # Calculate metrics for all input pairs
-            all_zprimes = []
-            all_b_values = []
-            all_scores = []
-            for p in pairs_data:
-                r_a = p["r_a"]
-                r_c = p["r_c"]
-                if r_a + r_c > 0:
-                    zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                    all_zprimes.append(zprime)
-                    b_val = (2 * r_a * r_c) / (r_a + r_c)
-                    all_b_values.append(b_val)
-                    all_scores.append(p["score"])
-            
-            input_metrics = {
-                "count": len(pairs_data),
-                "zprime": {
-                    "mean": float(np.mean(all_zprimes)) if all_zprimes else 0.0,
-                    "std": float(np.std(all_zprimes)) if all_zprimes else 0.0,
-                    "min": float(np.min(all_zprimes)) if all_zprimes else 0.0,
-                    "max": float(np.max(all_zprimes)) if all_zprimes else 0.0
-                },
-                "b": {
-                    "mean": float(np.mean(all_b_values)) if all_b_values else 0.0,
-                    "std": float(np.std(all_b_values)) if all_b_values else 0.0,
-                    "min": float(np.min(all_b_values)) if all_b_values else 0.0,
-                    "max": float(np.max(all_b_values)) if all_b_values else 0.0
-                },
-                "score": {
-                    "mean": float(np.mean(all_scores)) if all_scores else 0.0,
-                    "std": float(np.std(all_scores)) if all_scores else 0.0,
-                    "min": float(np.min(all_scores)) if all_scores else 0.0,
-                    "max": float(np.max(all_scores)) if all_scores else 0.0
-                }
-            }
-            
-            return (self.csv_path, mm_val, working_dist_val, avg_zprime, avg_b, input_metrics, chosen_metrics, z_filter_stats)
-        
-        except Exception as e:
-            print(f"[ERROR] Failed to read {self.csv_path}: {e}")
-            return None
-    
-    def remove(self):
-        """Remove this entry from the GUI."""
-        if self.app and len(self.app.video_entries) > 2:
-            self.app.remove_video_entry(self)
+# VideoEntry is now imported from lib.gui.calibration_gui
 
 
 class VideoCalibrationApp:
@@ -438,6 +65,14 @@ class VideoCalibrationApp:
     def setup_gui(self):
         """Create the GUI layout with three columns."""
         from lib.gui import apply_standard_theme, format_window_title, get_standard_size
+        
+        # Initialize calibrator and visualizer first (before they're used)
+        self.calibrator = VideoCalibrator()
+        self.visualizer = CalibrationVisualizer(self.root)
+        
+        # Expose visualizer data for VideoEntry compatibility
+        self.viz_data = self.visualizer.viz_data
+        self.viz_calibration_pairs = self.visualizer.viz_calibration_pairs
         
         width, height = get_standard_size("large")
         self.root.geometry(f"{width}x{height}")
@@ -487,27 +122,10 @@ class VideoCalibrationApp:
         # Add button to open 3D plot window in middle column
         viz_button_frame = ttk.LabelFrame(middle_pane, text="3D Visualization", padding="10")
         viz_button_frame.pack(fill="x", pady=5)
-        ttk.Button(viz_button_frame, text="Open 3D Plot Window", command=self.open_3d_plot_window).pack(pady=5, fill="x")
-        
-        # Initialize 3D plot window reference
-        self.viz_window = None
+        ttk.Button(viz_button_frame, text="Open 3D Plot Window", command=self.visualizer.open_3d_plot_window).pack(pady=5, fill="x")
         
         # Store reference for later updates
         self.main_frame = left_frame
-        
-        # Magic offset and constant storage
-        self.magic_offset: Optional[float] = None
-        self.magic_constant: Optional[float] = None
-        self.calibration_data: Optional[Dict] = None
-        
-        # 3D visualization data
-        self.viz_data = {}  # {csv_name: {track_id: [(frame, x, y, z), ...]}}
-        self.viz_calibration_pairs = {}  # {csv_name: {track_id: set of frames that are calibration pairs}}
-        
-        # Coordinate unit tracking for axis labels
-        self.viz_x_unit = "mm"
-        self.viz_y_unit = "mm"
-        self.viz_z_unit = "mm"
         
         # Instructions
         instructions = ttk.Label(
@@ -669,292 +287,17 @@ class VideoCalibrationApp:
         self.metrics_text.grid(row=0, column=0, sticky="nsew")
         self.metrics_text_scrollbar.grid(row=0, column=1, sticky="ns")
     
-    def open_3d_plot_window(self):
-        """Open 3D visualization in a separate window."""
-        if self.viz_window is not None:
-            try:
-                self.viz_window.lift()
-                self.viz_window.focus_force()
-                return
-            except:
-                self.viz_window = None
-        
-        # Create new window for 3D plot
-        self.viz_window = tk.Toplevel(self.root)
-        self.viz_window.title("Calibration Pairs 3D Visualization")
-        self.viz_window.geometry("1000x800")
-        self.viz_window.transient(self.root)
-        
-        # Handle window close
-        self.viz_window.protocol("WM_DELETE_WINDOW", self.on_viz_window_close)
-        
-        # Create figure for 3D plot
-        self.viz_fig = Figure(figsize=(10, 8), dpi=100)
-        self.viz_ax = self.viz_fig.add_subplot(111, projection='3d')
-        
-        # Create canvas
-        self.viz_canvas = FigureCanvasTkAgg(self.viz_fig, self.viz_window)
-        self.viz_canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
-        
-        # Add toolbar
-        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
-        toolbar = NavigationToolbar2Tk(self.viz_canvas, self.viz_window)
-        toolbar.update()
-        
-        # Initial empty plot
-        self.viz_ax.set_xlabel('X (mm)')
-        self.viz_ax.set_ylabel('Y (mm)')
-        self.viz_ax.set_zlabel('Z (mm)')
-        self.viz_ax.set_title('Calibration Pairs Visualization')
-        self.viz_canvas.draw()
-        
-        # Update visualization if data already exists
-        if self.viz_data:
-            self.update_3d_visualization()
+    def load_csv_for_visualization(self, csv_path: str, csv_name: str):
+        """Load CSV data for 3D visualization."""
+        self.visualizer.load_csv_for_visualization(csv_path, csv_name)
     
-    def on_viz_window_close(self):
-        """Handle closing of 3D visualization window."""
-        self.viz_window.destroy()
-        self.viz_window = None
-        # Clear references but keep data
-        self.viz_fig = None
-        self.viz_ax = None
-        self.viz_canvas = None
+    def set_calibration_pairs(self, csv_name: str, calibration_frames):
+        """Set calibration pairs for a CSV file."""
+        self.visualizer.set_calibration_pairs(csv_name, calibration_frames)
     
     def update_3d_visualization(self):
         """Update 3D visualization with current filtered pairs."""
-        if not hasattr(self, 'viz_ax') or self.viz_ax is None:
-            return
-            
-        self.viz_ax.clear()
-        
-        if not self.viz_data:
-            self.viz_ax.text(0.5, 0.5, 0.5, "Load CSVs to see calibration pairs", 
-                           transform=self.viz_ax.transAxes, ha="center")
-            self.viz_canvas.draw()
-            return
-        
-        # Color map for different CSVs
-        csv_names = list(self.viz_data.keys())
-        colors = cm.tab20(np.linspace(0, 1, max(len(csv_names), 1)))
-        csv_color_map = {name: colors[i % len(colors)] for i, name in enumerate(csv_names)}
-        
-        # Plot all trajectories and highlight calibration pairs
-        for csv_name in csv_names:
-            data = self.viz_data[csv_name]
-            calibration_frames = self.viz_calibration_pairs.get(csv_name, {})
-            csv_color = csv_color_map[csv_name]
-            
-            for track_id, points in data.items():
-                if not points:
-                    continue
-                
-                frames = [p[0] for p in points]
-                xs = [p[1] for p in points]
-                ys = [p[2] for p in points]
-                zs = [p[3] for p in points]
-                
-                # Check if this track has calibration pairs
-                has_cal_pairs = track_id in calibration_frames and len(calibration_frames[track_id]) > 0
-                
-                if has_cal_pairs:
-                    # Plot full trajectory as background (light/gray)
-                    self.viz_ax.plot(xs, ys, zs, color=csv_color, alpha=0.15, linewidth=0.5, linestyle='--')
-                    
-                    # Highlight calibration pairs (bright, thick trail)
-                    cal_frames = calibration_frames[track_id]
-                    cal_indices = sorted([i for i, f in enumerate(frames) if f in cal_frames])
-                    
-                    if cal_indices:
-                        # Create continuous trail segments (handle gaps in frame sequence)
-                        segments = []
-                        segment_start = cal_indices[0]
-                        for i in range(len(cal_indices)):
-                            if i == len(cal_indices) - 1 or cal_indices[i+1] - cal_indices[i] > 1:
-                                # End of segment
-                                segment_end = cal_indices[i]
-                                segments.append((segment_start, segment_end))
-                                if i < len(cal_indices) - 1:
-                                    segment_start = cal_indices[i+1]
-                        
-                        # Plot each segment as a continuous trail
-                        for seg_idx, (seg_start, seg_end) in enumerate(segments):
-                            seg_xs = xs[seg_start:seg_end+1]
-                            seg_ys = ys[seg_start:seg_end+1]
-                            seg_zs = zs[seg_start:seg_end+1]
-                            
-                            # Plot calibration trail segment (bright, thick)
-                            label = f"{csv_name} - Track {track_id}" if seg_idx == 0 else ""
-                            self.viz_ax.plot(seg_xs, seg_ys, seg_zs, 
-                                           color=csv_color, alpha=0.9, linewidth=4,
-                                           label=label, zorder=5)
-                        
-                        # Mark calibration points with larger markers
-                        cal_xs = [xs[i] for i in cal_indices]
-                        cal_ys = [ys[i] for i in cal_indices]
-                        cal_zs = [zs[i] for i in cal_indices]
-                        self.viz_ax.scatter(cal_xs, cal_ys, cal_zs, 
-                                          color=csv_color, s=80, marker='o', 
-                                          edgecolors='black', linewidths=2, alpha=0.9, zorder=10)
-                else:
-                    # No calibration pairs for this track, plot very faintly
-                    self.viz_ax.plot(xs, ys, zs, color=csv_color, alpha=0.08, linewidth=0.3, linestyle='--')
-        
-        # Set labels and title based on detected coordinate units
-        x_label = f'X ({self.viz_x_unit})' if self.viz_x_unit else 'X'
-        y_label = f'Y ({self.viz_y_unit})' if self.viz_y_unit else 'Y'
-        z_label = f'Z ({self.viz_z_unit})' if self.viz_z_unit else 'Z'
-        self.viz_ax.set_xlabel(x_label)
-        self.viz_ax.set_ylabel(y_label)
-        self.viz_ax.set_zlabel(z_label)
-        self.viz_ax.set_title('Calibration Pairs Visualization\n(Bright trails = Selected pairs)')
-        
-        # Update chart limits based on all data points
-        # Collect all x, y, z values from all tracks
-        all_xs = []
-        all_ys = []
-        all_zs = []
-        for csv_name in csv_names:
-            data = self.viz_data[csv_name]
-            for track_id, points in data.items():
-                if points:
-                    for p in points:
-                        all_xs.append(p[1])  # x coordinate
-                        all_ys.append(p[2])  # y coordinate
-                        all_zs.append(p[3])  # z coordinate
-        
-        # Set axis limits if we have data
-        if all_xs and all_ys and all_zs:
-            x_min, x_max = min(all_xs), max(all_xs)
-            y_min, y_max = min(all_ys), max(all_ys)
-            z_min, z_max = min(all_zs), max(all_zs)
-            
-            # Add small padding to limits (5% of range)
-            x_range = x_max - x_min
-            y_range = y_max - y_min
-            z_range = z_max - z_min
-            
-            x_padding = x_range * 0.05 if x_range > 0 else 1.0
-            y_padding = y_range * 0.05 if y_range > 0 else 1.0
-            z_padding = z_range * 0.05 if z_range > 0 else 1.0
-            
-            self.viz_ax.set_xlim(x_min - x_padding, x_max + x_padding)
-            self.viz_ax.set_ylim(y_min - y_padding, y_max + y_padding)
-            self.viz_ax.set_zlim(z_min - z_padding, z_max + z_padding)
-        
-        # Add legend if not too many tracks
-        handles, labels = self.viz_ax.get_legend_handles_labels()
-        if handles and len(handles) <= 20:
-            self.viz_ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-        
-        self.viz_ax.grid(True, alpha=0.3)
-        self.viz_canvas.draw()
-    
-    def load_csv_for_visualization(self, csv_path: str, csv_name: str):
-        """Load CSV data for 3D visualization."""
-        if not os.path.exists(csv_path):
-            return
-        
-        try:
-            data = {}  # {track_id: [(frame, x, y, z), ...]}
-            
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                
-                # Check which columns are available
-                has_x_mm = 'X_mm' in reader.fieldnames
-                has_y_mm = 'Y_mm' in reader.fieldnames
-                has_center_x = 'Center_X' in reader.fieldnames
-                has_center_y = 'Center_Y' in reader.fieldnames
-                has_z_mm = 'Z_mm' in reader.fieldnames
-                has_zprime_mm = 'Zprime_mm' in reader.fieldnames
-                has_zdoubleprime = 'Zdoubleprime' in reader.fieldnames
-                
-                # Read all rows to check data availability
-                all_rows = list(reader)
-                
-                # Determine coordinate units based on available data
-                if all_rows:
-                    sample_row = all_rows[0]
-                    # Check if X_mm/Y_mm have actual data
-                    has_x_mm_data = bool(sample_row.get('X_mm', '').strip())
-                    has_y_mm_data = bool(sample_row.get('Y_mm', '').strip())
-                    
-                    # XY labels: "X (mm), Y (mm)" if X_mm/Y_mm has data, otherwise "X (px), Y (px)"
-                    if has_x_mm_data and has_y_mm_data:
-                        self.viz_x_unit = "mm"
-                        self.viz_y_unit = "mm"
-                    else:
-                        self.viz_x_unit = "px"
-                        self.viz_y_unit = "px"
-                    
-                    # Set Z unit based on available columns with actual data
-                    # Priority: Z_mm (from pair_detect or after calibration) > Zprime > Zdoubleprime
-                    has_z_mm_data = bool(sample_row.get('Z_mm', '').strip())
-                    has_zprime_data = bool(sample_row.get('Zprime_mm', '').strip())
-                    has_zdoubleprime_data = bool(sample_row.get('Zdoubleprime', '').strip())
-                    
-                    if has_z_mm_data:
-                        # Z_mm exists (typically calculated by pair_detect when calibration loaded)
-                        self.viz_z_unit = "mm"
-                    elif has_zprime_data:
-                        self.viz_z_unit = ""  # "Z" label (no unit indicator for Zprime)
-                    elif has_zdoubleprime_data:
-                        self.viz_z_unit = ""  # "Z" label (no unit indicator for Zdoubleprime)
-                    else:
-                        self.viz_z_unit = "mm"  # Default fallback
-                
-                # Process rows
-                for row in all_rows:
-                    try:
-                        frame = int(row['Frame_Number'])
-                        track_id = int(row['Track_ID'])
-                        
-                        # Get X, Y coordinates
-                        x_str = ''
-                        y_str = ''
-                        if has_x_mm and has_y_mm:
-                            x_str = row.get('X_mm', '').strip()
-                            y_str = row.get('Y_mm', '').strip()
-                        if (not x_str or not y_str) and has_center_x and has_center_y:
-                            x_str = row.get('Center_X', '').strip()
-                            y_str = row.get('Center_Y', '').strip()
-                        
-                        if not x_str or not y_str:
-                            continue
-                        
-                        x = float(x_str)
-                        y = float(y_str)
-                        
-                        # Get Z coordinate (priority: Z_mm from pair_detect > calculated Z_mm > Zprime > Zdoubleprime)
-                        z = 0.0
-                        z_str = ''
-                        # First check if Z_mm exists (may have been calculated by pair_detect)
-                        if has_z_mm:
-                            z_str = row.get('Z_mm', '').strip()
-                            if z_str:
-                                z = float(z_str)
-                                # Use Z_mm if available (pre-calculated by pair_detect)
-                        if not z_str and has_zprime_mm:
-                            z_str = row.get('Zprime_mm', '').strip()
-                            if z_str:
-                                z = float(z_str)
-                        if not z_str and has_zdoubleprime:
-                            z_str = row.get('Zdoubleprime', '').strip()
-                            if z_str:
-                                z = float(z_str)
-                        
-                        if track_id not in data:
-                            data[track_id] = []
-                        data[track_id].append((frame, x, y, z))
-                        
-                    except (ValueError, KeyError):
-                        continue
-            
-            self.viz_data[csv_name] = data
-            
-        except Exception as e:
-            print(f"[WARN] Failed to load CSV for visualization: {e}")
+        self.visualizer.update_3d_visualization()
     
     def update_z_threshold_label(self):
         """Update Z threshold label."""
@@ -1024,7 +367,7 @@ class VideoCalibrationApp:
         if current_value:
             return  # Don't overwrite existing value
         
-        latest_cal_file = get_latest_calibration_file()
+        latest_cal_file = find_latest_calibration_file()
         if latest_cal_file:
             if self._load_working_distance_from_json_silent(latest_cal_file):
                 print(f"[INFO] Auto-loaded working distance from latest calibration: {latest_cal_file}")
@@ -1050,7 +393,7 @@ class VideoCalibrationApp:
     
     def load_from_latest_calibration(self):
         """Load working distance from the latest calibration file."""
-        latest_cal_file = get_latest_calibration_file()
+        latest_cal_file = find_latest_calibration_file()
         if not latest_cal_file:
             messagebox.showwarning("Warning", "No calibration files found in the calibrations folder.")
             return
@@ -1103,8 +446,7 @@ class VideoCalibrationApp:
         entry_frame.pack(fill="x", padx=10, pady=5)
         entry_frame.grid_columnconfigure(1, weight=1)
         
-        entry = VideoEntry(entry_frame, len(self.video_entries))
-        entry.set_app(self)
+        entry = VideoEntry(entry_frame, len(self.video_entries), self)
         self.video_entries.append(entry)
         
         # Update canvas scroll region
@@ -1190,148 +532,62 @@ class VideoCalibrationApp:
             warning_msg += "\n\nPlease adjust filter thresholds or check your input data."
             messagebox.showwarning("Insufficient Data", warning_msg)
         
-        # Extract Zprime values, B values, and Z (calibrated mm height) values
-        zprimes = np.array([z for _, _, _, z, _ in data_points])
-        b_values = np.array([b for _, _, _, _, b in data_points])
-        z_values = np.array([h for _, h, _, _, _ in data_points])  # Z = calibrated mm height input
-        
-        # Linear regression: Z = Zprime * magic_constant + magic_offset
-        # Using np.polyfit (degree 1) or manual calculation
-        # np.polyfit returns [slope, intercept] for degree 1
-        # We fit: Z = slope * Zprime + intercept
-        coeffs = np.polyfit(zprimes, z_values, 1)
-        self.magic_constant = coeffs[0]  # slope
-        self.magic_offset = coeffs[1]    # intercept
-        
-        # Calculate R² for quality assessment
-        predicted_z = self.magic_constant * zprimes + self.magic_offset
-        ss_res = np.sum((z_values - predicted_z) ** 2)
-        ss_tot = np.sum((z_values - np.mean(z_values)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-        
-        # Calculate average working distance from data points
-        working_distances = [wd for _, _, wd, _, _ in data_points]
-        avg_working_distance_mm = np.mean(working_distances) if len(working_distances) > 0 else None
-        
-        # Calculate aggregate metrics
-        total_input_count = sum(m["count"] for _, m in all_input_metrics)
-        total_chosen_count = sum(m["count"] for _, m in all_chosen_metrics)
-        
-        # Create dictionary for looking up input metrics by video name (for percentage calculation)
-        input_video_dict = {name: m for name, m in all_input_metrics}
-        
-        self.calibration_data = {
-            "magic_constant": float(self.magic_constant),
-            "magic_offset": float(self.magic_offset),
-            "r_squared": float(r_squared),
-            "data_points": [
-                {
-                    "csv_path": csv_path,
-                    "z_mm": float(h),  # Z = calibrated input value
-                    "working_distance_mm": float(wd),
-                    "avg_zprime": float(z),
-                    "avg_b": float(b)
-                }
-                for csv_path, h, wd, z, b in data_points
-            ],
-            "formula": "Z = Zprime * magic_constant + magic_offset",
-            "description": "Z is the calibrated mm height input, Zprime is calculated from pair data",
-            "zprime_formula": "Zprime = working_distance * (C-A)/(A+C)",
-            "b_formula": "B = (2*A*C)/(A+C)",
-            "metrics": {
-                "input_dataset": {
-                    "total_pairs": total_input_count,
-                    "per_video": [
-                        {
-                            "video": name,
-                            "count": m["count"],
-                            "zprime_mean": m["zprime"]["mean"],
-                            "zprime_std": m["zprime"]["std"],
-                            "zprime_min": m["zprime"]["min"],
-                            "zprime_max": m["zprime"]["max"],
-                            "b_mean": m["b"]["mean"],
-                            "b_std": m["b"]["std"],
-                            "b_min": m["b"]["min"],
-                            "b_max": m["b"]["max"],
-                            "score_mean": m["score"]["mean"],
-                            "score_std": m["score"]["std"],
-                            "score_min": m["score"]["min"],
-                            "score_max": m["score"]["max"]
-                        }
-                        for name, m in all_input_metrics
-                    ]
-                },
-                "chosen_dataset": {
-                    "total_pairs": total_chosen_count,
-                    "percent_of_input": float(100 * total_chosen_count / max(1, total_input_count)),
-                    "per_video": [
-                        {
-                            "video": name,
-                            "count": m["count"],
-                            "percent_of_input": float(100 * m["count"] / max(1, input_video_dict.get(name, {}).get("count", 0))) if name in input_video_dict else 0.0,
-                            "zprime_mean": m["zprime"]["mean"],
-                            "zprime_std": m["zprime"]["std"],
-                            "zprime_min": m["zprime"]["min"],
-                            "zprime_max": m["zprime"]["max"],
-                            "b_mean": m["b"]["mean"],
-                            "b_std": m["b"]["std"],
-                            "b_min": m["b"]["min"],
-                            "b_max": m["b"]["max"],
-                            "score_mean": m["score"]["mean"],
-                            "score_std": m["score"]["std"],
-                            "score_min": m["score"]["min"],
-                            "score_max": m["score"]["max"]
-                        }
-                        for name, m in all_chosen_metrics
-                    ]
-                }
-            }
-        }
-        
-        # Add average working distance to calibration data if available
-        if avg_working_distance_mm is not None:
-            self.calibration_data["working_distance_mm"] = float(avg_working_distance_mm)
-        
-        # Calculate average B for display
-        avg_b_all = np.mean(b_values) if len(b_values) > 0 else 0
-        
-        # Build result text with Z filtering info
-        z_filter_summary = ""
-        if all_z_filter_stats:
-            total_omitted = sum(stats['omitted'] for _, stats in all_z_filter_stats)
-            z_filter_summary = f"\nZ Filtering: Omitted {total_omitted} outlier pairs across all videos"
-        
-        # Update result label
-        result_text = (
-            f"Calibration Complete!\n\n"
-            f"Magic Constant: {self.magic_constant:.6f}\n"
-            f"Magic Offset: {self.magic_offset:.6f} mm\n"
-            f"R² (quality): {r_squared:.4f}\n"
-            f"Avg B: {avg_b_all:.4f} px\n\n"
-            f"Formula: Z = Zprime * {self.magic_constant:.6f} + {self.magic_offset:.6f}\n"
-            f"where:\n"
-            f"  Z = calibrated mm height (input)\n"
-            f"  Zprime = working_distance * (C-A)/(A+C)\n"
-            f"  B = (2*A*C)/(A+C)\n\n"
-            f"Input Dataset: {total_input_count} pairs | "
-            f"Chosen Dataset: {total_chosen_count} pairs ({100*total_chosen_count/max(1,total_input_count):.1f}%)"
-            f"{z_filter_summary}"
-        )
-        self.result_label.config(text=result_text)
-        
-        # Display detailed metrics
-        self.display_metrics(all_input_metrics, all_chosen_metrics, total_input_count, total_chosen_count, all_z_filter_stats)
-        
-        print(f"[INFO] Calibration calculated:")
-        print(f"  Formula: Z = Zprime * magic_constant + magic_offset")
-        print(f"  Magic Constant: {self.magic_constant:.6f}")
-        print(f"  Magic Offset: {self.magic_offset:.6f} mm")
-        print(f"  R²: {r_squared:.4f}")
-        print(f"  Input Dataset: {total_input_count} pairs")
-        print(f"  Chosen Dataset: {total_chosen_count} pairs ({100*total_chosen_count/max(1,total_input_count):.1f}%)")
-        
-        # Automatically save to calibrations folder
-        self._auto_save_calibration()
+        # Use VideoCalibrator to perform the calculation
+        try:
+            result = self.calibrator.calculate_calibration(
+                data_points,
+                all_input_metrics,
+                all_chosen_metrics,
+                all_z_filter_stats if all_z_filter_stats else None
+            )
+            
+            # Store results in app for compatibility
+            self.magic_constant = result["magic_constant"]
+            self.magic_offset = result["magic_offset"]
+            self.calibration_data = result["calibration_data"]
+            
+            # Update result label
+            result_text = (
+                f"Calibration Complete!\n\n"
+                f"Magic Constant: {self.magic_constant:.6f}\n"
+                f"Magic Offset: {self.magic_offset:.6f} mm\n"
+                f"R² (quality): {result['r_squared']:.4f}\n"
+                f"Avg B: {result['avg_b']:.4f} px\n\n"
+                f"Formula: Z = Zprime * {self.magic_constant:.6f} + {self.magic_offset:.6f}\n"
+                f"where:\n"
+                f"  Z = calibrated mm height (input)\n"
+                f"  Zprime = working_distance * (C-A)/(A+C)\n"
+                f"  B = (2*A*C)/(A+C)\n\n"
+                f"Input Dataset: {result['total_input_count']} pairs | "
+                f"Chosen Dataset: {result['total_chosen_count']} pairs ({100*result['total_chosen_count']/max(1,result['total_input_count']):.1f}%)"
+                f"{result['z_filter_summary']}"
+            )
+            self.result_label.config(text=result_text)
+            
+            # Display detailed metrics using imported function
+            display_metrics(self.metrics_text, all_input_metrics, all_chosen_metrics, 
+                          result['total_input_count'], result['total_chosen_count'], 
+                          all_z_filter_stats if all_z_filter_stats else None)
+            
+            print(f"[INFO] Calibration calculated:")
+            print(f"  Formula: Z = Zprime * magic_constant + magic_offset")
+            print(f"  Magic Constant: {self.magic_constant:.6f}")
+            print(f"  Magic Offset: {self.magic_offset:.6f} mm")
+            print(f"  R²: {result['r_squared']:.4f}")
+            print(f"  Input Dataset: {result['total_input_count']} pairs")
+            print(f"  Chosen Dataset: {result['total_chosen_count']} pairs ({100*result['total_chosen_count']/max(1,result['total_input_count']):.1f}%)")
+            
+            # Automatically save to calibrations folder
+            saved_path = self.calibrator.auto_save_calibration()
+            if saved_path:
+                # Update result label to show save status
+                current_text = self.result_label.cget("text")
+                self.result_label.config(
+                    text=current_text + f"\n\n✅ Saved to: {saved_path.name}"
+                )
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            return
         
         # Ask user if they want to save calculated mm values to CSV files
         response = messagebox.askyesno(
@@ -1359,69 +615,15 @@ class VideoCalibrationApp:
     
     def display_metrics(self, input_metrics_list, chosen_metrics_list, total_input, total_chosen, z_filter_stats_list=None):
         """Display detailed metrics for input and chosen datasets."""
-        self.metrics_text.config(state="normal")
-        self.metrics_text.delete(1.0, tk.END)
-        
-        # Calculate percentages for each video
-        input_video_dict = {name: m for name, m in input_metrics_list}
-        z_filter_dict = {name: stats for name, stats in (z_filter_stats_list or [])}
-        
-        # Header
-        self.metrics_text.insert(tk.END, "="*80 + "\n")
-        self.metrics_text.insert(tk.END, "DATASET METRICS\n")
-        self.metrics_text.insert(tk.END, "="*80 + "\n\n")
-        
-        # Input dataset totals
-        self.metrics_text.insert(tk.END, f"INPUT DATASET (Total: {total_input} pairs)\n")
-        self.metrics_text.insert(tk.END, "-"*80 + "\n")
-        
-        # Per-video input metrics
-        for name, m in input_metrics_list:
-            self.metrics_text.insert(tk.END, f"\n  {name}:\n")
-            self.metrics_text.insert(tk.END, f"    Pairs: {m['count']}\n")
-            self.metrics_text.insert(tk.END, f"    Zprime: mean={m['zprime']['mean']:.4f}, std={m['zprime']['std']:.4f}, "
-                                           f"range=[{m['zprime']['min']:.4f}, {m['zprime']['max']:.4f}]\n")
-            self.metrics_text.insert(tk.END, f"    B:      mean={m['b']['mean']:.4f}, std={m['b']['std']:.4f}, "
-                                           f"range=[{m['b']['min']:.4f}, {m['b']['max']:.4f}]\n")
-            self.metrics_text.insert(tk.END, f"    Score:  mean={m['score']['mean']:.4f}, std={m['score']['std']:.4f}, "
-                                           f"range=[{m['score']['min']:.4f}, {m['score']['max']:.4f}]\n")
-        
-        # Chosen dataset totals
-        overall_percent = 100 * total_chosen / max(1, total_input)
-        self.metrics_text.insert(tk.END, f"\n{'='*80}\n")
-        self.metrics_text.insert(tk.END, f"CHOSEN DATASET (Total: {total_chosen} pairs, {overall_percent:.1f}% of input)\n")
-        self.metrics_text.insert(tk.END, "-"*80 + "\n")
-        
-        # Per-video chosen metrics with percentages
-        for name, m in chosen_metrics_list:
-            input_count = input_video_dict.get(name, {}).get("count", 0)
-            video_percent = 100 * m['count'] / max(1, input_count) if input_count > 0 else 0.0
-            self.metrics_text.insert(tk.END, f"\n  {name}:\n")
-            self.metrics_text.insert(tk.END, f"    Pairs: {m['count']} ({video_percent:.1f}% of input)\n")
-            self.metrics_text.insert(tk.END, f"    Zprime: mean={m['zprime']['mean']:.4f}, std={m['zprime']['std']:.4f}, "
-                                           f"range=[{m['zprime']['min']:.4f}, {m['zprime']['max']:.4f}]\n")
-            self.metrics_text.insert(tk.END, f"    B:      mean={m['b']['mean']:.4f}, std={m['b']['std']:.4f}, "
-                                           f"range=[{m['b']['min']:.4f}, {m['b']['max']:.4f}]\n")
-            self.metrics_text.insert(tk.END, f"    Score:  mean={m['score']['mean']:.4f}, std={m['score']['std']:.4f}, "
-                                           f"range=[{m['score']['min']:.4f}, {m['score']['max']:.4f}]\n")
-            
-            # Add Z filtering info if available
-            if name in z_filter_dict:
-                zf = z_filter_dict[name]
-                self.metrics_text.insert(tk.END, f"\n    Z Filtering ({zf['filter_type']}):\n")
-                self.metrics_text.insert(tk.END, f"      Target Z (mean): {zf['mean_z']:.4f}\n")
-                self.metrics_text.insert(tk.END, f"      Std Dev: {zf['std_z']:.4f}\n")
-                self.metrics_text.insert(tk.END, f"      Threshold: ±{zf['threshold_std']:.2f}σ\n")
-                self.metrics_text.insert(tk.END, f"      Pairs: {zf['pairs_before']} → {zf['pairs_after']} (omitted {zf['omitted']})\n")
-        
-        self.metrics_text.config(state="disabled")
+        display_metrics(self.metrics_text, input_metrics_list, chosen_metrics_list, 
+                       total_input, total_chosen, z_filter_stats_list)
     
     def _convert_visualization_to_zmm(self):
         """
         Convert all visualization data to Z_mm using calibration constants.
         This is called after calibration is complete to update the 3D plot with calibrated Z values.
         """
-        if self.magic_constant is None or self.magic_offset is None:
+        if self.calibrator.magic_constant is None or self.calibrator.magic_offset is None:
             return  # Calibration not complete yet
         
         # Get working distance
@@ -1479,7 +681,7 @@ class VideoCalibrationApp:
                                 # Calculate Zprime = working_distance * (C-A)/(A+C)
                                 zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
                                 # Convert to Z_mm = Zprime * magic_constant + magic_offset
-                                z_mm = zprime * self.magic_constant + self.magic_offset
+                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
                                 updated_points.append((frame, x, y, z_mm))
                             else:
                                 updated_points.append((frame, x, y, z_old))
@@ -1490,7 +692,7 @@ class VideoCalibrationApp:
                     data[track_id] = updated_points
                 
                 # Update Z unit label to mm
-                self.viz_z_unit = "mm"
+                self.visualizer.viz_z_unit = "mm"
                 
             except Exception as e:
                 print(f"[WARN] Failed to convert {csv_name} to Z_mm: {e}")
@@ -1502,7 +704,7 @@ class VideoCalibrationApp:
         Uses the current calibration constants and tries to load optical center and pixels_per_mm
         from preset and calibration files.
         """
-        if self.magic_constant is None or self.magic_offset is None:
+        if self.calibrator.magic_constant is None or self.calibrator.magic_offset is None:
             return  # Calibration not complete yet
         
         # Get working distance
@@ -1630,13 +832,13 @@ class VideoCalibrationApp:
                             existing_z_mm = row.get('Z_mm', '').strip()
                             if not existing_z_mm:
                                 zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                                z_mm = zprime * self.magic_constant + self.magic_offset
+                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
                                 row['Z_mm'] = f"{z_mm:.4f}"
                                 updated_count += 1
                             else:
                                 # Overwrite existing value after new calibration (user confirmed via popup)
                                 zprime = working_dist_val * (r_c - r_a) / (r_a + r_c)
-                                z_mm = zprime * self.magic_constant + self.magic_offset
+                                z_mm = zprime * self.calibrator.magic_constant + self.calibrator.magic_offset
                                 row['Z_mm'] = f"{z_mm:.4f}"
                                 overwritten_count += 1
                             
@@ -1792,8 +994,8 @@ class VideoCalibrationApp:
                             if 'calibration' not in json_data:
                                 json_data['calibration'] = {}
                             
-                            json_data['calibration']['magic_constant'] = float(self.magic_constant)
-                            json_data['calibration']['magic_offset'] = float(self.magic_offset)
+                            json_data['calibration']['magic_constant'] = float(self.calibrator.magic_constant)
+                            json_data['calibration']['magic_offset'] = float(self.calibrator.magic_offset)
                             json_data['calibration']['working_distance_mm'] = float(working_dist_val)
                             json_data['calibration']['formula'] = "Z_mm = Zprime * magic_constant + magic_offset"
                             
@@ -1804,9 +1006,9 @@ class VideoCalibrationApp:
                             json_data['calibration']['calibrated_at'] = datetime.now().isoformat()
                             
                             # Update if calibration data exists
-                            if self.calibration_data:
-                                if 'r_squared' in self.calibration_data:
-                                    json_data['calibration']['r_squared'] = float(self.calibration_data['r_squared'])
+                            if self.calibrator.calibration_data:
+                                if 'r_squared' in self.calibrator.calibration_data:
+                                    json_data['calibration']['r_squared'] = float(self.calibrator.calibration_data['r_squared'])
                             
                             # Write updated JSON back
                             with open(json_path, 'w', encoding='utf-8') as f:
@@ -1829,49 +1031,8 @@ class VideoCalibrationApp:
     
     def _auto_save_calibration(self):
         """Automatically save calibration data to the calibrations folder."""
-        if self.calibration_data is None:
-            return
-        
-        # Create calibrations folder if it doesn't exist
-        calibrations_dir = Path("calibrations")
-        calibrations_dir.mkdir(exist_ok=True)
-        
-        # Generate timestamped filename combining all CSV filenames
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_names = []
-        if self.calibration_data.get("data_points"):
-            for point in self.calibration_data["data_points"]:
-                csv_path = point.get("csv_path", "")
-                if csv_path:
-                    # Extract CSV filename without extension
-                    csv_name = os.path.splitext(os.path.basename(csv_path))[0]
-                    csv_names.append(csv_name)
-        
-        # Combine CSV names with underscores
-        if csv_names:
-            combined_names = "_".join(csv_names)
-            # Limit filename length to avoid filesystem issues
-            if len(combined_names) > 100:
-                combined_names = combined_names[:100]
-            prefix = combined_names + "_"
-        else:
-            prefix = ""
-        
-        filename = f"{prefix}video_calibration_{timestamp}.json"
-        file_path = calibrations_dir / filename
-        
-        try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(self.calibration_data, f, indent=2)
-            print(f"[INFO] Calibration automatically saved to: {file_path}")
-            
-            # Update result label to show save status
-            current_text = self.result_label.cget("text")
-            self.result_label.config(
-                text=current_text + f"\n\n✅ Saved to: {filename}"
-            )
-        except Exception as e:
-            print(f"[ERROR] Failed to auto-save calibration: {e}")
+        # This is now handled by calibrator.auto_save_calibration() in calculate()
+        pass
     
 def main():
     """Main entry point."""
