@@ -195,55 +195,58 @@ def update_display():
                     (points[0][1] + points[1][1]) // 2 - 10),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
-    # Calculate display size (max 2/3 of screen, full image visible)
-    display_width, display_height = get_display_size(image.shape)
+    # Get current window size if window is initialized, otherwise use calculated size
+    was_initialized = window_initialized
+    if window_initialized and current_display_size is not None:
+        # Window is initialized - use current window size (allows resizing)
+        try:
+            window_prop = cv2.getWindowImageRect(window_name)
+            if len(window_prop) >= 4 and window_prop[2] > 0 and window_prop[3] > 0:
+                # Use actual window size (user may have resized it)
+                display_width = window_prop[2]
+                display_height = window_prop[3]
+                current_display_size = (display_width, display_height)
+            else:
+                # Fallback to calculated size if window size can't be determined
+                display_width, display_height = get_display_size(image.shape)
+                current_display_size = (display_width, display_height)
+        except (cv2.error, AttributeError, IndexError):
+            # Fallback to calculated size if window query fails
+            display_width, display_height = get_display_size(image.shape)
+            current_display_size = (display_width, display_height)
+    else:
+        # First initialization - calculate display size
+        display_width, display_height = get_display_size(image.shape)
+        current_display_size = (display_width, display_height)
+        window_initialized = True
     
     # Only resize window programmatically on first initialization
-    # Window will be fixed size, we'll prevent resizing via periodic check
-    if not window_initialized:
+    if not was_initialized:
         try:
             cv2.resizeWindow(window_name, display_width, display_height)
-            current_display_size = (display_width, display_height)
-            window_initialized = True
         except cv2.error:
             # Window might not exist yet, will be created by imshow
             pass
-    else:
-        # If already initialized, ensure window is still at correct size
-        if current_display_size is not None:
-            try:
-                cv2.resizeWindow(window_name, current_display_size[0], current_display_size[1])
-            except cv2.error:
-                pass
     
-    # Resize image to the fixed display size while maintaining aspect ratio
-    # This ensures the full image is visible at the calculated size
+    # Resize image to the current display size while maintaining aspect ratio
     display_image, scale_x, scale_y = resize_image_to_fit(image, display_width, display_height)
     
     # Store scale factors for mouse coordinate conversion
     current_scale_x = scale_x
     current_scale_y = scale_y
     
-    # Show image and process window events (required for Raspberry Pi)
+    # Show image and process window events
     cv2.imshow(window_name, display_image)
     
-    # On Linux/RPi, need more waitKey calls and ensure window is active
-    if IS_RASPBERRY_PI or IS_LINUX:
-        # On RPi/Linux, need longer waits and more processing
-        cv2.waitKey(10)  # Longer wait for RPi
-        cv2.waitKey(1)   # Additional processing
-    else:
-        cv2.waitKey(1)  # Standard wait for Windows
+    # Process window events - use minimal waitKey to avoid blocking tkinter event loop
+    # This is especially important on Raspberry Pi to prevent GUI freezing
+    cv2.waitKey(1)  # Minimal wait - just enough to process OpenCV window events
     
-    # Ensure window is brought to front and can receive mouse events on RPi
+    # On Linux/RPi, ensure window can receive mouse events (but don't block)
     try:
         if IS_RASPBERRY_PI or IS_LINUX:
-            # On Linux/RPi, ensure window receives focus for mouse events
-            # Cycle through topmost to ensure window is active
-            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-            cv2.waitKey(1)
+            # Only set window properties, don't use multiple waitKey calls that block
             cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
-            cv2.waitKey(1)
         else:
             cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
     except:
@@ -276,8 +279,9 @@ def mouse_callback(event, x, y, flags, param):
             points.append((original_x, original_y))
             print(f"[INFO] Point {len(points)} selected: ({original_x}, {original_y}) (display: {x}, {y})")
             
-            # Update display with new point
-            update_display()
+            # Schedule display update asynchronously to avoid blocking tkinter event loop
+            # This prevents GUI freezing on Raspberry Pi
+            root.after(10, lambda: update_display())
 
 
 def load_image():
@@ -333,19 +337,21 @@ def load_image():
     # Initial display update (this will set window size and show image)
     update_display()
     
-    # Additional waitKey calls to ensure window is fully rendered and focused (important for Raspberry Pi)
-    cv2.waitKey(10)  # Longer wait for RPi to initialize window
-    cv2.waitKey(10)  # Extra call for Linux/raspberry Pi
+    # Minimal waitKey call to ensure window is created (avoid blocking tkinter event loop)
+    # On Raspberry Pi, we schedule additional window setup asynchronously
+    cv2.waitKey(1)
     
-    # Try to bring window to front on Linux/RPi
-    try:
-        # Force window to be visible and focused
-        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-        cv2.waitKey(10)
-        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
-        cv2.waitKey(10)
-    except:
-        pass
+    # Schedule window focus setup asynchronously to avoid blocking
+    def setup_window_focus():
+        try:
+            if IS_RASPBERRY_PI or IS_LINUX:
+                # On Linux/RPi, ensure window receives focus for mouse events
+                cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 0)
+                cv2.waitKey(1)  # Minimal wait
+        except:
+            pass
+    
+    root.after(50, setup_window_focus)
 
     print(f"[INFO] Image loaded: {file_path}")
     print(f"[INFO] Image size: {image_original.shape[1]}x{image_original.shape[0]} pixels")
@@ -480,9 +486,8 @@ def reset_points():
         points = []
         image_original = cv2.imread(image_path)
         if image_original is not None:
-            update_display()
-            # Additional waitKey to ensure window is updated (important for Raspberry Pi)
-            cv2.waitKey(1)
+            # Schedule display update asynchronously to avoid blocking
+            root.after(10, lambda: update_display())
             result_label.config(text="Calibration: Not calculated")
             print("[INFO] Points reset.")
         else:
@@ -490,10 +495,10 @@ def reset_points():
 
 
 def periodic_display_update():
-    """Periodically check and enforce fixed window size (prevent resizing)."""
+    """Periodically check window size and update display if resized (allow resizing)."""
     global window_initialized, image_original, current_display_size
     
-    # Only enforce if window is initialized and image is loaded
+    # Only check if window is initialized and image is loaded
     if window_initialized and image_original is not None and current_display_size is not None:
         try:
             # Check if window still exists and get its size
@@ -504,23 +509,18 @@ def periodic_display_update():
                 size_tolerance = 5  # pixels
                 size_diff = abs(current_size[0] - current_display_size[0]) + abs(current_size[1] - current_display_size[1])
                 
-                # If window size changed significantly (user tried to resize), reset it
+                # If window size changed significantly (user resized it), update display to match
                 if size_diff > size_tolerance:
-                    # Reset window size
-                    cv2.resizeWindow(window_name, current_display_size[0], current_display_size[1])
-                    # On Linux/RPi, update display immediately to avoid black borders
-                    if IS_RASPBERRY_PI or IS_LINUX:
-                        # Wait a bit for resize to take effect
-                        cv2.waitKey(50)
-                        # Update display to fill window properly
-                        update_display()
-                        # Additional processing for RPi
-                        cv2.waitKey(10)
+                    # Update current_display_size to match new window size
+                    current_display_size = current_size
+                    # Update display to fill the new window size properly
+                    # Use root.after to avoid blocking the event loop
+                    root.after(10, lambda: update_display())
         except (cv2.error, AttributeError, IndexError):
             # Window doesn't exist or error, ignore
             pass
     
-    # Schedule next update (every 300ms to check for resize attempts)
+    # Schedule next update (every 300ms to check for resize)
     root.after(300, periodic_display_update)
 
 
