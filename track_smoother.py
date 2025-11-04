@@ -192,6 +192,7 @@ class TrackSmoother(Base3DVisualizer):
     def setup_export_section(self, parent_frame):
         """Setup export section for smoothed tracks."""
         ttk.Button(parent_frame, text="Export Cleaned CSV", command=self.export_cleaned).pack(pady=5, fill="x")
+        ttk.Button(parent_frame, text="Save Video", command=self.save_video).pack(pady=5, fill="x")
     
     def load_csv_file(self, file_path: str):
         """Override to store original data separately."""
@@ -635,14 +636,10 @@ class TrackSmoother(Base3DVisualizer):
             messagebox.showwarning("No Data", "Please load a CSV file first.")
             return
         
-        # Ask for FPS
-        fps = simpledialog.askinteger(
-            "Video FPS",
-            "Enter frames per second for the video:",
-            initialvalue=30,
-            minvalue=1,
-            maxvalue=120
-        )
+        # Ask for FPS using custom dialog with Match Input button
+        from lib.visualizing.base_visualizer import FPSDialog
+        fps_dialog = FPSDialog(self.root, initial_fps=30, csv_path=self.csv_path)
+        fps = fps_dialog.result
         
         if fps is None:
             return
@@ -949,8 +946,32 @@ class TrackSmoother(Base3DVisualizer):
         try:
             with open(self.csv_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
-                fieldnames = reader.fieldnames
+                fieldnames = list(reader.fieldnames)
                 original_rows = list(reader)
+            
+            # Add new smoothed columns to fieldnames if they don't exist
+            smoothed_columns = []
+            if 'X_mm' in fieldnames:
+                smoothed_columns.append('X_mm_smoothed')
+            if 'Y_mm' in fieldnames:
+                smoothed_columns.append('Y_mm_smoothed')
+            if 'Z_mm' in fieldnames:
+                smoothed_columns.append('Z_mm_smoothed')
+            
+            # Add smoothed columns after the original mm columns
+            new_fieldnames = fieldnames.copy()
+            for col in smoothed_columns:
+                if col not in new_fieldnames:
+                    # Insert after the corresponding original column
+                    if col == 'X_mm_smoothed' and 'X_mm' in new_fieldnames:
+                        idx = new_fieldnames.index('X_mm') + 1
+                        new_fieldnames.insert(idx, 'X_mm_smoothed')
+                    elif col == 'Y_mm_smoothed' and 'Y_mm' in new_fieldnames:
+                        idx = new_fieldnames.index('Y_mm') + 1
+                        new_fieldnames.insert(idx, 'Y_mm_smoothed')
+                    elif col == 'Z_mm_smoothed' and 'Z_mm' in new_fieldnames:
+                        idx = new_fieldnames.index('Z_mm') + 1
+                        new_fieldnames.insert(idx, 'Z_mm_smoothed')
             
             smoothed_map = {}
             for track_id, points in self.smoothed_data.items():
@@ -958,7 +979,7 @@ class TrackSmoother(Base3DVisualizer):
                     smoothed_map[(frame, track_id)] = (x, y, z)
             
             with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer = csv.DictWriter(f, fieldnames=new_fieldnames)
                 writer.writeheader()
                 
                 for row in original_rows:
@@ -968,21 +989,13 @@ class TrackSmoother(Base3DVisualizer):
                         
                         if (frame, track_id) in smoothed_map:
                             x, y, z = smoothed_map[(frame, track_id)]
-                            # Write smoothed coordinates to standard columns if they exist
-                            if 'X_mm' in fieldnames:
-                                row['X_mm'] = f"{x:.4f}"
-                            if 'Y_mm' in fieldnames:
-                                row['Y_mm'] = f"{y:.4f}"
-                            if 'Z_mm' in fieldnames:
-                                row['Z_mm'] = f"{z:.4f}"
-                            # Also update pixel coordinates if they exist
-                            if 'Center_X' in fieldnames:
-                                row['Center_X'] = f"{x:.4f}"
-                            if 'Center_Y' in fieldnames:
-                                row['Center_Y'] = f"{y:.4f}"
-                            # Also update Zprime if it exists
-                            if 'Zprime_mm' in fieldnames:
-                                row['Zprime_mm'] = f"{z:.4f}"
+                            # Write smoothed coordinates to new smoothed columns
+                            if 'X_mm_smoothed' in new_fieldnames:
+                                row['X_mm_smoothed'] = f"{x:.4f}"
+                            if 'Y_mm_smoothed' in new_fieldnames:
+                                row['Y_mm_smoothed'] = f"{y:.4f}"
+                            if 'Z_mm_smoothed' in new_fieldnames:
+                                row['Z_mm_smoothed'] = f"{z:.4f}"
                         
                         writer.writerow(row)
                     
