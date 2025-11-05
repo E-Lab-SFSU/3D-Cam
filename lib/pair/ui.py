@@ -218,6 +218,7 @@ def build_gui(
     add_slider(row_blob, "Binary Threshold", "threshold", 0, 255); row_blob += 1
     add_slider(row_blob, "Gaussian Blur Size (odd)", "blur", 1, 25); row_blob += 1
     add_param_check(frm_blobbing, row_blob, "Black particles on white background", "invert_threshold"); row_blob += 1
+    add_param_check(frm_blobbing, row_blob, "Use Otsu's thresholding (auto-calculates threshold)", "use_otsu_threshold"); row_blob += 1
     add_slider_contrast(row_blob); row_blob += 1
     add_slider(row_blob, "Min Blob Area (px²)", "minArea", 0, 200); row_blob += 1
     add_slider(row_blob, "Max Blob Area (px²)", "maxArea", 100, 200); row_blob += 1

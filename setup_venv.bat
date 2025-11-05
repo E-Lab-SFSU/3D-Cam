@@ -54,8 +54,8 @@ echo To activate the virtual environment in the future, run:
 echo   venv\Scripts\activate
 echo.
 echo Or use the run scripts:
-echo   run_visualize3d.bat
-echo   run_pair_detect.bat
+echo   visualize_3d.bat
+echo   detect_pairs.bat
 echo   etc.
 echo.
 pause

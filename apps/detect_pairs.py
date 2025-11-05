@@ -61,10 +61,11 @@ PRESET_PATH = "detect_pairs_default.json"
 
 # ============ Default numeric parameters (sliders) ============
 DEFAULT_PARAMS = {
-    # --- Binarization ---
-    "threshold":     70,   # [0..255] Binary threshold applied after blur
+          # --- Binarization ---
+    "threshold":     70,   # [0..255] Binary threshold applied after blur (ignored if use_otsu_threshold is enabled)
     "blur":           1,   # Odd kernel size for Gaussian blur (1,3,5,7...). Smooths noise before threshold
     "invert_threshold": 0, # 0 = white particles on black background, 1 = black particles on white background
+    "use_otsu_threshold": 0, # 0 = use manual threshold, 1 = use Otsu's method (auto-calculates optimal threshold)
 
     # --- Blob constraints ---
     "minArea":       20,   # Minimum area (px^2) for valid blob bounding box (w*h)
@@ -727,16 +728,23 @@ def optimize_optical_center():
         gray_contrast = apply_contrast(gray_bgsub)
         
         blur = cv2.GaussianBlur(gray_contrast, (max(1, int(p["blur"])|1), max(1, int(p["blur"])|1)), 0)
-        thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Determine threshold type (BINARY or BINARY_INV)
+        base_thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Add Otsu's method if enabled
+        if p.get("use_otsu_threshold", 0):
+            thresh_type = base_thresh_type | cv2.THRESH_OTSU
+        else:
+            thresh_type = base_thresh_type
         _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
         
-        blobs = alg_detect(binary, test_cx, test_cy, p)
         method = p.get("pair_method", "Hungarian")
+        blobs = alg_detect(binary, test_cx, test_cy, p)
+        
         if method == "Greedy":
             pairs = alg_pair_scored(blobs, p, test_cx, test_cy, True)
         elif method == "Symmetric":
             pairs = alg_pair_scored_symmetric(blobs, p, test_cx, test_cy, True)
-        else:
+        else:  # Hungarian
             pairs = alg_pair_scored_hungarian(blobs, p, test_cx, test_cy, True)
         
         # Collect pair endpoints
@@ -894,17 +902,24 @@ def export_video():
         
         # Use contrast-enhanced bg-subtracted image for detection and display
         blur = cv2.GaussianBlur(gray_contrast, (max(1, int(p["blur"])|1), max(1, int(p["blur"])|1)), 0)  # ensure odd ksize
-        thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Determine threshold type (BINARY or BINARY_INV)
+        base_thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Add Otsu's method if enabled
+        if p.get("use_otsu_threshold", 0):
+            thresh_type = base_thresh_type | cv2.THRESH_OTSU
+        else:
+            thresh_type = base_thresh_type
         _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
 
         # Detection + pairing
-        blobs = alg_detect(binary, xCenter, yCenter, p)
         method = p.get("pair_method", "Hungarian")
+        blobs = alg_detect(binary, xCenter, yCenter, p)
+        
         if method == "Greedy":
             pairs_before_tracking = alg_pair_scored(blobs, p, xCenter, yCenter, center_valid)
         elif method == "Symmetric":
             pairs_before_tracking = alg_pair_scored_symmetric(blobs, p, xCenter, yCenter, center_valid)
-        else:
+        else:  # Hungarian
             pairs_before_tracking = alg_pair_scored_hungarian(blobs, p, xCenter, yCenter, center_valid)
         # Stable IDs for export
         pairs = tracker.update(pairs_before_tracking)
@@ -1714,8 +1729,13 @@ def preview_loop():
         ksize = max(1, int(params["blur"]))
         if ksize % 2 == 0: ksize += 1
         blur = cv2.GaussianBlur(gray_contrast, (ksize, ksize), 0)
-        # Use inverted threshold for black particles on white background
-        thresh_type = cv2.THRESH_BINARY_INV if params.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Determine threshold type (BINARY or BINARY_INV)
+        base_thresh_type = cv2.THRESH_BINARY_INV if params.get("invert_threshold", 0) else cv2.THRESH_BINARY
+        # Add Otsu's method if enabled
+        if params.get("use_otsu_threshold", 0):
+            thresh_type = base_thresh_type | cv2.THRESH_OTSU
+        else:
+            thresh_type = base_thresh_type
         _, binary = cv2.threshold(blur, int(params["threshold"]), 255, thresh_type)
 
         # Default center if user hasn't clicked yet
@@ -1723,7 +1743,6 @@ def preview_loop():
             h, w = gray.shape[:2]
             set_centerxy(w // 2, h // 2)
 
-        blobs = alg_detect(binary, xCenter, yCenter, params)
         method = params.get("pair_method", "Hungarian")
         # Show transient overlay when method changes
         if method != last_pair_method:
@@ -1732,11 +1751,15 @@ def preview_loop():
             except:
                 pass
             last_pair_method = method
+        
+        # Detection
+        blobs = alg_detect(binary, xCenter, yCenter, params)
+        
         if method == "Greedy":
             pairs_before_tracking = alg_pair_scored(blobs, params, xCenter, yCenter, center_valid)
         elif method == "Symmetric":
             pairs_before_tracking = alg_pair_scored_symmetric(blobs, params, xCenter, yCenter, center_valid)
-        else:
+        else:  # Hungarian
             pairs_before_tracking = alg_pair_scored_hungarian(blobs, params, xCenter, yCenter, center_valid)
         # Stable IDs across frames (preview)
         if tracker_preview is None:

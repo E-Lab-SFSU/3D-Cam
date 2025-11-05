@@ -18,17 +18,23 @@ The system consists of several components:
 
 1. **Video Capture** (`apps/capture_raspi.py`, `apps/capture_windows.py`): Record video from USB cameras
 2. **Image Calibration** (`apps/calibrate_scale_windows.py`, `apps/calibrate_scale_raspi.py`): Determine pixels-per-millimeter scale (platform-specific versions)
-3. **Pair Detection** (`apps/detect_pairs.py`): Detect and track particle pairs in video
-4. **Video Calibration** (`apps/calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
-5. **Track Smoothing** (`apps/smooth_tracks.py`): Smooth and clean trajectories, remove spikes
-6. **3D Visualization** (`apps/visualize_3d.py`): Visualize 3D trajectories interactively
-7. **Z Height Histogram** (`apps/plot_z_histogram.py`): Analyze and visualize Z height distribution
+3. **Pair Detection** (`apps/detect_pairs.py`): Detect and track particle pairs in video using blob detection (recommended)
+4. **Pair Detection Watershed** (`apps/detect_pairs_watershed.py`): Detect and track particle pairs using watershed segmentation for better handling of overlapping/touching particles
+5. **Pair Detection YOLO** (`deprecated/detect_pairs_yolo.py`): ⚠️ **Experimental/Deprecated** - YOLO-based detection (not recommended, see `deprecated/README.md`)
+6. **Video Calibration** (`apps/calibrate_video.py`): Calibrate Z-height measurements using known heights from CSV data
+7. **Track Smoothing** (`apps/smooth_tracks.py`): Smooth and clean trajectories, remove spikes
+8. **3D Visualization** (`apps/visualize_3d.py`): Visualize 3D trajectories interactively
+9. **Z Height Histogram** (`apps/plot_z_histogram.py`): Analyze and visualize Z height distribution
 
 ## Tools Summary
 
 ### Core Processing Tools
 
-- **`apps/detect_pairs.py`** - Main pair detection and tracking tool. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata.
+- **`apps/detect_pairs.py`** - **Recommended** - Main pair detection and tracking tool using blob detection. Detects particle pairs in video, tracks them across frames, and exports processed videos with CSV data containing pair coordinates and metadata. Best for most use cases with well-separated particles.
+
+- **`apps/detect_pairs_watershed.py`** - Pair detection using watershed segmentation. Better than standard blob detection for overlapping or touching particles. Uses watershed algorithm to separate connected blobs before pairing. Same interface and pairing algorithms as the standard detector.
+
+- **`deprecated/detect_pairs_yolo.py`** - ⚠️ **Experimental/Deprecated** - YOLO-based pair detection (not recommended). Uses YOLO object detection models to identify particles, then pairs them using the same geometric constraints. Requires a trained YOLO model file (.pt). See `deprecated/README.md` for details on why this approach is not recommended.
 
 - **`apps/calibrate_scale_windows.py`** / **`apps/calibrate_scale_raspi.py`** - Image scale calibration tool (platform-specific versions). Determines the pixels-per-millimeter scale factor and working distance by analyzing a captured frame with known millimeter measurements. The Windows version uses direct synchronous updates, while the Raspberry Pi version uses async updates to prevent GUI freezing.
 
@@ -61,48 +67,51 @@ The easiest way to get started is using the provided run scripts. They automatic
 **Using Batch Files (.bat):**
 ```batch
 # Double-click or run:
-run_visualize_3d.bat
-run_detect_pairs.bat
-run_capture_windows.bat
-run_smooth_tracks.bat
-run_calibrate_scale_windows.bat
-run_calibrate_video.bat
-run_plot_z_histogram.bat
+visualize_3d.bat
+detect_pairs.bat
+deprecated/detect_pairs_yolo.bat
+capture_windows.bat
+smooth_tracks.bat
+calibrate_scale_windows.bat
+calibrate_video.bat
+plot_z_histogram.bat
 ```
 
 **Using PowerShell (.ps1):**
 ```powershell
 # Run in PowerShell:
-.\run_visualize_3d.ps1
-.\run_detect_pairs.ps1
-.\run_capture_windows.ps1
-.\run_smooth_tracks.ps1
-.\run_calibrate_scale_windows.ps1
-.\run_calibrate_video.ps1
-.\run_plot_z_histogram.ps1
+.\visualize_3d.ps1
+.\detect_pairs.ps1
+.\deprecated\detect_pairs_yolo.ps1
+.\capture_windows.ps1
+.\smooth_tracks.ps1
+.\calibrate_scale_windows.ps1
+.\calibrate_video.ps1
+.\plot_z_histogram.ps1
 ```
 
 #### On Linux/Raspberry Pi:
 
 ```bash
 # Make scripts executable (first time only)
-# This makes all .sh files executable (includes run_*.sh and setup_venv.sh)
+# This makes all .sh files executable (includes *.sh and setup_venv.sh)
 chmod +x *.sh
 
 # Run any program (note the ./ before the script name):
-./run_visualize_3d.sh
-./run_detect_pairs.sh
-./run_capture_raspi.sh
-./run_smooth_tracks.sh
-./run_calibrate_scale_raspi.sh
-./run_calibrate_video.sh
-./run_plot_z_histogram.sh
+./visualize_3d.sh
+./detect_pairs.sh
+./deprecated/detect_pairs_yolo.sh
+./capture_raspi.sh
+./smooth_tracks.sh
+./calibrate_scale_raspi.sh
+./calibrate_video.sh
+./plot_z_histogram.sh
 ```
 
 **Why `./` and `chmod +x`?**
-- **`./`** means "current directory" - Linux requires this to run scripts in the current folder for security (you can't just type `run_visualize_3d.sh`)
+- **`./`** means "current directory" - Linux requires this to run scripts in the current folder for security (you can't just type `visualize_3d.sh`)
 - **`chmod +x`** makes files executable - Linux doesn't automatically allow files to run for security reasons
-- You only need to run `chmod +x` once per file (or use the wildcard `run_*.sh` to do them all at once)
+- You only need to run `chmod +x` once per file (or use the wildcard `*.sh` to do them all at once)
 
 **Note:** The run scripts will automatically:
 1. Create a virtual environment if it doesn't exist
@@ -120,7 +129,7 @@ If you prefer to set up manually, see the [Setup Instructions](#setup-instructio
 
 #### On Raspberry Pi:
 ```bash
-./run_capture_raspi.sh
+./capture_raspi.sh
 # Or manually: python apps/capture_raspi.py
 ```
 - UVC cameras are tested and supported
@@ -128,7 +137,7 @@ If you prefer to set up manually, see the [Setup Instructions](#setup-instructio
 
 #### On Windows:
 ```bash
-run_capture_windows.bat
+capture_windows.bat
 # Or manually: python apps/capture_windows.py
 ```
 
@@ -149,10 +158,10 @@ run_capture_windows.bat
 
 ```bash
 # Linux/Raspberry Pi:
-./run_calibrate_scale_raspi.sh
+./calibrate_scale_raspi.sh
 
 # Windows:
-run_calibrate_scale_windows.bat
+calibrate_scale_windows.bat
 # Or manually: python apps/calibrate_scale_windows.py
 ```
 
@@ -192,14 +201,50 @@ where:
 
 ### Step 3: Pair Detection
 
+**Recommended: Standard Blob Detection**
+
 ```bash
 # Linux/Raspberry Pi:
-./run_detect_pairs.sh
+./detect_pairs.sh
 
 # Windows:
-run_detect_pairs.bat
+detect_pairs.bat
 # Or manually: python apps/detect_pairs.py
 ```
+
+**Alternative: Watershed Detection (for overlapping particles)**
+
+```bash
+# Linux/Raspberry Pi:
+./detect_pairs_watershed.sh  # (if script exists, or run manually)
+
+# Windows:
+python apps/detect_pairs_watershed.py
+```
+
+**Watershed Version Features:**
+- Uses watershed segmentation to separate overlapping or touching particles
+- Better than standard blob detection when particles are connected
+- Same interface, pairing algorithms, and tracking as the standard detector
+- No additional dependencies beyond standard blob detection
+
+**⚠️ Experimental/Deprecated: YOLO-based Detection**
+
+```bash
+# Linux/Raspberry Pi:
+./deprecated/detect_pairs_yolo.sh
+
+# Windows:
+deprecated/detect_pairs_yolo.bat
+# Or manually: python deprecated/detect_pairs_yolo.py
+```
+
+**YOLO Version Status:**
+- ⚠️ **Not recommended** - See `deprecated/README.md` for details
+- Uses YOLO object detection models (.pt files) to identify particles
+- Requires a trained YOLO model file
+- Traditional blob detection is faster, more reliable, and doesn't require training
+- Same pairing algorithms and tracking as the blob-based detector
 
 **Purpose:** Detect particle pairs (direct view + mirror reflection) and track them through the video.
 
@@ -368,10 +413,10 @@ The system uses a sophisticated multi-frame tracking algorithm that maintains st
 
 ```bash
 # Linux/Raspberry Pi:
-./run_calibrate_video.sh
+./calibrate_video.sh
 
 # Windows:
-run_calibrate_video.bat
+calibrate_video.bat
 # Or manually: python apps/calibrate_video.py
 ```
 
@@ -437,10 +482,10 @@ The system uses a two-stage calibration process:
 
 ```bash
 # Linux/Raspberry Pi:
-./run_smooth_tracks.sh
+./smooth_tracks.sh
 
 # Windows:
-run_smooth_tracks.bat
+smooth_tracks.bat
 # Or manually: python apps/smooth_tracks.py
 ```
 
@@ -465,10 +510,10 @@ run_smooth_tracks.bat
 
 ```bash
 # Linux/Raspberry Pi:
-./run_visualize_3d.sh
+./visualize_3d.sh
 
 # Windows:
-run_visualize_3d.bat
+visualize_3d.bat
 # Or manually: python apps/visualize_3d.py
 ```
 
@@ -537,10 +582,10 @@ The coordinate calculation happens in two stages:
 
 ```bash
 # Linux/Raspberry Pi:
-./run_plot_z_histogram.sh
+./plot_z_histogram.sh
 
 # Windows:
-run_plot_z_histogram.bat
+plot_z_histogram.bat
 # Or manually: python apps/plot_z_histogram.py
 ```
 
@@ -661,47 +706,68 @@ The system builds an averaged background model from the entire video before proc
 
 ```
 3D-Cam/
-├── capture_raspi.py              # Raspberry Pi camera capture
-├── capture_windows.py            # Windows camera capture
-├── calibrate_scale_windows.py    # Image scale calibration (Windows)
-├── calibrate_scale_raspi.py      # Image scale calibration (Raspberry Pi)
-├── calibrate_video.py            # Z-height calibration
-├── detect_pairs.py               # Main pair detection and tracking
-├── smooth_tracks.py              # Track smoothing and cleaning
-├── visualize_3d.py               # 3D trajectory visualization
-├── plot_z_histogram.py           # Z height distribution histogram
-├── lib/                       # Library modules
-│   ├── pair/                  # Pair detection and tracking
-│   │   ├── pair_algorithms.py # Detection and pairing logic
-│   │   ├── pair_draw.py       # Visualization overlays
-│   │   ├── pair_tracker.py    # Multi-frame tracking
-│   │   ├── preset_io.py       # Settings persistence
-│   │   └── ui.py              # GUI for pair detection
-│   ├── capture/               # Video capture and camera
-│   │   ├── camera.py          # Camera abstraction
-│   │   ├── camera_info.py     # Camera information and controls
-│   │   ├── frame_grabber.py   # Frame acquisition thread
-│   │   ├── preview_manager.py # Preview window manager
+├── apps/                       # Application entry points
+│   ├── capture_raspi.py       # Raspberry Pi camera capture
+│   ├── capture_windows.py     # Windows camera capture
+│   ├── calibrate_image.py     # Image calibration (shared)
+│   ├── calibrate_scale_windows.py  # Image scale calibration (Windows)
+│   ├── calibrate_scale_raspi.py   # Image scale calibration (Raspberry Pi)
+│   ├── calibrate_video.py     # Z-height calibration
+│   ├── detect_pairs.py        # Blob-based pair detection and tracking (recommended)
+│   ├── detect_pairs_watershed.py  # Watershed-based pair detection (for overlapping particles)
+│   ├── smooth_tracks.py       # Track smoothing and cleaning
+│   ├── visualize_3d.py        # 3D trajectory visualization
+│   └── plot_z_histogram.py    # Z height distribution histogram
+├── lib/                        # Library modules
+│   ├── pair/                   # Pair detection and tracking
+│   │   ├── pair_algorithms.py  # Detection and pairing logic
+│   │   ├── pair_draw.py        # Visualization overlays
+│   │   ├── pair_tracker.py     # Multi-frame tracking
+│   │   ├── preset_io.py        # Settings persistence
+│   │   └── ui.py               # GUI for pair detection
+│   ├── capture/                # Video capture and camera
+│   │   ├── camera.py           # Camera abstraction
+│   │   ├── camera_info.py      # Camera information and controls
+│   │   ├── frame_grabber.py    # Frame acquisition thread
+│   │   ├── preview_manager.py  # Preview window manager
 │   │   ├── recording_manager.py # Video recording manager
-│   │   └── util_paths.py      # Path utilities
-│   ├── calibration/           # Calibration utilities
-│   │   ├── utils.py           # Coordinate calculations and calibration data extraction
+│   │   └── util_paths.py       # Path utilities
+│   ├── calibration/            # Calibration utilities
+│   │   ├── utils.py            # Coordinate calculations and calibration data extraction
 │   │   └── video_calibrator.py # Video calibration logic
-│   └── visualizing/           # Visualization components
-│       └── base_visualizer.py # Base 3D visualizer class
-├── calibrations/              # Calibration JSON files
-├── inputs_outputs/            # All video and data outputs organized by capture
+│   ├── visualizing/            # Visualization components
+│   │   └── base_visualizer.py  # Base 3D visualizer class
+│   ├── gui/                    # Shared GUI components
+│   └── util/                   # Utility functions
+├── calibrations/               # Calibration JSON files
+├── inputs_outputs/             # All video and data outputs organized by capture
 │   └── video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/
 │       ├── video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS.mp4  # Original capture
-│       ├── *-grayscale.mp4    # Processed grayscale video
-│       ├── *-binary.mp4       # Processed binary video
+│       ├── *-grayscale.mp4     # Processed grayscale video
+│       ├── *-binary.mp4        # Processed binary video
 │       ├── *-paired-tracked.csv  # Pair tracking data
-│       ├── *-smoothed.csv     # Smoothed data (from smooth_tracks)
-│       ├── *-3dplot.mp4       # 3D visualization
+│       ├── *-smoothed.csv      # Smoothed data (from smooth_tracks)
+│       ├── *-3dplot.mp4        # 3D visualization
 │       ├── *-3dplot-smoothed.mp4  # 3D visualization of smoothed data
-│       ├── *-histogram.png    # Z height histogram
-│       ├── detect_pairs_preset.json  # Processing parameters
+│       ├── *-histogram.png     # Z height histogram
+│       ├── detect_pairs_preset.json  # Processing parameters (blob-based)
+│       ├── detect_pairs_watershed_preset.json  # Processing parameters (watershed-based)
+│       ├── detect_pairs_yolo_preset.json  # Processing parameters (YOLO-based, deprecated)
 │       └── smooth_tracks_preset.json  # Smoothing parameters
+├── deprecated/                  # Deprecated/experimental code
+│   ├── detect_pairs_yolo.py   # ⚠️ YOLO-based pair detection (experimental/deprecated)
+│   ├── detect_pairs_yolo.bat  # Launch script (Windows)
+│   ├── detect_pairs_yolo.ps1  # Launch script (PowerShell)
+│   ├── detect_pairs_yolo.sh   # Launch script (Linux/Raspberry Pi)
+│   ├── run_detect_pairs_yolo.sh  # Alternative launch script
+│   └── README.md              # Explanation of deprecated components
+├── scripts/                    # Utility scripts
+├── test_scripts/               # Test scripts
+├── *.bat                       # Windows batch run scripts
+├── *.ps1                       # Windows PowerShell run scripts
+├── *.sh                        # Linux/Raspberry Pi run scripts
+├── setup_venv.*                # Virtual environment setup scripts
+└── requirements.txt            # Python dependencies
 ```
 
 ## File Organization and Naming Conventions
@@ -717,7 +783,9 @@ All outputs are organized by capture session in the `inputs_outputs/` directory:
 - `{video_name}-grayscale.mp4` - Grayscale video with overlays
 - `{video_name}-binary.mp4` - Binary video with overlays
 - `{video_name}-paired-tracked.csv` - Tracking data
-- `detect_pairs_preset.json` - Processing parameters and calibration
+- `detect_pairs_preset.json` - Processing parameters and calibration (blob-based)
+- `detect_pairs_watershed_preset.json` - Processing parameters and calibration (watershed-based)
+- `detect_pairs_yolo_preset.json` - Processing parameters and calibration (YOLO-based, deprecated)
 
 **Post-Processing** → Uses CSV as input, saves outputs in same folder:
 - `{csv_name}-smoothed.csv` - Cleaned tracking data
@@ -735,13 +803,15 @@ When exporting multiple times from the same input:
 
 ### Input Methods
 
-- **Video folders**: `detect_pairs.py` - Selects base video automatically
+- **Video folders**: `detect_pairs.py`, `detect_pairs_watershed.py` - Selects base video automatically
 - **CSV files**: All other tools - Direct file selection
 - **JSON presets**: "Load Process" button - Restores previous settings
 
 ## Configuration Files
 
-- `detect_pairs_default.json`: Default settings loaded on startup or when opening a new video  
+- `detect_pairs_default.json`: Default settings for blob-based pair detection, loaded on startup or when opening a new video  
+- `detect_pairs_watershed_default.json`: Default settings for watershed-based pair detection, loaded on startup or when opening a new video
+- `detect_pairs_yolo_default.json`: ⚠️ Default settings for YOLO-based pair detection (experimental/deprecated, see `deprecated/README.md`)  
 - `lib/pair/tracker_config.json`: Advanced tracking algorithm smoothness parameters  
   - Controls how pairs are matched across frames (velocity, size, length consistency)  
   - Not exposed in GUI - modify directly for advanced tuning  
@@ -762,7 +832,7 @@ When exporting multiple times from the same input:
 
 #### Automatic Setup (Recommended)
 
-The run scripts handle everything automatically! Just run any `run_*.sh` (Linux) or `run_*.bat`/`run_*.ps1` (Windows) script and it will:
+The run scripts handle everything automatically! Just run any `*.sh` (Linux) or `*.bat`/`*.ps1` (Windows) script and it will:
 - Create the virtual environment if needed
 - Install all dependencies
 - Run the program

@@ -55,8 +55,8 @@ Write-Host "To activate the virtual environment in the future, run:" -Foreground
 Write-Host "  venv\Scripts\Activate.ps1" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Or use the run scripts:" -ForegroundColor Cyan
-Write-Host "  .\run_visualize3d.ps1" -ForegroundColor Yellow
-Write-Host "  .\run_pair_detect.ps1" -ForegroundColor Yellow
+Write-Host "  .\visualize_3d.ps1" -ForegroundColor Yellow
+Write-Host "  .\detect_pairs.ps1" -ForegroundColor Yellow
 Write-Host ""
 Read-Host "Press Enter to exit"
 
