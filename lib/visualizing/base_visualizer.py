@@ -10,6 +10,7 @@ from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
 from datetime import datetime
 import numpy as np
+import cv2
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
@@ -17,129 +18,14 @@ from matplotlib import cm
 from matplotlib.animation import FFMpegWriter
 from typing import Dict, List, Tuple, Optional, Callable
 
+from lib.gui import apply_standard_theme
+from lib.gui.playback_controller import PlaybackController
+from lib.gui.dialogs import FPSDialog
+from lib.util import load_json
 
-class PlaybackController:
-    """Internal playback control widget."""
-    
-    def __init__(self, parent_frame, on_frame_changed: Callable[[int], None],
-                 max_frame: int = 0, initial_frame: int = 0, initial_speed: float = 1.0):
-        self.on_frame_changed_callback = on_frame_changed
-        self.max_frame = max_frame
-        self.current_frame = initial_frame
-        self.playing = False
-        self.root = None
-        
-        widget = parent_frame
-        while widget:
-            if isinstance(widget, tk.Tk):
-                self.root = widget
-                break
-            widget = widget.master
-        
-        if self.root is None:
-            raise ValueError("Could not find root Tk window")
-        
-        self.control_frame = ttk.LabelFrame(parent_frame, text="Time Control", padding="10")
-        self.control_frame.pack(fill="x", pady=5)
-        
-        self.frame_label = ttk.Label(self.control_frame, text=f"Frame: {initial_frame} / {max_frame}")
-        self.frame_label.pack()
-        
-        self.frame_var = tk.IntVar(value=initial_frame)
-        self.frame_slider = ttk.Scale(
-            self.control_frame,
-            from_=0,
-            to=max_frame,
-            orient="horizontal",
-            variable=self.frame_var,
-            command=self._on_slider_changed
-        )
-        self.frame_slider.pack(fill="x", pady=5)
-        
-        playback_frame = ttk.Frame(self.control_frame)
-        playback_frame.pack(fill="x")
-        
-        self.play_button = ttk.Button(playback_frame, text="▶ Play", command=self.toggle_play)
-        self.play_button.pack(side="left", padx=2)
-        
-        ttk.Button(playback_frame, text="⏮", command=lambda: self.set_frame(0)).pack(side="left", padx=2)
-        ttk.Button(playback_frame, text="⏭", command=lambda: self.set_frame(self.max_frame)).pack(side="left", padx=2)
-        
-        speed_frame = ttk.Frame(self.control_frame)
-        speed_frame.pack(fill="x", pady=5)
-        ttk.Label(speed_frame, text="Speed:").pack(side="left")
-        
-        self.speed_var = tk.DoubleVar(value=initial_speed)
-        speed_scale = ttk.Scale(
-            speed_frame,
-            from_=0.1,
-            to=5.0,
-            orient="horizontal",
-            variable=self.speed_var,
-            length=150,
-            command=self._on_speed_changed
-        )
-        speed_scale.pack(side="left", fill="x", expand=True)
-        
-        self.speed_label = ttk.Label(speed_frame, text=f"{initial_speed:.1f}x")
-        self.speed_label.pack(side="left", padx=5)
-    
-    def _on_slider_changed(self, value=None):
-        frame = int(float(self.frame_var.get()))
-        if frame != self.current_frame:
-            self.current_frame = frame
-            self.frame_label.config(text=f"Frame: {frame} / {self.max_frame}")
-            self.on_frame_changed_callback(frame)
-    
-    def _on_speed_changed(self, value=None):
-        speed = float(self.speed_var.get())
-        self.speed_label.config(text=f"{speed:.1f}x")
-    
-    def set_frame(self, frame: int):
-        frame = max(0, min(frame, self.max_frame))
-        self.current_frame = frame
-        self.frame_var.set(frame)
-        self.frame_label.config(text=f"Frame: {frame} / {self.max_frame}")
-        self.on_frame_changed_callback(frame)
-    
-    def toggle_play(self):
-        if self.max_frame == 0:
-            return
-        self.playing = not self.playing
-        self.play_button.config(text="⏸ Pause" if self.playing else "▶ Play")
-        if self.playing:
-            self.play_loop()
-    
-    def play_loop(self):
-        if not self.playing:
-            return
-        speed = self.speed_var.get()
-        next_frame = self.current_frame + int(speed)
-        if next_frame > self.max_frame:
-            next_frame = 0
-        self.set_frame(next_frame)
-        delay = max(1, int(1000 / (30 * speed)))
-        self.root.after(delay, self.play_loop)
-    
-    def set_max_frame(self, max_frame: int):
-        self.max_frame = max_frame
-        self.frame_slider.config(to=max_frame)
-        self.frame_label.config(text=f"Frame: {self.current_frame} / {self.max_frame}")
-        if self.current_frame > max_frame:
-            self.set_frame(max_frame)
-    
-    def stop(self):
-        self.playing = False
-        self.play_button.config(text="▶ Play")
-    
-    def is_playing(self) -> bool:
-        return self.playing
-    
-    def get_current_frame(self) -> int:
-        return self.current_frame
-    
-    def get_speed(self) -> float:
-        return self.speed_var.get()
+
+# PlaybackController and FPSDialog have been moved to lib/gui/
+# Imported above for backward compatibility
 
 
 class Base3DVisualizer:
@@ -168,6 +54,7 @@ class Base3DVisualizer:
         self.root = root
         self.root.title(title)
         self.root.geometry(geometry)
+        apply_standard_theme(self.root)
         
         # Data storage (to be populated by subclasses)
         self.csv_path = None
@@ -203,16 +90,23 @@ class Base3DVisualizer:
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill="both", expand=True)
         
-        # Left panel - controls (two-column layout)
-        self.left_panel = ttk.Frame(main_frame, width=600)
+        # Left panel - controls (no scrolling, three-column layout)
+        self.left_panel = ttk.Frame(main_frame, width=900)
         self.left_panel.pack(side="left", fill="y", padx=(0, 10))
         self.left_panel.pack_propagate(False)
         
-        # Create two-column layout
-        left_col = ttk.Frame(self.left_panel)
+        # Container for three-column layout
+        columns_container = ttk.Frame(self.left_panel)
+        columns_container.pack(fill="both", expand=True)
+        
+        # Create three-column layout
+        left_col = ttk.Frame(columns_container)
         left_col.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
-        right_col = ttk.Frame(self.left_panel)
+        middle_col = ttk.Frame(columns_container)
+        middle_col.pack(side="left", fill="both", expand=True, padx=(5, 5))
+        
+        right_col = ttk.Frame(columns_container)
         right_col.pack(side="left", fill="both", expand=True, padx=(5, 0))
         
         # LEFT COLUMN
@@ -266,14 +160,15 @@ class Base3DVisualizer:
         export_frame.pack(fill="x", pady=5)
         self.setup_export_section(export_frame)
         
+        # MIDDLE COLUMN
         # Dataset specs display (scientific device info)
-        specs_frame = ttk.LabelFrame(left_col, text="Dataset Specifications", padding="10")
+        specs_frame = ttk.LabelFrame(middle_col, text="Dataset Specifications", padding="10")
         specs_frame.pack(fill="x", pady=5)
         self.specs_label = ttk.Label(specs_frame, text="No data loaded", wraplength=120, justify="left", font=("Courier", 8))
         self.specs_label.pack()
         
         # Info display
-        info_frame = ttk.LabelFrame(left_col, text="Info", padding="10")
+        info_frame = ttk.LabelFrame(middle_col, text="Info", padding="10")
         info_frame.pack(fill="x", pady=5)
         self.info_label = ttk.Label(info_frame, text="No data loaded", wraplength=120, justify="left")
         self.info_label.pack()
@@ -357,27 +252,64 @@ class Base3DVisualizer:
             initial_speed=1.0
         )
         
-        # Right panel - 3D plot
-        self.right_panel = ttk.Frame(main_frame)
-        self.right_panel.pack(side="right", fill="both", expand=True)
+        # Open plot window button (in middle column)
+        plot_btn_frame = ttk.LabelFrame(middle_col, text="3D Plot", padding="10")
+        plot_btn_frame.pack(fill="x", pady=5)
+        ttk.Button(plot_btn_frame, text="Open 3D Plot Window", command=self.open_plot_window).pack(pady=5, fill="x")
+        
+        # Initialize plot window reference
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
+        
+        # Initial empty plot (will be created when window opens)
+        # self.update_plot() - Don't call yet, wait for window to open
+    
+    def open_plot_window(self):
+        """Open 3D plot in a separate window."""
+        if self.plot_window is not None:
+            try:
+                self.plot_window.lift()
+                self.plot_window.focus_force()
+                return
+            except:
+                self.plot_window = None
+        
+        # Create new window for plot
+        self.plot_window = tk.Toplevel(self.root)
+        self.plot_window.title(self.root.title())
+        self.plot_window.geometry("1000x800")
+        self.plot_window.transient(self.root)
+        
+        # Handle window close
+        self.plot_window.protocol("WM_DELETE_WINDOW", self.on_plot_window_close)
         
         # Create matplotlib figure
         self.fig = Figure(figsize=(10, 8), dpi=100)
         self.ax = self.fig.add_subplot(111, projection='3d')
         
-        self.canvas = FigureCanvasTkAgg(self.fig, self.right_panel)
+        # Create canvas
+        self.canvas = FigureCanvasTkAgg(self.fig, self.plot_window)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         
         # Add matplotlib toolbar
-        toolbar = NavigationToolbar2Tk(self.canvas, self.right_panel)
+        toolbar = NavigationToolbar2Tk(self.canvas, self.plot_window)
         toolbar.update()
         
         # Bind mouse wheel events for zooming
         self.setup_zoom()
         
-        # Initial empty plot
+        # Update plot
         self.update_plot()
+    
+    def on_plot_window_close(self):
+        """Handle plot window close."""
+        self.plot_window = None
+        self.fig = None
+        self.ax = None
+        self.canvas = None
     
     def setup_export_section(self, parent_frame):
         """Setup export section for video export."""
@@ -389,14 +321,9 @@ class Base3DVisualizer:
             messagebox.showwarning("No Data", "Please load a CSV file first.")
             return
         
-        # Ask for FPS
-        fps = simpledialog.askinteger(
-            "Video FPS",
-            "Enter frames per second for the video:",
-            initialvalue=30,
-            minvalue=1,
-            maxvalue=120
-        )
+        # Ask for FPS using custom dialog with Match Input button
+        fps_dialog = FPSDialog(self.root, initial_fps=30, csv_path=self.csv_path)
+        fps = fps_dialog.result
         
         if fps is None:
             return
@@ -489,6 +416,9 @@ class Base3DVisualizer:
     
     def setup_zoom(self):
         """Setup mouse wheel zoom functionality and right-click drag panning."""
+        if not self.canvas:
+            return
+        
         canvas_widget = self.canvas.get_tk_widget()
         
         def on_scroll(event):
@@ -589,22 +519,8 @@ class Base3DVisualizer:
     
     def auto_load_latest_csv(self):
         """Automatically load the latest CSV file from inputs_outputs."""
-        output_dir = Path("inputs_outputs")
-        if not output_dir.exists():
-            return
-        
-        # Find all CSV files in inputs_outputs subdirectories
-        csv_files = list(output_dir.rglob("*.csv"))
-        if not csv_files:
-            return
-        
-        csv_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        latest_csv = csv_files[0]
-        
-        try:
-            self.load_csv_file(str(latest_csv))
-        except Exception as e:
-            print(f"Failed to auto-load {latest_csv}: {e}")
+        from lib.util import auto_load_latest_csv
+        auto_load_latest_csv(self.load_csv_file)
     
     def load_csv(self):
         """Open file dialog to load CSV file."""
@@ -1001,6 +917,9 @@ class Base3DVisualizer:
     
     def update_plot(self):
         """Update the 3D plot - override in subclasses for custom plotting."""
+        if not self.ax or not self.plot_window:
+            return
+        
         self.ax.clear()
         
         if not self.data:

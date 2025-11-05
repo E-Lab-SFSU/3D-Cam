@@ -139,8 +139,8 @@ def draw_pair_rays_toward_center(dst, pairs: List[Tuple], frame_width: int, xCen
 
 def draw_z_values(dst, pairs: List[Tuple], 
                   working_distance_mm: Optional[float] = None,
-                  magic_constant: Optional[float] = None,
-                  magic_offset: Optional[float] = None,
+                  z_calibration_scale_factor: Optional[float] = None,
+                  z_calibration_offset_mm: Optional[float] = None,
                   label_mode: str = "Red/Blue",
                   video_path: Optional[str] = None):
     """
@@ -150,8 +150,8 @@ def draw_z_values(dst, pairs: List[Tuple],
         dst: Destination image (BGR)
         pairs: List of pair tuples (pid, xi, yi, xj, yj, th_i, r_i, th_j, r_j, score, ...)
         working_distance_mm: Working distance in mm for Z calculation
-        magic_constant: Magic constant for Z calculation (optional)
-        magic_offset: Magic offset for Z calculation (optional)
+        z_calibration_scale_factor: Z calibration scale factor for Z calculation (optional)
+        z_calibration_offset_mm: Z calibration offset in mm for Z calculation (optional)
         label_mode: Color mode for text ("None", "Red/Blue", "Random")
         video_path: Optional video path for consistent colors
     """
@@ -174,14 +174,14 @@ def draw_z_values(dst, pairs: List[Tuple],
         if r_a <= 0 or r_c <= 0:
             continue
         
-        # Calculate Zprime = working_distance * (C-A)/(A+C)
-        zprime_val = working_distance_mm * (r_c - r_a) / (r_a + r_c)
+        # Calculate Geometric_Z_mm = working_distance * (C-A)/(A+C)
+        geometric_z_mm = working_distance_mm * (r_c - r_a) / (r_a + r_c)
         
-        # Calculate Z = Zprime * magic_constant + magic_offset
-        # Only if magic_constant and magic_offset are available
+        # Calculate Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm
+        # Only if z_calibration_scale_factor and z_calibration_offset_mm are available
         z_val = None
-        if magic_constant is not None and magic_offset is not None:
-            z_val = zprime_val * magic_constant + magic_offset
+        if z_calibration_scale_factor is not None and z_calibration_offset_mm is not None:
+            z_val = geometric_z_mm * z_calibration_scale_factor + z_calibration_offset_mm
         
         # Determine text color based on label_mode
         text_color = (255, 255, 255)  # White default

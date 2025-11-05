@@ -1,0 +1,29 @@
+{
+  "csv_file": "pencil_video_20251103_184326-paired-tracked-1.csv",
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/pencil_20251103_184326\\pencil_video_20251103_184326.mp4",
+  "exported_at": "2025-11-03T19:59:15.441263",
+  "video_specs": {
+    "frame_width_px": 640,
+    "frame_height_px": 480,
+    "frame_count": 460,
+    "fps": 30.0
+  },
+  "optical_center": {
+    "x": 272,
+    "y": 212,
+    "valid": true
+  },
+  "processing_params": {
+    "threshold": 83,
+    "blur": 1,
+    "min_area": 4,
+    "max_area": 5000,
+    "pair_method": "Hungarian"
+  },
+  "calibration": {
+    "working_distance_mm": 111.2075641524942,
+    "pixels_per_mm": null,
+    "z_calibration_scale_factor": 0.5557391593819938,
+    "z_calibration_offset_mm": -0.06336336047988818
+  }
+}

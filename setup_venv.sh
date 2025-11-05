@@ -16,11 +16,7 @@ fi
 # Check if venv module is available (critical - exit on error)
 if ! python3 -m venv --help &> /dev/null 2>&1; then
     echo "Error: python3-venv is not installed."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "On macOS, venv should be included. Try: python3 -m ensurepip --upgrade"
-    else
-        echo "Please install it with: sudo apt install python3-venv python3-full"
-    fi
+    echo "Please install it with: sudo apt install python3-venv python3-full"
     exit 1
 fi
 
@@ -43,15 +39,6 @@ pip install --upgrade pip
 
 # Install dependencies one by one (to handle failures gracefully)
 echo "Installing dependencies..."
-
-# Detect macOS
-IS_MACOS=false
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    IS_MACOS=true
-    echo "Detected macOS..."
-    echo "Note: SciPy may require special handling on macOS."
-    echo ""
-fi
 
 # Install dependencies one by one to handle failures gracefully
 INSTALLED_ALL=true
@@ -83,29 +70,13 @@ else
     INSTALLED_ALL=false
 fi
 
-# Install scipy (may fail on macOS with old clang)
+# Install scipy
 echo "Installing scipy..."
 if pip install "scipy>=1.11.0"; then
     echo "✓ scipy installed"
 else
     echo "✗ scipy installation failed"
-    if [[ "$IS_MACOS" == true ]]; then
-        echo ""
-        echo "⚠ SciPy failed to install (likely needs clang 15.0+)."
-        echo "This is expected on macOS with older Xcode Command Line Tools."
-        echo ""
-        echo "To fix SciPy on macOS, run:"
-        echo "  source venv/bin/activate"
-        echo "  conda install scipy -c conda-forge"
-        echo ""
-        echo "Or see setup_macos.md for other solutions."
-        echo ""
-        echo "Note: The program may still work if SciPy is only needed for"
-        echo "      the Hungarian algorithm (optional pairing method)."
-        INSTALLED_ALL=false
-    else
-        INSTALLED_ALL=false
-    fi
+    INSTALLED_ALL=false
 fi
 
 echo ""
@@ -113,9 +84,6 @@ if [[ "$INSTALLED_ALL" == true ]]; then
     echo "✓ All dependencies installed successfully!"
 else
     echo "⚠ Some dependencies had issues (see above)."
-    if [[ "$IS_MACOS" == true ]]; then
-        echo "If SciPy failed, install it via conda as shown above."
-    fi
 fi
 
 echo ""
@@ -128,5 +96,5 @@ echo "To deactivate, run:"
 echo "  deactivate"
 echo ""
 echo "You can now run your scripts while the virtual environment is active:"
-echo "  python visualize3d.py"
+echo "  python apps/visualize_3d.py"
 

@@ -11,6 +11,7 @@ if (-not (Test-Path "venv")) {
 }
 
 & "venv\Scripts\Activate.ps1"
-python capture_windows.py
+$env:PYTHONPATH = $PWD
+python apps/capture_windows.py
 Read-Host "Press Enter to exit"
 

@@ -1,0 +1,105 @@
+{
+  "r_squared": 1.0,
+  "data_points": [
+    {
+      "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744/one_slide_video_20251103_163744-paired-tracked.csv",
+      "z_mm": 3.0,
+      "working_distance_mm": 111.2075641524942,
+      "avg_Geometric_Z_mm": 4.928266338455087,
+      "avg_radial_distance_from_center_px": 223.11500116172533
+    },
+    {
+      "csv_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/two_slide_20251103_163835/two_slide_20251103_163835-paired-tracked.csv",
+      "z_mm": 4.0,
+      "working_distance_mm": 111.2075641524942,
+      "avg_Geometric_Z_mm": 7.5407218413220125,
+      "avg_radial_distance_from_center_px": 304.2388320348261
+    }
+  ],
+  "formula": "Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm",
+  "description": "Z is the calibrated mm height input, Geometric_Z_mm is calculated from pair data",
+  "metrics": {
+    "input_dataset": {
+      "total_pairs": 1709,
+      "per_video": [
+        {
+          "video": "one_slide_video_20251103_163744-paired-tracked.csv",
+          "count": 548,
+          "zprime_mean": 5.507758976463714,
+          "zprime_std": 1.439622535125845,
+          "zprime_min": 0.9258652146651055,
+          "zprime_max": 20.119264403357477,
+          "b_mean": 249.4004496660525,
+          "b_std": 63.11411574203006,
+          "b_min": 78.7769448306898,
+          "b_max": 424.4134151379854,
+          "score_mean": 0.7006113138686132,
+          "score_std": 0.10957044720723493,
+          "score_min": 0.3526,
+          "score_max": 0.9597
+        },
+        {
+          "video": "two_slide_20251103_163835-paired-tracked.csv",
+          "count": 1161,
+          "zprime_mean": 7.303235598821232,
+          "zprime_std": 0.9883079946544042,
+          "zprime_min": 1.8717633030826837,
+          "zprime_max": 13.504877281935507,
+          "b_mean": 245.67698403955873,
+          "b_std": 74.5526437252707,
+          "b_min": 44.01105494593372,
+          "b_max": 415.455409845072,
+          "score_mean": 0.7498893195521102,
+          "score_std": 0.08186405028035991,
+          "score_min": 0.375,
+          "score_max": 0.9806
+        }
+      ]
+    },
+    "chosen_dataset": {
+      "total_pairs": 17,
+      "percent_of_input": 0.994733762434172,
+      "per_video": [
+        {
+          "video": "one_slide_video_20251103_163744-paired-tracked.csv",
+          "count": 2,
+          "percent_of_input": 0.36496350364963503,
+          "zprime_mean": 4.928266338455087,
+          "zprime_std": 0.340205964699027,
+          "zprime_min": 4.58806037375606,
+          "zprime_max": 5.268472303154114,
+          "b_mean": 223.11500116172533,
+          "b_std": 30.953774508790147,
+          "b_min": 192.16122665293517,
+          "b_max": 254.06877567051546,
+          "score_mean": 0.9066000000000001,
+          "score_std": 0.00020000000000003348,
+          "score_min": 0.9064,
+          "score_max": 0.9068
+        },
+        {
+          "video": "two_slide_20251103_163835-paired-tracked.csv",
+          "count": 15,
+          "percent_of_input": 1.2919896640826873,
+          "zprime_mean": 7.5407218413220125,
+          "zprime_std": 0.3339991424002937,
+          "zprime_min": 7.020524532357869,
+          "zprime_max": 8.679770656790334,
+          "b_mean": 304.2388320348261,
+          "b_std": 42.7644768036941,
+          "b_min": 180.0731086227915,
+          "b_max": 352.34266031263707,
+          "score_mean": 0.94452,
+          "score_std": 0.021011019331135115,
+          "score_min": 0.904,
+          "score_max": 0.9806
+        }
+      ]
+    }
+  },
+  "working_distance_mm": 111.2075641524942,
+  "z_calibration_scale_factor": 0.38278163930547104,
+  "z_calibration_offset_mm": 1.113550132032188,
+  "geometric_z_formula": "Geometric_Z_mm = working_distance * (outer_radius - inner_radius)/(inner_radius + outer_radius)",
+  "radial_distance_formula": "radial_distance_from_center = (2 * inner_radius * outer_radius)/(inner_radius + outer_radius)"
+}
