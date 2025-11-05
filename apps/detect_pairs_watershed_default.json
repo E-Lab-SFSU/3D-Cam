@@ -8,7 +8,8 @@
     "use_otsu": 0,
     "invert_threshold": 0,
     "ws_min_distance": 20,
-    "ws_marker_threshold": 0.09375,
+    "ws_marker_threshold": 0.03664921465968586,
+    "ws_edt_power": 0.19947643979057592,
     "minArea": 5,
     "maxArea": 200,
     "maxW": 100,
@@ -22,7 +23,7 @@
     "pair_method": "Hungarian",
     "track_max_match_dist": 25.0,
     "track_max_misses": 10,
-    "show_debug_windows": 0
+    "show_debug_windows": 1
   },
   "overlays": {
     "show_blobs": 1,
@@ -48,5 +49,5 @@
     "y": 219,
     "valid": true
   },
-  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/pencil_20251103_184326/pencil_video_20251103_184326.mp4"
+  "video_path": "C:/Users/Leonard/Documents/GitHub/3D-Cam/inputs_outputs/video_640x480_30fps_20251104_193338/video_640x480_30fps_20251104_193338.mp4"
 }

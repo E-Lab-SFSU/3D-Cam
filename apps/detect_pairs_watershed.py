@@ -68,13 +68,16 @@ DEFAULT_PARAMS = {
     # Binary thresholding
     "threshold": 70,
     "blur": 1,
-    "use_otsu": 0,
+    "use_otsu": 1,
     "invert_threshold": 0,
     
     # EDT / Watershed parameters
     "ws_min_distance": 20,
     "ws_marker_threshold": 0.7,  # Threshold for markers (0-1, fraction of max EDT)
     "ws_edt_power": 1.0,  # Power/gamma adjustment for EDT (1.0 = linear, <1.0 = emphasize small distances, >1.0 = emphasize large distances)
+    "ws_compactness": 0.01,  # Watershed compactness (0.0 = follow gradient exactly, higher = more compact/circular segments)
+    "ws_marker_radius_factor": 1.0,  # Marker visualization radius in pixels (affects debug GUI only)
+    "ws_peak_threshold": 0.3,  # Peak detection threshold (0-1, fraction of max EDT value)
     
     # Blob filtering
     "minArea": 20,
@@ -132,6 +135,8 @@ overlays = DEFAULT_OVERLAYS.copy()
 overlay_targets = DEFAULT_OVERLAY_TARGETS.copy()
 video_path = ""
 cap = None
+current_image = None  # Store current image if opened
+is_image_mode = False  # Flag to track if we're viewing an image vs video
 background_image = None
 root = None
 widgets = {}
@@ -233,6 +238,9 @@ def detect_blobs_watershed(binary: np.ndarray, params: Dict, cx: Optional[int] =
     ws_min_distance = int(params.get("ws_min_distance", 20))
     ws_marker_threshold = float(params.get("ws_marker_threshold", 0.7))
     ws_edt_power = float(params.get("ws_edt_power", 1.0))
+    ws_compactness = float(params.get("ws_compactness", 0.01))
+    ws_marker_radius_factor = float(params.get("ws_marker_radius_factor", 1.0))
+    ws_peak_threshold = float(params.get("ws_peak_threshold", 0.3))
     
     debug_images = {}
     
@@ -253,21 +261,29 @@ def detect_blobs_watershed(binary: np.ndarray, params: Dict, cx: Optional[int] =
     # Power < 1.0: Emphasizes small distances (better for small blobs, preserves detail)
     # Power = 1.0: Linear (default, no change)
     # Power > 1.0: Emphasizes large distances (helps separate overlapping objects)
+    # Apply power adjustment first so markers are found from the same EDT used for visualization
+    D_for_markers = D.copy()
     if ws_edt_power != 1.0:
-        D_max = D.max()
+        D_max = D_for_markers.max()
         if D_max > 0:
             # Normalize, apply power, then scale back
-            D_normalized = D / D_max
+            D_normalized = D_for_markers / D_max
             D_powered = np.power(D_normalized, ws_edt_power)
-            D = D_powered * D_max
+            D_for_markers = D_powered * D_max
     
-    # Normalize EDT for visualization and apply heatmap colormap
-    D_normalized = cv2.normalize(D, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    D_heatmap = cv2.applyColorMap(D_normalized, cv2.COLORMAP_JET)
+    # Step 2.6: Find local maxima (peaks) in power-adjusted EDT
+    # This ensures markers match the heatmap visualization (which uses power-adjusted EDT)
+    # Remove labels constraint to find peaks in entire EDT, use threshold to ensure real peaks
+    peak_coords = peak_local_max(D_for_markers, min_distance=ws_min_distance, threshold_abs=D_for_markers.max() * ws_peak_threshold)
+    
+    # Use power-adjusted EDT for watershed as well
+    D_for_watershed = D_for_markers.copy()
+    
+    # Normalize EDT for visualization and apply heatmap colormap (inverted so blue points become markers)
+    D_normalized = cv2.normalize(D_for_watershed, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    D_normalized_inverted = 255 - D_normalized  # Invert so blue (low values) become red (high values)
+    D_heatmap = cv2.applyColorMap(D_normalized_inverted, cv2.COLORMAP_JET)
     debug_images['edt'] = D_heatmap
-    
-    # Step 3: Find local maxima (peaks) in EDT
-    peak_coords = peak_local_max(D, min_distance=ws_min_distance, labels=thresh)
     localMax = np.zeros(D.shape, dtype=bool)
     if peak_coords.size > 0:
         localMax[tuple(peak_coords.T)] = True
@@ -275,43 +291,131 @@ def detect_blobs_watershed(binary: np.ndarray, params: Dict, cx: Optional[int] =
     local_max_vis = (localMax.astype(np.uint8) * 255)
     debug_images['peaks'] = local_max_vis
     
-    # Step 4: Create markers from peaks (threshold EDT)
+    # Step 4: Create markers using thresholded regions (like coins example)
+    # This creates distinct marker regions around each peak, not just single pixels
     marker_threshold = ws_marker_threshold * D.max()
     sure_fg = (D >= marker_threshold).astype(np.uint8) * 255
-    markers, num_labels = ndimage.label(sure_fg, structure=np.ones((3, 3)))
     
-    # Colored markers visualization
+    # Find connected components in the thresholded regions
+    num_markers, markers = cv2.connectedComponents(sure_fg)
+    
+    # If we detected more peaks than connected components, markers merged - force separation
+    if peak_coords.size > 0 and num_markers - 1 < peak_coords.size:
+        # Create separate marker regions around each peak
+        markers = np.zeros(D.shape, dtype=np.int32)
+        for idx, coord in enumerate(peak_coords):
+            marker_id = idx + 1
+            y, x = coord[0], coord[1]
+            
+            # Create a small circular region around each peak
+            # Use a fixed radius (1 pixel) for precise labeling
+            marker_radius = max(1, int(ws_marker_radius_factor))
+            
+            # Create circular mask for this marker
+            yy, xx = np.ogrid[:D.shape[0], :D.shape[1]]
+            dist_from_peak = np.sqrt((yy - y)**2 + (xx - x)**2)
+            marker_region = (dist_from_peak <= marker_radius)
+            
+            # Only assign pixels that don't already belong to another marker
+            # and are within the thresholded region
+            available = (markers == 0) & (D >= marker_threshold * 0.5)
+            markers[marker_region & available] = marker_id
+        num_markers = len(np.unique(markers[markers > 0])) + 1
+    
+    # Ensure markers start from 1 (0 is background)
+    if np.any(markers > 0):
+        # Relabel to ensure sequential IDs starting from 1
+        unique_markers = np.unique(markers[markers > 0])
+        marker_map = {old_id: new_id for new_id, old_id in enumerate(unique_markers, start=1)}
+        for old_id, new_id in marker_map.items():
+            markers[markers == old_id] = new_id
+    
+    # Colored markers visualization - show circles with radius controlled by marker radius factor
+    # This affects only the debug GUI visualization, not the actual marker placement
     markers_colored = np.zeros((markers.shape[0], markers.shape[1], 3), dtype=np.uint8)
     unique_markers = np.unique(markers)
     num_objects = len([m for m in unique_markers if m > 0])
-    for marker_id in unique_markers:
-        if marker_id == 0:
-            continue
-        mask = (markers == marker_id)
-        hue = int(((marker_id - 1) * 180 / max(1, num_objects)) % 180)
-        markers_colored[mask] = [hue, 255, 255]
-    markers_colored = cv2.cvtColor(markers_colored, cv2.COLOR_HSV2BGR)
-    markers_colored[markers == 0] = [0, 0, 0]
+    
+    # Show markers as circles with radius controlled by ws_marker_radius_factor (debug GUI only)
+    marker_vis_radius = max(1, int(ws_marker_radius_factor))
+    if peak_coords.size > 0:
+        for idx, coord in enumerate(peak_coords):
+            y, x = coord[0], coord[1]
+            marker_id = markers[y, x]
+            if marker_id > 0:
+                hue = int(((marker_id - 1) * 180 / max(1, num_objects)) % 180)
+                hsv_color = np.uint8([[[hue, 255, 255]]])
+                bgr_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2BGR)[0][0]
+                # Draw circle with radius controlled by slider (for visualization only)
+                cv2.circle(markers_colored, (x, y), marker_vis_radius, 
+                          (int(bgr_color[0]), int(bgr_color[1]), int(bgr_color[2])), -1)
+    
     debug_images['markers'] = markers_colored
     
-    # Step 5: Apply watershed
-    labels = skimage_watershed(-D, markers, mask=thresh)
+    # Step 5: Create labels for visualization and extraction
+    # For visualization: overlapping circular regions (radius-based, can overlap)
+    # For extraction: watershed-separated regions (non-overlapping, proper separation)
     
-    # Colored labels visualization
+    # Create markers for watershed
+    markers = np.zeros(D.shape, dtype=np.int32)
+    label_regions = []  # Store overlapping circular regions for visualization
+    
+    if peak_coords.size > 0:
+        # Create markers as single pixels at peak locations
+        for idx, coord in enumerate(peak_coords):
+            label_id = idx + 1
+            y, x = coord[0], coord[1]
+            markers[y, x] = label_id
+            
+            # Create overlapping circular region for visualization (based on original EDT value)
+            # Use original EDT value to maintain constant radius regardless of EDT power adjustment
+            # EDT power affects marker finding and watershed, but not the visualization radius
+            marker_radius = D[y, x] * 1.0  # Circular expansion based on original EDT value (constant radius)
+            yy, xx = np.ogrid[:D.shape[0], :D.shape[1]]
+            dist_from_marker = np.sqrt((yy - y)**2 + (xx - x)**2)
+            label_region = (dist_from_marker <= marker_radius) & (thresh > 0)
+            label_regions.append((label_id, label_region))
+        
+        # Apply watershed to separate overlapping regions properly for blob extraction
+        # Use power-adjusted EDT for watershed (affects separation)
+        # Watershed creates natural shapes (elliptical, abstract) based on EDT structure and compactness
+        labels = skimage_watershed(-D_for_watershed, markers, mask=thresh, compactness=ws_compactness)
+    else:
+        labels = markers
+    
+    # Colored labels visualization with opacity and borders for overlapping circular contours
+    # Use overlapping circular regions for visualization (allows overlapping display)
     labels_colored = np.zeros((labels.shape[0], labels.shape[1], 3), dtype=np.uint8)
-    unique_labels = np.unique(labels)
-    num_segments = len([l for l in unique_labels if l > 0])
-    for label_id in unique_labels:
-        if label_id == 0:
-            continue
-        mask = (labels == label_id)
+    num_segments = len(label_regions)
+    opacity = 128  # 50% opacity (0-255)
+    
+    # Create a black background
+    labels_colored.fill(0)
+    
+    # Draw overlapping circular label regions for visualization
+    for label_id, label_region in label_regions:
         hue = int(((label_id - 1) * 180 / max(1, num_segments)) % 180)
-        labels_colored[mask] = [hue, 255, 255]
-    labels_colored = cv2.cvtColor(labels_colored, cv2.COLOR_HSV2BGR)
-    labels_colored[labels == 0] = [0, 0, 0]
+        # Convert HSV to BGR
+        hsv_color = np.uint8([[[hue, 255, 255]]])
+        bgr_color = cv2.cvtColor(hsv_color, cv2.COLOR_HSV2BGR)[0][0]
+        
+        # Apply opacity by blending with current background (allows overlapping visualization)
+        alpha = opacity / 255.0
+        labels_colored[label_region] = (labels_colored[label_region] * (1 - alpha) + bgr_color * alpha).astype(np.uint8)
+        
+        # Add borders/outlines to help visualize overlapping circular regions
+        # Find contours and draw borders with full opacity
+        label_mask = label_region.astype(np.uint8) * 255
+        contours, _ = cv2.findContours(label_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            # Draw border with full opacity (thicker border for better visibility)
+            cv2.drawContours(labels_colored, contours, -1, 
+                           (int(bgr_color[0]), int(bgr_color[1]), int(bgr_color[2])), 
+                           2)  # 2 pixel border width
+    
     debug_images['labels'] = labels_colored
     
-    # Step 6: Extract blobs from labels
+    # Step 6: Extract blobs from watershed labels
     blobs = []
     for label in np.unique(labels):
         if label == 0:
@@ -413,6 +517,10 @@ def optimize_optical_center():
         gray = cv2.cvtColor(frm, cv2.COLOR_BGR2GRAY)
         bg_sub = apply_background_subtraction(gray)
         
+        # Apply invert to input pipeline (if enabled)
+        if p.get("invert_threshold", 0):
+            bg_sub = cv2.bitwise_not(bg_sub)
+        
         ksize = max(1, int(p["blur"]))
         if ksize % 2 == 0:
             ksize += 1
@@ -421,8 +529,7 @@ def optimize_optical_center():
         if p.get("use_otsu", 0):
             _, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
         else:
-            thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
-            _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
+            _, binary = cv2.threshold(blur, int(p["threshold"]), 255, cv2.THRESH_BINARY)
         
         blobs, _ = detect_blobs_watershed(binary, p, test_cx, test_cy)
         
@@ -655,10 +762,10 @@ def build_gui():
     row = create_slider(frm_ws, row, "Min Distance", "ws_min_distance", 5, 50, True)
     # Marker threshold slider (0.0-1.0, displayed as 0-100)
     ttk.Label(frm_ws, text="Marker Threshold").grid(row=row, column=0, sticky="w", padx=4, pady=2)
-    var_mt = tk.IntVar(value=int(params["ws_marker_threshold"] * 100))
+    var_mt = tk.IntVar(value=int(params.get("ws_marker_threshold", 0.7) * 100))
     scale_mt = ttk.Scale(frm_ws, from_=0, to=100, orient=tk.HORIZONTAL, variable=var_mt)
     scale_mt.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
-    lbl_mt = ttk.Label(frm_ws, text=f"{params['ws_marker_threshold']:.2f}", width=8)
+    lbl_mt = ttk.Label(frm_ws, text=f"{params.get('ws_marker_threshold', 0.7):.2f}", width=8)
     lbl_mt.grid(row=row, column=2, padx=4)
     def update_mt(v):
         val = float(v) / 100.0
@@ -666,6 +773,7 @@ def build_gui():
         lbl_mt.config(text=f"{val:.2f}")
     scale_mt.config(command=update_mt)
     widgets["scale_ws_marker_threshold"] = scale_mt
+    widgets["lbl_ws_marker_threshold"] = lbl_mt
     gui_vars_numeric["ws_marker_threshold"] = var_mt
     row += 1
     
@@ -673,10 +781,10 @@ def build_gui():
     # Lower values (<1.0) emphasize small distances (better for small blobs, preserves detail)
     # Higher values (>1.0) emphasize large distances (helps separate overlapping objects)
     ttk.Label(frm_ws, text="EDT Power (×100)").grid(row=row, column=0, sticky="w", padx=4, pady=2)
-    var_ep = tk.IntVar(value=int(params["ws_edt_power"] * 100))
+    var_ep = tk.IntVar(value=int(params.get("ws_edt_power", 1.0) * 100))
     scale_ep = ttk.Scale(frm_ws, from_=10, to=200, orient=tk.HORIZONTAL, variable=var_ep)
     scale_ep.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
-    lbl_ep = ttk.Label(frm_ws, text=f"{params['ws_edt_power']:.2f}", width=8)
+    lbl_ep = ttk.Label(frm_ws, text=f"{params.get('ws_edt_power', 1.0):.2f}", width=8)
     lbl_ep.grid(row=row, column=2, padx=4)
     def update_ep(v):
         val = max(0.1, min(2.0, float(v) / 100.0))
@@ -684,7 +792,62 @@ def build_gui():
         lbl_ep.config(text=f"{val:.2f}")
     scale_ep.config(command=update_ep)
     widgets["scale_ws_edt_power"] = scale_ep
+    widgets["lbl_ws_edt_power"] = lbl_ep
     gui_vars_numeric["ws_edt_power"] = var_ep
+    row += 1
+    
+    # Compactness slider (0.0-1.0, displayed as 0-1000, for precision)
+    # Higher values = more compact/circular segments (important for overlapping objects)
+    ttk.Label(frm_ws, text="Compactness (×1000)").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+    var_comp = tk.IntVar(value=int(params.get("ws_compactness", 0.01) * 1000))
+    scale_comp = ttk.Scale(frm_ws, from_=0, to=1000, orient=tk.HORIZONTAL, variable=var_comp)
+    scale_comp.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+    lbl_comp = ttk.Label(frm_ws, text=f"{params.get('ws_compactness', 0.01):.3f}", width=8)
+    lbl_comp.grid(row=row, column=2, padx=4)
+    def update_comp(v):
+        val = max(0.0, min(1.0, float(v) / 1000.0))
+        params["ws_compactness"] = val
+        lbl_comp.config(text=f"{val:.3f}")
+    scale_comp.config(command=update_comp)
+    widgets["scale_ws_compactness"] = scale_comp
+    widgets["lbl_ws_compactness"] = lbl_comp
+    gui_vars_numeric["ws_compactness"] = var_comp
+    row += 1
+    
+    # Peak threshold slider (0.0-1.0, fraction of max EDT value)
+    # Controls which local maxima are detected as markers
+    ttk.Label(frm_ws, text="Peak Threshold").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+    var_pt = tk.DoubleVar(value=float(params.get("ws_peak_threshold", 0.3)))
+    scale_pt = ttk.Scale(frm_ws, from_=0.0, to=1.0, orient=tk.HORIZONTAL, variable=var_pt)
+    scale_pt.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+    lbl_pt = ttk.Label(frm_ws, text=f"{params.get('ws_peak_threshold', 0.3):.2f}", width=8)
+    lbl_pt.grid(row=row, column=2, padx=4)
+    def update_pt(v):
+        val = max(0.0, min(1.0, float(v)))
+        params["ws_peak_threshold"] = val
+        lbl_pt.config(text=f"{val:.2f}")
+    scale_pt.config(command=update_pt)
+    widgets["scale_ws_peak_threshold"] = scale_pt
+    widgets["lbl_ws_peak_threshold"] = lbl_pt
+    gui_vars_numeric["ws_peak_threshold"] = var_pt
+    row += 1
+    
+    # Marker radius factor slider (1-10 pixels, displayed as 1-10)
+    # Controls marker visualization size in debug GUI only (does not affect label regions)
+    ttk.Label(frm_ws, text="Marker Radius (pixels)").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+    var_mrf = tk.IntVar(value=int(params.get("ws_marker_radius_factor", 1.0)))
+    scale_mrf = ttk.Scale(frm_ws, from_=1, to=10, orient=tk.HORIZONTAL, variable=var_mrf)
+    scale_mrf.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+    lbl_mrf = ttk.Label(frm_ws, text=f"{params.get('ws_marker_radius_factor', 1.0):.0f}", width=8)
+    lbl_mrf.grid(row=row, column=2, padx=4)
+    def update_mrf(v):
+        val = max(1.0, min(10.0, float(v)))
+        params["ws_marker_radius_factor"] = val
+        lbl_mrf.config(text=f"{val:.0f}")
+    scale_mrf.config(command=update_mrf)
+    widgets["scale_ws_marker_radius_factor"] = scale_mrf
+    widgets["lbl_ws_marker_radius_factor"] = lbl_mrf
+    gui_vars_numeric["ws_marker_radius_factor"] = var_mrf
     row += 1
     
     # Blob Filtering (Left)
@@ -905,36 +1068,66 @@ def build_gui():
     root.mainloop()
 
 def open_video():
-    """Open video file."""
-    global video_path, cap, background_image, tracker, xCenter, yCenter, center_valid
+    """Open video or image file."""
+    global video_path, cap, background_image, tracker, xCenter, yCenter, center_valid, current_image, is_image_mode
     
     file_path = filedialog.askopenfilename(
-        title="Open Video",
-        filetypes=[("Video files", "*.mp4 *.avi *.mov *.mkv"), ("All files", "*.*")]
+        title="Open Video or Image",
+        filetypes=[
+            ("Video files", "*.mp4 *.avi *.mov *.mkv"),
+            ("Image files", "*.png *.jpg *.jpeg *.bmp *.tiff *.tif"),
+            ("All files", "*.*")
+        ]
     )
     if not file_path:
         return
     
     video_path = file_path
-    print(f"[INFO] Opening video: {video_path}")
+    file_ext = file_path.lower().split('.')[-1]
+    is_image = file_ext in ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'tif']
     
-    # Build background
-    try:
-        background_image = build_background_from_video(video_path)
-        print("[INFO] Background ready")
-    except Exception as e:
-        print(f"[ERR] Background failed: {e}")
+    print(f"[INFO] Opening {'image' if is_image else 'video'}: {video_path}")
+    
+    if is_image:
+        # Handle image file
+        is_image_mode = True
+        current_image = cv2.imread(video_path)
+        if current_image is None:
+            messagebox.showerror("Error", f"Could not open image: {video_path}")
+            return
+        
+        H, W = current_image.shape[:2]
+        print(f"[INFO] Image: {W}×{H}")
+        
+        # For images, use the image itself as background (no background subtraction needed)
         background_image = None
-    
-    # Open video
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        messagebox.showerror("Error", f"Could not open video: {video_path}")
-        return
-    
-    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"[INFO] Video: {W}×{H}")
+        
+        # Release video capture if it was open
+        if cap is not None:
+            cap.release()
+        cap = None
+    else:
+        # Handle video file
+        is_image_mode = False
+        current_image = None
+        
+        # Build background
+        try:
+            background_image = build_background_from_video(video_path)
+            print("[INFO] Background ready")
+        except Exception as e:
+            print(f"[ERR] Background failed: {e}")
+            background_image = None
+        
+        # Open video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            messagebox.showerror("Error", f"Could not open video: {video_path}")
+            return
+        
+        W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"[INFO] Video: {W}×{H}")
     
     # Initialize tracker
     tracker = PairTracker(
@@ -974,25 +1167,42 @@ def open_video():
 
 def preview_loop():
     """Main preview loop."""
-    global cap, params, overlays, tracker, xCenter, yCenter, center_valid
+    global cap, params, overlays, tracker, xCenter, yCenter, center_valid, current_image, is_image_mode
     
-    if cap is None or not cap.isOpened():
-        root.after(66, preview_loop)  # ~15 FPS
-        return
-    
-    ret, frame = cap.read()
-    if not ret:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+    if is_image_mode:
+        # Handle image mode
+        if current_image is None:
+            root.after(66, preview_loop)  # ~15 FPS
+            return
+        
+        frame = current_image.copy()
+    else:
+        # Handle video mode
+        if cap is None or not cap.isOpened():
+            root.after(66, preview_loop)  # ~15 FPS
+            return
+        
         ret, frame = cap.read()
         if not ret:
-            root.after(66, preview_loop)
-            return
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ret, frame = cap.read()
+            if not ret:
+                root.after(66, preview_loop)
+                return
     
     # Step 1: Grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Step 2: Background subtraction
-    bg_sub = apply_background_subtraction(gray)
+    # Step 2: Background subtraction (skip for images)
+    if is_image_mode:
+        bg_sub = gray  # Use image directly, no background subtraction
+    else:
+        bg_sub = apply_background_subtraction(gray)
+    
+    # Step 2.5: Apply invert to input pipeline (if enabled)
+    if params.get("invert_threshold", 0):
+        bg_sub = cv2.bitwise_not(bg_sub)
+    
     show_debug = params.get("show_debug_windows", 0)
     if show_debug:
         # Ensure window exists and is properly sized
@@ -1012,8 +1222,7 @@ def preview_loop():
     if params.get("use_otsu", 0):
         _, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
     else:
-        thresh_type = cv2.THRESH_BINARY_INV if params.get("invert_threshold", 0) else cv2.THRESH_BINARY
-        _, binary = cv2.threshold(blur, int(params["threshold"]), 255, thresh_type)
+        _, binary = cv2.threshold(blur, int(params["threshold"]), 255, cv2.THRESH_BINARY)
     
     if show_debug:
         # Ensure window exists and is properly sized
@@ -1183,6 +1392,10 @@ def export_video():
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         bg_sub = apply_background_subtraction(gray)
         
+        # Apply invert to input pipeline (if enabled)
+        if p.get("invert_threshold", 0):
+            bg_sub = cv2.bitwise_not(bg_sub)
+        
         ksize = max(1, int(p["blur"]))
         if ksize % 2 == 0:
             ksize += 1
@@ -1191,8 +1404,7 @@ def export_video():
         if p.get("use_otsu", 0):
             _, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
         else:
-            thresh_type = cv2.THRESH_BINARY_INV if p.get("invert_threshold", 0) else cv2.THRESH_BINARY
-            _, binary = cv2.threshold(blur, int(p["threshold"]), 255, thresh_type)
+            _, binary = cv2.threshold(blur, int(p["threshold"]), 255, cv2.THRESH_BINARY)
         
         try:
             blobs, _ = detect_blobs_watershed(binary, p, xCenter, yCenter)
@@ -1322,15 +1534,37 @@ def load_settings():
     for key, var in gui_vars_numeric.items():
         if key in params:
             if isinstance(var, tk.IntVar):
-                var.set(int(params[key]))
+                # Special handling for scaled parameters
+                if key == "ws_compactness":
+                    var.set(int(params[key] * 1000))
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.3f}")
+                elif key == "ws_marker_radius_factor":
+                    var.set(int(params[key]))  # Now stored as integer pixels (1-10)
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.0f}")
+                elif key == "ws_marker_threshold":
+                    var.set(int(params[key] * 100))
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
+                elif key == "ws_edt_power":
+                    var.set(int(params[key] * 100))
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
+                else:
+                    var.set(int(params[key]))
             elif isinstance(var, tk.DoubleVar):
                 var.set(float(params[key]))
+                if f"lbl_{key}" in widgets:
+                    widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
     
     for key, var in gui_vars_check.items():
         if key in overlays:
             var.set(int(overlays[key]))
         elif key in overlay_targets:
             var.set(int(overlay_targets[key]))
+        elif key in params:
+            var.set(int(params[key]))
     
     # Update label mode combobox if it exists
     if "cmb_label_mode" in widgets:
