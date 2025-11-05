@@ -46,9 +46,9 @@ The system consists of several components:
 
 ### Capture Tools
 
-- **`apps/capture_raspi.py`** - Raspberry Pi video capture application for recording videos from UVC cameras.
+- **`apps/capture_raspi.py`** - Raspberry Pi video capture application for recording videos from UVC cameras. Allows optional custom filename prefix when recording.
 
-- **`apps/capture_windows.py`** - Windows video capture application for recording videos from USB cameras.
+- **`apps/capture_windows.py`** - Windows video capture application for recording videos from USB cameras. Allows optional custom filename prefix when recording.
 
 ## Quick Start
 
@@ -139,8 +139,11 @@ run_capture_windows.bat
 4. Capture a single frame image with the scale visible
 5. Record video(s) of objects moving at constant Z heights (different heights for calibration)
    - **Note**: Any number of objects can be in each video, as long as they all move at the same constant Z height for that video
+   - When clicking "Record", a dialog will prompt for an optional filename prefix:
+     - Enter a prefix (e.g., "experiment1") to create custom filenames like `experiment1_YYYYMMDD_HHMMSS.mp4`
+     - Leave blank or cancel to use auto-generated names like `video_1920x1080_30fps_YYYYMMDD_HHMMSS.mp4`
 
-**Output:** Videos saved to `inputs_outputs/video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/` directory
+**Output:** Videos saved to `inputs_outputs/{prefix}_YYYYMMDD_HHMMSS/` or `inputs_outputs/video_[W]x[H]_[FPS]fps_YYYYMMDD_HHMMSS/` directory (depending on whether a custom prefix was provided)
 
 ### Step 2: Image Calibration (Scale Calibration)
 
@@ -224,6 +227,15 @@ run_detect_pairs.bat
    - **Symmetric**: Ensures mutual best matches
    - **Hungarian**: Optimal global matching (recommended)
 6. Export the processed video with tracked pairs (includes Load Process button to restore previous settings)
+
+**Important Note on Calibration:**
+- Once you have completed both **Image Calibration** (Step 2) and **Video Calibration** (Step 4), the calibration data is automatically saved and reused
+- In subsequent runs of `detect_pairs.py`, if calibration JSON files are available, the system will automatically:
+  - Load the calibration data (pixels_per_mm, working_distance_mm, z_calibration_scale_factor, z_calibration_offset_mm)
+  - Calculate full 3D XYZ coordinates (in millimeters) for all tracked particles
+  - Export CSV files with `X_mm`, `Y_mm`, and `Z_mm` columns containing calibrated coordinates
+- You can also manually load calibration files using the "Load Calibration" button in the GUI
+- **First-time setup**: You only need to calibrate once per camera setup. After calibration, all future videos processed with `detect_pairs.py` will automatically include calibrated XYZ coordinates
 
 **Image Processing Pipeline:**
 

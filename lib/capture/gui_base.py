@@ -11,7 +11,7 @@ import cv2
 import os
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from queue import Queue, Empty
 from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Dict, Any
@@ -546,7 +546,21 @@ class BaseCaptureApp(ABC):
         if self.recording_manager.recording:
             self.recording_manager.stop()
         else:
-            self.recording_manager.start()
+            # Prompt for filename prefix
+            prefix = simpledialog.askstring(
+                "Recording Filename",
+                "Enter filename prefix (optional):\n\n"
+                "Leave blank for auto-generated name.\n"
+                "Example: 'experiment1' → 'experiment1_YYYYMMDD_HHMMSS.mp4'",
+                parent=self.root
+            )
+            
+            # If user cancelled, prefix will be None, which is fine (uses default)
+            # If user entered empty string, also use None (empty string will be sanitized to None)
+            if prefix is not None and prefix.strip() == "":
+                prefix = None
+            
+            self.recording_manager.start(prefix=prefix)
     
     def on_close(self) -> None:
         """Handle application close."""
