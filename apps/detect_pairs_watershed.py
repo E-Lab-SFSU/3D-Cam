@@ -682,6 +682,7 @@ def build_gui():
         lbl_val.grid(row=row, column=2, padx=4)
         
         widgets[f"scale_{key}"] = scale
+        widgets[f"lbl_{key}"] = lbl_val
         gui_vars_numeric[key] = var
         return row + 1
     
@@ -741,7 +742,23 @@ def build_gui():
     frm_bg.pack(fill="x", pady=5)
     frm_bg.grid_columnconfigure(1, weight=1)
     row = 0
-    row = create_slider(frm_bg, row, "Alpha", "bg_alpha", 0, 100, False)
+    ttk.Label(frm_bg, text="Alpha").grid(row=row, column=0, sticky="w", padx=4, pady=2)
+    var_bg_alpha = tk.DoubleVar(value=float(params.get("bg_alpha", 0.95)))
+    scale_bg_alpha = ttk.Scale(frm_bg, from_=0.0, to=1.0, orient=tk.HORIZONTAL, variable=var_bg_alpha)
+    scale_bg_alpha.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+    lbl_bg_alpha = ttk.Label(frm_bg, text=f"{params.get('bg_alpha', 0.95):.2f}", width=8)
+    lbl_bg_alpha.grid(row=row, column=2, padx=4)
+
+    def update_bg_alpha(v):
+        val = max(0.0, min(1.0, float(v)))
+        params["bg_alpha"] = val
+        lbl_bg_alpha.config(text=f"{val:.2f}")
+
+    scale_bg_alpha.config(command=update_bg_alpha)
+    widgets["scale_bg_alpha"] = scale_bg_alpha
+    widgets["lbl_bg_alpha"] = lbl_bg_alpha
+    gui_vars_numeric["bg_alpha"] = var_bg_alpha
+    row += 1
     row = create_slider(frm_bg, row, "Static Threshold", "bg_static_thresh", 1, 20, True)
     
     # Binary Thresholding (Left)
@@ -888,6 +905,7 @@ def build_gui():
         lbl_wt.config(text=f"{val:.2f}")
     scale_wt.config(command=update_wt)
     widgets["scale_w_theta"] = scale_wt
+    widgets["lbl_w_theta"] = lbl_wt
     gui_vars_numeric["w_theta"] = var_wt
     row += 1
     
@@ -903,6 +921,7 @@ def build_gui():
         lbl_wa.config(text=f"{val:.2f}")
     scale_wa.config(command=update_wa)
     widgets["scale_w_area"] = scale_wa
+    widgets["lbl_w_area"] = lbl_wa
     gui_vars_numeric["w_area"] = var_wa
     row += 1
     
@@ -918,6 +937,7 @@ def build_gui():
         lbl_wc.config(text=f"{val:.2f}")
     scale_wc.config(command=update_wc)
     widgets["scale_w_center"] = scale_wc
+    widgets["lbl_w_center"] = lbl_wc
     gui_vars_numeric["w_center"] = var_wc
     row += 1
     
@@ -934,6 +954,7 @@ def build_gui():
         lbl_smin.config(text=f"{val:.2f}")
     scale_smin.config(command=update_smin)
     widgets["scale_Smin"] = scale_smin
+    widgets["lbl_Smin"] = lbl_smin
     gui_vars_numeric["Smin"] = var_smin
     row += 1
     
@@ -964,6 +985,7 @@ def build_gui():
         lbl_tmd.config(text=f"{val:.1f}")
     scale_tmd.config(command=update_tmd)
     widgets["scale_track_max_match_dist"] = scale_tmd
+    widgets["lbl_track_max_match_dist"] = lbl_tmd
     gui_vars_numeric["track_max_match_dist"] = var_tmd
     row += 1
     row = create_slider(frm_track, row, "Max Misses", "track_max_misses", 1, 30, True)
@@ -1548,6 +1570,16 @@ def load_settings():
                     if f"lbl_{key}" in widgets:
                         widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
                 elif key == "ws_edt_power":
+                    var.set(int(params[key] * 100))
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
+                elif key in ("w_theta", "w_area", "w_center"):
+                    # Weights use 0-100 slider but are stored as 0.0-1.0
+                    var.set(int(params[key] * 100))
+                    if f"lbl_{key}" in widgets:
+                        widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
+                elif key == "Smin":
+                    # Min score uses ×100 slider but stored as 0.1-2.0
                     var.set(int(params[key] * 100))
                     if f"lbl_{key}" in widgets:
                         widgets[f"lbl_{key}"].config(text=f"{params[key]:.2f}")
