@@ -425,7 +425,20 @@ class BaseCaptureApp(ABC):
         
         # Small delay to let camera stabilize before starting frame grabber
         # This helps prevent initial read failures on V4L2
-        time.sleep(0.2)
+        # On Raspberry Pi, need more time for Pi Camera to initialize
+        import platform
+        is_raspi = False
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read()
+                is_raspi = 'Raspberry Pi' in cpuinfo or 'BCM' in cpuinfo
+        except:
+            pass
+        
+        stabilization_delay = 1.5 if is_raspi else 0.2
+        if is_raspi:
+            print("[INFO] Waiting for Pi Camera to stabilize...")
+        time.sleep(stabilization_delay)
         
         # Start frame grabber (after camera is fully initialized)
         self.frame_grabber.start(self.cam)

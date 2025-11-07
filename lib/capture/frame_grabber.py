@@ -52,13 +52,30 @@ class FrameGrabber:
     def _loop(self):
         """Frame grabbing loop."""
         import threading
+        import platform
+        
+        # Check if running on Raspberry Pi
+        is_raspi = False
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                cpuinfo = f.read()
+                is_raspi = 'Raspberry Pi' in cpuinfo or 'BCM' in cpuinfo
+        except:
+            pass
         
         consecutive_errors = 0
-        max_errors = 100
+        max_errors = 200 if is_raspi else 100  # More patience on Pi
         frames_read = 0
         last_status_time = time.time()
         
+        # On Pi, use more retries and longer delays
+        max_retries = 3 if is_raspi else 1
+        error_sleep = 0.2 if is_raspi else 0.1
+        read_failure_sleep = 0.1 if is_raspi else 0.05
+        
         print("[INFO] Frame grabber: Starting frame capture...")
+        if is_raspi:
+            print("[INFO] Raspberry Pi detected - using increased retries and delays")
         
         while self.running:
             # Check if camera is still valid and open
@@ -71,9 +88,9 @@ class FrameGrabber:
                 # Camera object might be invalid
                 break
             
-            # Read frame
+            # Read frame - use more retries on Pi
             try:
-                frame = self.camera.read(max_retries=1)
+                frame = self.camera.read(max_retries=max_retries)
             except Exception as e:
                 print(f"[WARN] Frame read exception: {e}")
                 frame = None
@@ -81,7 +98,7 @@ class FrameGrabber:
                 if consecutive_errors >= max_errors:
                     print(f"[ERROR] Too many errors, stopping frame grabber")
                     break
-                time.sleep(0.1)
+                time.sleep(error_sleep)
                 continue
             
             if frame is not None:
@@ -115,5 +132,5 @@ class FrameGrabber:
                     print(f"[INFO] Frame grabber: Total frames read: {frames_read}")
                     break
                 
-                time.sleep(0.05)
+                time.sleep(read_failure_sleep)
 

@@ -223,8 +223,14 @@ class Camera:
             seen = set()
             backends_to_try = [x for x in backends_to_try if not (x in seen or seen.add(x))]
         else:
-            # On Linux, prefer V4L2 and limit backends
-            backends_to_try = [self.backend]
+            # On Linux, try V4L2 first, but also try CAP_ANY as fallback
+            # On Raspberry Pi, CAP_ANY may work better for Pi Camera Module (libcamera)
+            if is_raspi:
+                # On Raspberry Pi, try V4L2 first, then CAP_ANY (libcamera support)
+                backends_to_try = [self.backend, cv2.CAP_ANY]
+            else:
+                # On other Linux systems, try V4L2 first, then CAP_ANY
+                backends_to_try = [self.backend, cv2.CAP_ANY]
             # Remove duplicates while preserving order
             seen = set()
             backends_to_try = [x for x in backends_to_try if not (x in seen or seen.add(x))]
@@ -240,9 +246,15 @@ class Camera:
                 dev_path = f"/dev/video{self.index}"
                 if os.path.exists(dev_path):
                     # Open by device path (more reliable than index on some systems)
+                    print(f"[INFO] Trying V4L2 backend with device path: {dev_path}")
                     self.cap = cv2.VideoCapture(dev_path, backend_alt)
                 else:
+                    print(f"[INFO] Trying V4L2 backend with index: {self.index}")
                     self.cap = cv2.VideoCapture(self.index, backend_alt)
+            elif is_linux_os and backend_alt == cv2.CAP_ANY:
+                # On Linux with CAP_ANY, try index (CAP_ANY will auto-detect backend)
+                print(f"[INFO] Trying CAP_ANY backend with index: {self.index}")
+                self.cap = cv2.VideoCapture(self.index, backend_alt)
             else:
                 self.cap = cv2.VideoCapture(self.index, backend_alt)
             
@@ -263,15 +275,16 @@ class Camera:
                 except:
                     properties_valid = False
                 
-                # Verify we can actually read valid frames (try fewer times with timeout)
-                # But on Linux/V4L2, be more lenient - if properties are valid, accept it
+                # Verify we can actually read valid frames
+                # On Raspberry Pi, be more patient - Pi Camera may need more time
                 valid_frames = 0
-                max_attempts = 2 if is_raspi else 3  # Fewer attempts on Pi to speed up
+                max_attempts = 5 if is_raspi else 3  # More attempts on Pi for Pi Camera
+                timeout_per_attempt = 5.0 if is_raspi else 1.5  # Longer timeout on Pi
                 
-                for _ in range(max_attempts):
+                for attempt in range(max_attempts):
                     try:
                         # Use timeout for frame reads during opening
-                        ret, frame = read_frame_with_timeout(self.cap, timeout=3.0 if is_raspi else 1.5)
+                        ret, frame = read_frame_with_timeout(self.cap, timeout=timeout_per_attempt)
                         if ret and frame is not None:
                             # Validate frame structure
                             if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
@@ -279,12 +292,26 @@ class Camera:
                                 if valid_frames >= 1:  # Need at least 1 valid frame
                                     self.backend = backend_alt
                                     break
-                    except (cv2.error, Exception):
-                        # Frame read failed, continue trying
+                    except (cv2.error, Exception) as e:
+                        # Frame read failed, wait a bit longer on Pi before retry
+                        if is_raspi and attempt < max_attempts - 1:
+                            time.sleep(0.2)  # Small delay between attempts on Pi
                         continue
                 
-                # Accept camera if we got valid frames OR if properties are valid (for V4L2 that's slow)
-                if valid_frames >= 1 or (properties_valid and is_linux_os and backend_alt == cv2.CAP_V4L2):
+                # Accept camera if we got valid frames
+                # On Linux (especially Pi), also accept if properties are valid (camera may be slow to start)
+                if valid_frames >= 1:
+                    self.backend = backend_alt
+                    break
+                elif properties_valid and is_linux_os:
+                    # Properties are valid but frames failed - might be a slow-start camera
+                    # On Pi, give it another chance with CAP_ANY if we're on V4L2
+                    if is_raspi and backend_alt == cv2.CAP_V4L2 and cv2.CAP_ANY in backends_to_try:
+                        # Skip to CAP_ANY - it might work better
+                        print(f"[INFO] V4L2 opened but frames not readable yet, will try CAP_ANY next")
+                        continue
+                    # For other cases, accept if properties are valid (camera may work after warm-up)
+                    print(f"[INFO] Camera properties valid, accepting (frames may work after warm-up)")
                     self.backend = backend_alt
                     break
                 else:
@@ -341,10 +368,19 @@ class Camera:
             # Check if this is high-res MJPEG on Windows (will use grab()+retrieve())
             is_mjpeg_hd = self.fourcc == "MJPG" and self.width >= 1920 and self.height >= 1080 and is_windows
             
+            # Determine if using CAP_ANY (might be libcamera on Pi)
+            using_cap_any = (is_linux_os and self.backend == cv2.CAP_ANY) or 'ANY' in str(self.actual_backend)
+            
             if using_v4l2:
                 # V4L2: smaller buffer = lower latency but less tolerance for delays
                 # Always use 1 for V4L2 to minimize timeouts
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            elif using_cap_any and is_raspi:
+                # CAP_ANY on Pi (likely libcamera) - use buffer size 1 for low latency
+                try:
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except:
+                    pass  # Some backends don't support this property
             elif is_mjpeg_hd:
                 # MJPEG HD on Windows: use buffer size 2 for grab()+retrieve() pattern
                 # Need enough frames in buffer to skip stale ones, but not too many (latency)
@@ -417,8 +453,10 @@ class Camera:
             except:
                 pass
         
-        # Shorter stabilization time on Linux/V4L2, minimal on Windows for faster startup
-        if using_v4l2:
+        # Stabilization time - longer on Raspberry Pi for Pi Camera
+        if is_raspi:
+            stabilization_time = 1.0  # Pi Camera needs more time to initialize
+        elif using_v4l2:
             stabilization_time = 0.3
         elif is_windows:
             stabilization_time = 0.1  # Minimal delay on Windows
@@ -426,21 +464,29 @@ class Camera:
             stabilization_time = 0.5
         time.sleep(stabilization_time)
         
-        # Flush initial frames (camera warm-up) - fewer on Linux/V4L2, minimal on Windows
-        if using_v4l2:
+        # Flush initial frames (camera warm-up) - more on Raspberry Pi for Pi Camera
+        if is_raspi:
+            flush_count = 15  # Pi Camera needs more frames flushed
+        elif using_v4l2:
             flush_count = 5
         elif is_windows:
             flush_count = 3  # Fewer flushes on Windows for faster startup
         else:
             flush_count = 10
-        for _ in range(flush_count):
+        for i in range(flush_count):
             try:
-                # Use timeout for flushing to avoid blocking
-                ret, frame = read_frame_with_timeout(self.cap, timeout=0.5)
+                # Use timeout for flushing - longer timeout on Pi
+                timeout = 2.0 if is_raspi else 0.5
+                ret, frame = read_frame_with_timeout(self.cap, timeout=timeout)
                 if ret and frame is not None:
                     if len(frame.shape) >= 2 and frame.shape[0] > 0 and frame.shape[1] > 0:
+                        if is_raspi and i == 0:
+                            print(f"[INFO] First frame read successfully from Pi Camera")
                         pass  # Valid frame, continue flushing
-            except:
+            except Exception as e:
+                # On Pi, log first few failures but don't worry too much
+                if is_raspi and i < 3:
+                    print(f"[DEBUG] Flush attempt {i+1} failed (this is normal during warm-up): {e}")
                 pass
         
         # Get actual dimensions (may differ from requested)
