@@ -18,7 +18,7 @@ import sys
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk
 from typing import Any
 
 # Ensure project root is on sys.path when running as a script
@@ -144,8 +144,8 @@ class RaspiCaptureGUI:
         self._geometry_applied = False
 
         self.status_var = tk.StringVar(value="Initializing camera…")
-        self.preview_fps_var = tk.StringVar(value="Preview FPS: —")
-        self.record_fps_var = tk.StringVar(value="Recording FPS: —")
+        self.preview_fps_var = tk.StringVar(value="FPS: —")
+        self.record_timer_var = tk.StringVar(value="")
 
         self.control_vars: dict[str, tk.IntVar] = {}
         self.slider_widgets: dict[str, dict[str, tk.Widget]] = {}
@@ -160,11 +160,16 @@ class RaspiCaptureGUI:
         self.vector_defaults: dict[str, tuple[Any, ...]] = {}
         self._last_reported_size: tuple[int, int] | None = None
 
+        self._record_indicator_job: str | None = None
+        self._record_indicator_visible = False
+        self._recording_started_at: float | None = None
+
         self.recording = False
         self._status_job: str | None = None
         self._fps_job: str | None = None
 
         self._build_ui()
+        self._stop_recording_indicator()
         self.root.bind("<Configure>", self._on_root_configure)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -185,11 +190,23 @@ class RaspiCaptureGUI:
         # Status row
         status_row = ttk.Frame(main)
         status_row.pack(fill=tk.X, pady=(0, 6))
+        self.record_indicator_canvas = tk.Canvas(
+            status_row, width=14, height=14, highlightthickness=0, bd=0
+        )
+        self.record_indicator_canvas.pack(side=tk.LEFT, padx=(0, 4))
+        self.record_indicator_dot = self.record_indicator_canvas.create_oval(
+            2, 2, 12, 12, fill="", outline=""
+        )
+        self._record_indicator_off_color = self.record_indicator_canvas["background"]
+        self._record_indicator_on_color = "#ff3b30"
+
+        ttk.Label(status_row, textvariable=self.record_timer_var, font=("TkDefaultFont", 9, "bold")).pack(
+            side=tk.LEFT, padx=(0, 8)
+        )
         ttk.Label(status_row, textvariable=self.status_var).pack(
             side=tk.LEFT, padx=(0, 10)
         )
-        ttk.Label(status_row, textvariable=self.preview_fps_var).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Label(status_row, textvariable=self.record_fps_var).pack(side=tk.LEFT)
+        ttk.Label(status_row, textvariable=self.preview_fps_var).pack(side=tk.LEFT)
 
         # Buttons
         button_row = ttk.Frame(main)
@@ -659,6 +676,53 @@ class RaspiCaptureGUI:
         if label and hasattr(label, "config"):
             label.config(text=self._format_vector_summary(name, values))
 
+    def _start_recording_indicator(self) -> None:
+        if not hasattr(self, "record_indicator_canvas"):
+            return
+        self._stop_recording_indicator()
+        self._recording_started_at = time.time()
+        self.record_timer_var.set("00:00")
+        self.record_indicator_canvas.itemconfig(
+            self.record_indicator_dot, fill=self._record_indicator_on_color
+        )
+        self._record_indicator_visible = False
+        self._record_indicator_tick()
+
+    def _record_indicator_tick(self) -> None:
+        if not getattr(self.controller, "is_recording", False):
+            self._stop_recording_indicator()
+            return
+
+        fill = (
+            self._record_indicator_on_color
+            if self._record_indicator_visible
+            else self._record_indicator_off_color
+        )
+        self.record_indicator_canvas.itemconfig(self.record_indicator_dot, fill=fill)
+        self._record_indicator_visible = not self._record_indicator_visible
+
+        if self._recording_started_at is not None:
+            elapsed = max(0.0, time.time() - self._recording_started_at)
+            minutes, seconds = divmod(int(elapsed), 60)
+            self.record_timer_var.set(f"{minutes:02d}:{seconds:02d}")
+
+        self._record_indicator_job = self.root.after(500, self._record_indicator_tick)
+
+    def _stop_recording_indicator(self) -> None:
+        if self._record_indicator_job:
+            try:
+                self.root.after_cancel(self._record_indicator_job)
+            except Exception:
+                pass
+            self._record_indicator_job = None
+        self._record_indicator_visible = False
+        if hasattr(self, "record_indicator_canvas"):
+            self.record_indicator_canvas.itemconfig(
+                self.record_indicator_dot, fill=self._record_indicator_off_color
+            )
+        self.record_timer_var.set("")
+        self._recording_started_at = None
+
     # Event Handlers ------------------------------------------------------
     def on_start_preview(self) -> None:
         try:
@@ -687,26 +751,20 @@ class RaspiCaptureGUI:
             return
 
         default_stem = temp_path.stem.replace("temp_image_", "image_")
-        initial_dir = (Path.cwd() / "inputs_outputs").resolve()
-        initial_dir.mkdir(parents=True, exist_ok=True)
-        suggested = build_output_path(default_stem, "jpg")
-        save_path = filedialog.asksaveasfilename(
-            title="Save Still Image",
+        raw = simpledialog.askstring(
+            "Save Still Image",
+            "Enter filename (stem only):",
+            initialvalue=default_stem,
             parent=self.root,
-            defaultextension=".jpg",
-            initialdir=str(initial_dir),
-            initialfile=suggested.name,
-            filetypes=[("JPEG Image", "*.jpg;*.jpeg"), ("All Files", "*.*")],
         )
-
-        if not save_path:
+        if raw is None:
             try:
                 temp_path.unlink()
             except Exception:
                 pass
             return
-
-        final_path = Path(save_path)
+        stem = sanitize_name(raw or default_stem)
+        final_path = build_output_path(stem, "jpg")
         try:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path.replace(final_path)
@@ -730,7 +788,7 @@ class RaspiCaptureGUI:
             messagebox.showerror("Recording Error", f"Failed to start recording:\n{exc}")
             return
 
-        messagebox.showinfo("Recording", "Recording started.")
+        self._start_recording_indicator()
         self._refresh_status_text()
 
     def on_stop_recording(self) -> None:
@@ -741,30 +799,26 @@ class RaspiCaptureGUI:
         try:
             temp_path = self.controller.stop_recording()
         except Exception as exc:  # pragma: no cover - hardware dependent
+            self._stop_recording_indicator()
             messagebox.showerror("Recording Error", f"Failed to stop recording:\n{exc}")
             return
+        self._stop_recording_indicator()
 
         default_stem = temp_path.stem.replace("temp_video_", "video_")
-        initial_dir = (Path.cwd() / "inputs_outputs").resolve()
-        initial_dir.mkdir(parents=True, exist_ok=True)
-        suggested = build_output_path(default_stem, "mp4")
-        save_path = filedialog.asksaveasfilename(
-            title="Save Recording",
+        raw = simpledialog.askstring(
+            "Save Recording",
+            "Enter filename (stem only):",
+            initialvalue=default_stem,
             parent=self.root,
-            defaultextension=".mp4",
-            initialdir=str(initial_dir),
-            initialfile=suggested.name,
-            filetypes=[("MP4 Video", "*.mp4"), ("All Files", "*.*")],
         )
-
-        if not save_path:
+        if raw is None:
             try:
                 temp_path.unlink()
             except Exception:
                 pass
             return
-
-        final_path = Path(save_path)
+        stem = sanitize_name(raw or default_stem)
+        final_path = build_output_path(stem, "mp4")
         try:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path.replace(final_path)
@@ -772,7 +826,7 @@ class RaspiCaptureGUI:
             messagebox.showerror("Save Error", f"Failed to save recording:\n{exc}")
             return
 
-        messagebox.showinfo("Recording Saved", f"Video saved to:\n{final_path.resolve()}")
+        self._stop_recording_indicator()
         self._refresh_status_text()
 
     def on_toggle_preview(self) -> None:
@@ -1013,13 +1067,7 @@ class RaspiCaptureGUI:
 
     def update_fps(self) -> None:
         preview_fps = self.controller.get_fps()
-        self.preview_fps_var.set(f"Preview FPS: {preview_fps:.1f}")
-
-        if getattr(self.controller, "is_recording", False):
-            recording_fps = self.controller.get_recording_fps()
-            self.record_fps_var.set(f"Recording FPS: {recording_fps:.1f}")
-        else:
-            self.record_fps_var.set("Recording FPS: —")
+        self.preview_fps_var.set(f"FPS: {preview_fps:.1f}")
 
         self._fps_job = self.root.after(500, self.update_fps)
 
