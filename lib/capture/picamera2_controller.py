@@ -41,6 +41,9 @@ def _has_desktop_session() -> bool:
     display = os.environ.get("DISPLAY")
     wayland = os.environ.get("WAYLAND_DISPLAY")
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    ssh_connection = os.environ.get("SSH_CONNECTION")
+    ssh_client = os.environ.get("SSH_CLIENT")
+    ssh_tty = os.environ.get("SSH_TTY")
     print(
         "[DEBUG] Session env:",
         {
@@ -48,8 +51,14 @@ def _has_desktop_session() -> bool:
             "WAYLAND_DISPLAY": wayland,
             "XDG_SESSION_TYPE": session_type,
             "PICAMERA2_FORCE_DESKTOP": os.environ.get("PICAMERA2_FORCE_DESKTOP"),
+            "SSH_CONNECTION": ssh_connection,
+            "SSH_CLIENT": ssh_client,
+            "SSH_TTY": ssh_tty,
         },
     )
+    if ssh_connection or ssh_client or ssh_tty:
+        print("[DEBUG] SSH session detected; treating as headless.")
+        return False
     if session_type in {"wayland", "x11"}:
         return bool(display or wayland)
     # Allow explicit override via environment variable.
@@ -104,13 +113,13 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
 
     if backend == "auto":
         if _has_desktop_session():
+            print("[DEBUG] Desktop session detected; trying qtgl then drm.")
             order = ["qtgl", "drm", "null"]
         else:
+            print("[DEBUG] No desktop session; trying drm then qtgl.")
             order = ["drm", "qtgl", "null"]
     else:
         order = [backend]
-
-    print(f"[DEBUG] Preview backend order: {order}")
 
     last_exc: Optional[Exception] = None
 
