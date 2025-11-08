@@ -158,6 +158,7 @@ class RecordingState:
     frame_index: int = 0
     first_sensor_ts: Optional[int] = None
     metadata_file: Any = field(default=None, repr=False)
+    flush_interval: int = 60
 
 
 class Picamera2Controller:
@@ -258,8 +259,10 @@ class Picamera2Controller:
         self.picam2.stop_recording()
         state = self._recording_state
         if state.metadata_file:
-            state.metadata_file.flush()
-            state.metadata_file.close()
+            try:
+                state.metadata_file.flush()
+            finally:
+                state.metadata_file.close()
         filepath = state.filepath
         metadata_path = state.metadata_path
         self._recording_state = None
@@ -336,7 +339,8 @@ class Picamera2Controller:
                 f"{delta_ns if delta_ns != '' else ''}\n"
             )
             try:
-                state.metadata_file.write(line)
+            state.metadata_file.write(line)
+            if state.frame_index % state.flush_interval == 0:
                 state.metadata_file.flush()
             except Exception:
                 pass
