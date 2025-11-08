@@ -9,9 +9,7 @@ scipy>=1.11.0
 # Computer vision
 opencv-python>=4.8.0
 
-# Raspberry Pi camera stack
-picamera2>=0.3.17
-libcamera>=0.0.5
+# Raspberry Pi camera stack (install Picamera2 + libcamera via apt; see README)
 simplejpeg>=1.6.5
 pyopengl>=3.1.7
 pyqt6>=6.6.0
