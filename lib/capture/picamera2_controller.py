@@ -31,6 +31,21 @@ else:
     _IMPORT_ERROR = None
 
 DEFAULT_RECORDING_BITRATE = 12_000_000
+ALLOWED_CONTROL_NAMES = {
+    "ExposureTime",
+    "AnalogueGain",
+    "AeEnable",
+    "AwbEnable",
+    "ColourGains",
+    "AeFlickerMode",
+    "Brightness",
+    "Contrast",
+    "Saturation",
+    "Sharpness",
+    "NoiseReductionMode",
+    "ScalerCrop",
+    "FrameDurationLimits",
+}
 DEFAULT_FRAME_RATE = 30
 DEFAULT_RESOLUTION = (1920, 1080)
 DEFAULT_OUTPUT_DIR = Path("inputs_outputs")
@@ -327,6 +342,8 @@ class Picamera2Controller:
             return None
 
         for name, info in self.picam2.camera_controls.items():  # type: ignore[attr-defined]
+            if name not in ALLOWED_CONTROL_NAMES:
+                continue
             ctrl_type = _extract(info, "type")
             type_name = getattr(ctrl_type, "__name__", None) or str(ctrl_type)
             controls[name] = {
