@@ -37,8 +37,17 @@ DEFAULT_RESOLUTION = (1920, 1080)
 
 
 def _has_desktop_session() -> bool:
-    """Return True if running under X11/Wayland (likely desktop session)."""
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    """Heuristically detect if an interactive desktop session is active."""
+    display = os.environ.get("DISPLAY")
+    wayland = os.environ.get("WAYLAND_DISPLAY")
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    if session_type in {"wayland", "x11"}:
+        return bool(display or wayland)
+    # Allow explicit override via environment variable.
+    force = os.environ.get("PICAMERA2_FORCE_DESKTOP", "").lower()
+    if force in {"1", "true", "yes"}:
+        return True
+    return False
 
 
 def sanitize_name(name: str) -> str:
