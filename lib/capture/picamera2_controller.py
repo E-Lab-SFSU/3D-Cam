@@ -94,7 +94,10 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
         raise ValueError(f"Unknown backend '{backend}'. Valid: auto, drm, qtgl, null")
 
     if backend == "auto":
-        order = ["qtgl", "drm"] if _has_desktop_session() else ["drm", "qtgl"]
+        if _has_desktop_session():
+            order = ["qtgl", "drm", "null"]
+        else:
+            order = ["drm", "qtgl", "null"]
     else:
         order = [backend]
 
