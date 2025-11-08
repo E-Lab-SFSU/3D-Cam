@@ -85,9 +85,35 @@ def list_controls(controller: Picamera2Controller) -> None:
     controls = controller.list_controls()
     print(f"Found {len(controls)} controls:")
     for name, meta in sorted(controls.items()):
-        print(
-            f"  {name}: default={meta['default']} range=({meta['min']}, {meta['max']}) type={meta['type']}"
-        )
+        pieces = [f"  {name}:"]
+        pieces.append(f"default={meta.get('default')}")
+
+        min_val = meta.get("min")
+        max_val = meta.get("max")
+        if min_val is not None or max_val is not None:
+            pieces.append(f"range=({min_val}, {max_val})")
+
+        values = meta.get("values")
+        if values and (min_val is None and max_val is None):
+            text = str(values)
+            if len(text) > 60:
+                text = text[:57] + "..."
+            pieces.append(f"values={text}")
+
+        step = meta.get("step")
+        if step not in (None, 0):
+            pieces.append(f"step={step}")
+
+        if meta.get("type") not in (None, "None"):
+            pieces.append(f"type={meta['type']}")
+
+        if meta.get("raw"):
+            raw_text = meta["raw"]
+            if len(raw_text) > 60:
+                raw_text = raw_text[:57] + "..."
+            pieces.append(f"raw={raw_text}")
+
+        print(" ".join(pieces))
 
 
 def run_cli(controller: Picamera2Controller, bitrate: int) -> None:

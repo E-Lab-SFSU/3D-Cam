@@ -265,15 +265,83 @@ class Picamera2Controller:
         if not hasattr(self.picam2, "camera_controls"):
             return controls
 
+        def _coerce_value(value: Any) -> Any:
+            """Best-effort conversion of libcamera control values to plain Python types."""
+            if value is None:
+                return None
+            if isinstance(value, (bool, int, float, str)):
+                return value
+            if isinstance(value, (list, tuple, set)):
+                coerced = [_coerce_value(v) for v in value]
+                return type(value)(coerced)
+
+            # libcamera ControlValue exposes a 'value' attribute in recent releases.
+            for attr in ("value", "values", "numerator", "denominator"):
+                if hasattr(value, attr):
+                    try:
+                        candidate = getattr(value, attr)
+                        if callable(candidate):
+                            candidate = candidate()
+                    except Exception:
+                        continue
+                    coerced = _coerce_value(candidate)
+                    if coerced is not None:
+                        return coerced
+
+            # Fall back to string representation (trim overly long dumps).
+            text = str(value)
+            return text if len(text) <= 200 else f"{text[:197]}..."
+
+        def _extract(info: Any, *names: str) -> Any:
+            """Try several attribute/key names to obtain a value."""
+            for name in names:
+                if hasattr(info, name):
+                    try:
+                        result = getattr(info, name)
+                        if callable(result):
+                            result = result()
+                    except Exception:
+                        pass
+                    else:
+                        coerced = _coerce_value(result)
+                        if coerced is not None:
+                            return coerced
+
+            if isinstance(info, dict):
+                for name in names:
+                    if name in info:
+                        coerced = _coerce_value(info[name])
+                        if coerced is not None:
+                            return coerced
+
+            if hasattr(info, "__getitem__"):
+                for name in names:
+                    try:
+                        result = info[name]
+                    except Exception:
+                        continue
+                    coerced = _coerce_value(result)
+                    if coerced is not None:
+                        return coerced
+
+            return None
+
         for name, info in self.picam2.camera_controls.items():  # type: ignore[attr-defined]
-            ctrl_type = getattr(info, "type", None)
-            type_name = getattr(ctrl_type, "__name__", str(ctrl_type))
+            ctrl_type = _extract(info, "type")
+            type_name = getattr(ctrl_type, "__name__", None) or str(ctrl_type)
             controls[name] = {
-                "default": getattr(info, "default", None),
-                "min": getattr(info, "min", None),
-                "max": getattr(info, "max", None),
+                "default": _extract(info, "default", "def"),
+                "min": _extract(info, "min"),
+                "max": _extract(info, "max"),
+                "step": _extract(info, "step"),
+                "values": _extract(info, "values"),
                 "type": type_name,
             }
+
+            # If everything failed, include a raw representation for debugging.
+            if all(value is None for key, value in controls[name].items() if key != "type"):
+                controls[name]["raw"] = str(info)
+
         return controls
 
     def set_control(self, name: str, value: Any) -> None:
