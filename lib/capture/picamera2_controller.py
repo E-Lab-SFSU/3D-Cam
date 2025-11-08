@@ -67,9 +67,12 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
 
     # Pick order based on simple desktop detection
     if backend == "auto":
-        # Always try DRM first; QTGL can abort hard when the Qt stack is absent or misconfigured
-        # (common on headless/SSH sessions). NULL provides a headless fallback.
-        order = ["drm", "qtgl", "null"]
+        if _running_over_ssh() and not _has_desktop_session():
+            order = ["null", "drm", "qtgl"]
+        else:
+            # Always try DRM first; QTGL can abort hard when the Qt stack is absent or misconfigured
+            # (common on headless/SSH sessions). NULL provides a headless fallback.
+            order = ["drm", "qtgl", "null"]
     else:
         order = [backend]
 
