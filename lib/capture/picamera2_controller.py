@@ -40,11 +40,21 @@ _QT_PLUGIN_HINTS = [
     Path("/usr/lib/qt/plugins"),
 ]
 
-if "QT_QPA_PLATFORM_PLUGIN_PATH" not in os.environ:
-    for hint in _QT_PLUGIN_HINTS:
-        if hint.exists():
-            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(hint)
-            break
+def _ensure_qt_plugin_path() -> None:
+    """Ensure Qt picks up a system plugin directory if possible."""
+    current = os.environ.get("QT_QPA_PLATFORM_PLUGIN_PATH")
+    if current:
+        # Some environments set this to OpenCV's plugin dir. Prepend system hints if needed.
+        paths = current.split(os.pathsep)
+        for hint in _QT_PLUGIN_HINTS:
+            if hint.exists() and str(hint) not in paths:
+                os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.pathsep.join([str(hint), *paths])
+                break
+    else:
+        for hint in _QT_PLUGIN_HINTS:
+            if hint.exists():
+                os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(hint)
+                break
 
 
 def _has_desktop_session() -> bool:
@@ -133,6 +143,8 @@ class Picamera2Controller:
             raise ImportError(
                 "Picamera2 library not found. Install picamera2 on Raspberry Pi."
             ) from _IMPORT_ERROR
+
+        _ensure_qt_plugin_path()
 
         self.resolution = resolution
         self.framerate = framerate
