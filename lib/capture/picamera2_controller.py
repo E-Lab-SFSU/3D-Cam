@@ -41,6 +41,11 @@ def _has_desktop_session() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
+def _running_over_ssh() -> bool:
+    """Best-effort detection for SSH sessions."""
+    return any(env in os.environ for env in ("SSH_CLIENT", "SSH_CONNECTION", "SSH_TTY"))
+
+
 def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
     """
     Start a preview using a simple rule:
@@ -62,7 +67,10 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
 
     # Pick order based on simple desktop detection
     if backend == "auto":
-        order = ["qtgl", "drm"] if _has_desktop_session() else ["drm", "qtgl"]
+        if _has_desktop_session() and not _running_over_ssh():
+            order = ["qtgl", "drm"]
+        else:
+            order = ["drm", "qtgl"]
     else:
         order = [backend]
 
