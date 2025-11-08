@@ -13,7 +13,7 @@ import os
 import re
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -153,6 +153,11 @@ class RecordingState:
     filepath: Path
     encoder: H264Encoder
     output: FfmpegOutput
+    metadata_path: Path
+    start_time: float
+    frame_index: int = 0
+    first_sensor_ts: Optional[int] = None
+    metadata_file: Any = field(default=None, repr=False)
 
 
 class Picamera2Controller:
@@ -233,15 +238,29 @@ class Picamera2Controller:
             output.set_timestamps("monotonic")  # Ensure packets carry increasing PTS
         except AttributeError:
             pass
-        self.picam2.start_recording(encoder, output)
-        self._recording_state = RecordingState(filepath, encoder, output)
+        metadata_path = filepath.with_suffix(".csv")
+        metadata_file = metadata_path.open("w", encoding="utf-8", newline="")
+        metadata_file.write("frame_index,sensor_timestamp_ns,monotonic_seconds,delta_from_start_ns\n")
+        self.picam2.start_recording(encoder, output, pts="monotonic")
+        self._recording_state = RecordingState(
+            filepath=filepath,
+            encoder=encoder,
+            output=output,
+            metadata_path=metadata_path,
+            start_time=time.perf_counter(),
+            metadata_file=metadata_file,
+        )
         print(f"[INFO] Recording -> {filepath}")
 
     def stop_recording(self) -> Path:
         if not self.is_recording:
             raise RuntimeError("No active recording to stop.")
         self.picam2.stop_recording()
-        filepath = self._recording_state.filepath
+        state = self._recording_state
+        if state.metadata_file:
+            state.metadata_file.flush()
+            state.metadata_file.close()
+        filepath = state.filepath
         self._recording_state = None
         print(f"[INFO] Recording saved: {filepath}")
         return filepath
@@ -297,6 +316,27 @@ class Picamera2Controller:
 
     def _frame_callback(self, request: Any) -> None:
         self.fps_tracker.update()
+        if self._recording_state and self._recording_state.metadata_file:
+            metadata = request.get_metadata()
+            sensor_ts = metadata.get("SensorTimestamp")
+            state = self._recording_state
+            if sensor_ts is not None and state.first_sensor_ts is None:
+                state.first_sensor_ts = sensor_ts
+            delta_ns = (
+                sensor_ts - state.first_sensor_ts
+                if (sensor_ts is not None and state.first_sensor_ts is not None)
+                else ""
+            )
+            monotonic_seconds = time.perf_counter() - state.start_time
+            line = (
+                f"{state.frame_index},"
+                f"{sensor_ts or ''},"
+                f"{monotonic_seconds:.6f},"
+                f"{delta_ns if delta_ns != '' else ''}\n"
+            )
+            state.metadata_file.write(line)
+            state.metadata_file.flush()
+            state.frame_index += 1
 
     def list_controls(self) -> Dict[str, Dict[str, Any]]:
         """
