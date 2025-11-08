@@ -33,6 +33,7 @@ else:
 DEFAULT_RECORDING_BITRATE = 12_000_000
 DEFAULT_FRAME_RATE = 30
 DEFAULT_RESOLUTION = (1920, 1080)
+DEFAULT_OUTPUT_DIR = Path("inputs_outputs")
 
 
 def _has_desktop_session() -> bool:
@@ -208,6 +209,33 @@ class Picamera2Controller:
     def _frame_callback(self, request: Any) -> None:
         self.fps_tracker.update()
 
+    def list_controls(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Return metadata about available camera controls.
+
+        The Picamera2 API exposes control details via ControlInfo objects.
+        We normalize those to simple dictionaries for CLI presentation.
+        """
+        controls: Dict[str, Dict[str, Any]] = {}
+
+        if not hasattr(self.picam2, "camera_controls"):
+            return controls
+
+        for name, info in self.picam2.camera_controls.items():  # type: ignore[attr-defined]
+            ctrl_type = getattr(info, "type", None)
+            type_name = getattr(ctrl_type, "__name__", str(ctrl_type))
+            controls[name] = {
+                "default": getattr(info, "default", None),
+                "min": getattr(info, "min", None),
+                "max": getattr(info, "max", None),
+                "type": type_name,
+            }
+        return controls
+
+    def set_control(self, name: str, value: Any) -> None:
+        """Thin wrapper around Picamera2.set_controls with simple error propagation."""
+        self.picam2.set_controls({name: value})
+
     def close(self) -> None:
         self.stop()
 
@@ -217,3 +245,42 @@ class Picamera2Controller:
 
     def __exit__(self, exc_type, exc, tb):
         self.stop()
+
+
+def sanitize_name(name: str) -> str:
+    """
+    Sanitize a user-provided name so it is safe for filesystem usage.
+
+    - Converts whitespace to underscores
+    - Removes characters outside of [A-Za-z0-9._-]
+    - Strips leading/trailing separators
+    - Guarantees a non-empty string by falling back to 'capture'
+    """
+    cleaned = re.sub(r"\s+", "_", name.strip())
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "", cleaned)
+    cleaned = cleaned.strip("._-")
+    return cleaned or "capture"
+
+
+def build_output_path(stem: str, extension: str, base_dir: Path | str = DEFAULT_OUTPUT_DIR) -> Path:
+    """
+    Construct an output path of the form:
+        inputs_outputs/<stem>/<stem>.<extension>
+
+    If the target file already exists, append a numeric suffix to both the
+    directory and filename (e.g., <stem>_01).
+    """
+    safe_stem = sanitize_name(stem)
+    ext = extension.lstrip(".")
+    root = Path(base_dir)
+
+    candidate_stem = safe_stem or "capture"
+    counter = 1
+
+    while True:
+        directory = root / candidate_stem
+        filepath = directory / f"{candidate_stem}.{ext}"
+        if not filepath.exists():
+            return filepath
+        candidate_stem = f"{safe_stem}_{counter:02d}"
+        counter += 1
