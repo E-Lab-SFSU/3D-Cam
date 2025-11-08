@@ -241,7 +241,7 @@ class Picamera2Controller:
         metadata_path = filepath.with_suffix(".csv")
         metadata_file = metadata_path.open("w", encoding="utf-8", newline="")
         metadata_file.write("frame_index,sensor_timestamp_ns,monotonic_seconds,delta_from_start_ns\n")
-        self.picam2.start_recording(encoder, output, pts="monotonic")
+        self.picam2.start_recording(encoder, output)
         self._recording_state = RecordingState(
             filepath=filepath,
             encoder=encoder,
@@ -334,8 +334,11 @@ class Picamera2Controller:
                 f"{monotonic_seconds:.6f},"
                 f"{delta_ns if delta_ns != '' else ''}\n"
             )
-            state.metadata_file.write(line)
-            state.metadata_file.flush()
+            try:
+                state.metadata_file.write(line)
+                state.metadata_file.flush()
+            except Exception:
+                pass
             state.frame_index += 1
 
     def list_controls(self) -> Dict[str, Dict[str, Any]]:
@@ -475,8 +478,8 @@ def build_output_path(stem: str, extension: str, base_dir: Path | str = DEFAULT_
 
     from datetime import datetime
 
-    date_prefix = datetime.now().strftime("%Y%m%d")
-    base_name = f"{date_prefix}_{safe_stem or 'capture'}"
+    timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"{timestamp_prefix}_{safe_stem or 'capture'}"
 
     candidate_name = base_name
     counter = 1
