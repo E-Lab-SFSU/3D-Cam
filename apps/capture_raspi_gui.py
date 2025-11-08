@@ -13,6 +13,7 @@ VC4-enabled virtual display). Designed to be lightweight for field usage.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import time
 import tkinter as tk
@@ -128,10 +129,11 @@ class RaspiCaptureGUI:
         },
     }
 
-    def __init__(self, root: tk.Tk, controller: Picamera2Controller) -> None:
+    def __init__(self, root: tk.Tk, controller: Picamera2Controller, debug: bool = False) -> None:
         self.root = root
         self.controller = controller
         self.root.title("3D-Cam | Raspberry Pi Capture")
+        self.debug = debug
 
         self.status_var = tk.StringVar(value="Initializing camera…")
         self.fps_var = tk.StringVar(value="FPS: —")
@@ -147,6 +149,7 @@ class RaspiCaptureGUI:
         self.vector_labels: dict[str, tk.Widget] = {}
         self.vector_values: dict[str, list[Any]] = {}
         self.vector_defaults: dict[str, tuple[Any, ...]] = {}
+        self._last_reported_size: tuple[int, int] | None = None
 
         self.recording = False
         self._status_job: str | None = None
@@ -602,6 +605,21 @@ class RaspiCaptureGUI:
         except Exception:
             self.root.geometry(f"{width}x{height}")
 
+        try:
+            self.root.update_idletasks()
+            actual_width = self.root.winfo_width()
+            actual_height = self.root.winfo_height()
+        except Exception:
+            return
+
+        if actual_width <= 0 or actual_height <= 0:
+            return
+
+        current_size = (actual_width, actual_height)
+        if self.debug and current_size != self._last_reported_size:
+            print(f"[INFO] GUI window size: {actual_width}x{actual_height}")
+            self._last_reported_size = current_size
+
     def _slider_to_actual(self, name: str, slider_value: int) -> Any:
         config = self.SLIDER_CONTROLS.get(name, {})
         scale_factor = float(config.get("scale_factor", 1.0)) or 1.0
@@ -746,7 +764,7 @@ class RaspiCaptureGUI:
         messagebox.showinfo("Recording Saved", f"Video saved to:\n{final_path.resolve()}")
         self._refresh_status_text()
 
-    def on_slider_change(self, name: str, value: str, *, force_apply: bool = False) -> None:
+    def on_slider_change(self, name: str, value: str) -> None:
         widgets = self.slider_widgets.get(name)
         var = self.control_vars.get(name)
         if widgets is None or var is None:
@@ -763,13 +781,12 @@ class RaspiCaptureGUI:
             max_val = int(scale_widget.cget("to"))
             slider_value = max(min(slider_value, max_val), min_val)
 
-        if force_apply or var.get() != slider_value:
+        if var.get() != slider_value:
             var.set(slider_value)
 
         self._update_slider_value_label(name, slider_value)
-        if force_apply or slider_value != var.get():
-            actual_value = self._slider_to_actual(name, slider_value)
-            self._apply_control(name, actual_value)
+        actual_value = self._slider_to_actual(name, slider_value)
+        self._apply_control(name, actual_value)
 
     def on_entry_commit(self, name: str) -> None:
         var = self.control_vars.get(name)
@@ -866,33 +883,34 @@ class RaspiCaptureGUI:
             if var is None or widgets is None:
                 continue
             current_slider = var.get()
+            if current_slider == slider_default:
+                continue
             scale = widgets.get("scale")
             if isinstance(scale, tk.Scale):
                 scale.set(slider_default)
-            if current_slider == slider_default:
-                if var.get() != slider_default:
-                    var.set(slider_default)
-                self._update_slider_value_label(name, slider_default)
-                actual_value = self._slider_to_actual(name, slider_default)
-                self._apply_control(name, actual_value)
 
         for name, default_bool in self.toggle_defaults.items():
             var = self.toggle_vars.get(name)
             if var is None:
                 continue
-            if var.get() != default_bool:
-                var.set(default_bool)
+            if var.get() == default_bool:
+                continue
+            var.set(default_bool)
             self._apply_control(name, default_bool)
 
         for name, default_label in self.option_defaults.items():
             var = self.option_vars.get(name)
             if var is None:
                 continue
-            if var.get() != default_label:
-                var.set(default_label)
+            if var.get() == default_label:
+                continue
+            var.set(default_label)
             self.on_option_change(name, default_label)
 
         for name, default_values in self.vector_defaults.items():
+            current_values = self.vector_values.get(name)
+            if current_values == list(default_values):
+                continue
             values = list(default_values)
             self.vector_values[name] = values
             self._update_vector_label(name, values)
@@ -985,6 +1003,14 @@ class RaspiCaptureGUI:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Picamera2 GUI controller")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose GUI diagnostics (window size logs).",
+    )
+    args = parser.parse_args()
+
     try:
         controller = Picamera2Controller()
     except ImportError as exc:
@@ -992,7 +1018,7 @@ def main() -> None:
         sys.exit(1)
 
     root = tk.Tk()
-    app = RaspiCaptureGUI(root, controller)
+    app = RaspiCaptureGUI(root, controller, debug=args.debug)
     try:
         root.mainloop()
     finally:

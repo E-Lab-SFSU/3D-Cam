@@ -10,6 +10,6 @@ fi
 
 source venv/bin/activate
 export PYTHONPATH=$(pwd)
-python apps/capture_raspi_gui.py
+python apps/capture_raspi_gui.py "$@"
 
 
