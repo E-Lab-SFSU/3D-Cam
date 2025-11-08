@@ -129,11 +129,19 @@ class RaspiCaptureGUI:
         },
     }
 
-    def __init__(self, root: tk.Tk, controller: Picamera2Controller, debug: bool = False) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        controller: Picamera2Controller,
+        debug: bool = False,
+        initial_size: tuple[int, int] | None = None,
+    ) -> None:
         self.root = root
         self.controller = controller
         self.root.title("3D-Cam | Raspberry Pi Capture")
         self.debug = debug
+        self._requested_size = initial_size
+        self._geometry_applied = False
 
         self.status_var = tk.StringVar(value="Initializing camera…")
         self.fps_var = tk.StringVar(value="FPS: —")
@@ -156,6 +164,7 @@ class RaspiCaptureGUI:
         self._fps_job: str | None = None
 
         self._build_ui()
+        self.root.bind("<Configure>", self._on_root_configure)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         try:
@@ -587,12 +596,22 @@ class RaspiCaptureGUI:
         if required_width <= 0 or required_height <= 0:
             return
 
-        self.root.minsize(required_width, required_height)
+        target_width = required_width
+        target_height = required_height
+
+        if self._requested_size:
+            target_width = max(target_width, self._requested_size[0])
+            target_height = max(target_height, self._requested_size[1])
+            if not self._geometry_applied:
+                self._geometry_applied = True
 
         current_width = self.root.winfo_width()
         current_height = self.root.winfo_height()
-        width = max(current_width, required_width)
-        height = max(current_height, required_height)
+
+        width = max(current_width, target_width)
+        height = max(current_height, target_height)
+
+        self.root.minsize(target_width, target_height)
 
         # Preserve existing position when possible.
         try:
@@ -605,20 +624,26 @@ class RaspiCaptureGUI:
         except Exception:
             self.root.geometry(f"{width}x{height}")
 
+        self._report_window_size()
+
+    def _report_window_size(self) -> None:
+        if not self.debug:
+            return
         try:
-            self.root.update_idletasks()
             actual_width = self.root.winfo_width()
             actual_height = self.root.winfo_height()
         except Exception:
             return
-
         if actual_width <= 0 or actual_height <= 0:
             return
-
         current_size = (actual_width, actual_height)
-        if self.debug and current_size != self._last_reported_size:
-            print(f"[INFO] GUI window size: {actual_width}x{actual_height}")
+        if current_size != self._last_reported_size:
+            print(f"[DEBUG] GUI size = {actual_width}x{actual_height}")
             self._last_reported_size = current_size
+
+    def _on_root_configure(self, event: tk.Event) -> None:
+        if event.widget is self.root:
+            self._report_window_size()
 
     def _slider_to_actual(self, name: str, slider_value: int) -> Any:
         config = self.SLIDER_CONTROLS.get(name, {})
@@ -1009,6 +1034,11 @@ def main() -> None:
         action="store_true",
         help="Enable verbose GUI diagnostics (window size logs).",
     )
+    parser.add_argument(
+        "--window",
+        type=str,
+        help="Initial window size, e.g. 1100x800.",
+    )
     args = parser.parse_args()
 
     try:
@@ -1018,7 +1048,17 @@ def main() -> None:
         sys.exit(1)
 
     root = tk.Tk()
-    app = RaspiCaptureGUI(root, controller, debug=args.debug)
+    initial_size: tuple[int, int] | None = None
+    if args.window:
+        try:
+            width_str, height_str = args.window.lower().split("x", 1)
+            initial_size = (int(width_str), int(height_str))
+        except Exception:
+            print(f"[WARN] Invalid --window format: {args.window!r}. Expected WIDTHxHEIGHT.", file=sys.stderr)
+            initial_size = None
+    if initial_size:
+        root.geometry(f"{initial_size[0]}x{initial_size[1]}")
+    app = RaspiCaptureGUI(root, controller, debug=args.debug, initial_size=initial_size)
     try:
         root.mainloop()
     finally:
