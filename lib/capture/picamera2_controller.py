@@ -229,6 +229,10 @@ class Picamera2Controller:
         filepath.parent.mkdir(parents=True, exist_ok=True)
         encoder = H264Encoder(bitrate=bitrate)
         output = FfmpegOutput(str(filepath))
+        try:
+            output.set_timestamps("monotonic")  # Ensure packets carry increasing PTS
+        except AttributeError:
+            pass
         self.picam2.start_recording(encoder, output)
         self._recording_state = RecordingState(filepath, encoder, output)
         print(f"[INFO] Recording -> {filepath}")
@@ -419,23 +423,28 @@ def sanitize_name(name: str) -> str:
 
 def build_output_path(stem: str, extension: str, base_dir: Path | str = DEFAULT_OUTPUT_DIR) -> Path:
     """
-    Construct an output path of the form:
-        inputs_outputs/<stem>/<stem>.<extension>
+    Construct an output path with a date-prefixed directory and filename:
+        inputs_outputs/<YYYYMMDD_stem>/<YYYYMMDD_stem>.<extension>
 
     If the target file already exists, append a numeric suffix to both the
-    directory and filename (e.g., <stem>_01).
+    directory and filename (e.g., <YYYYMMDD_stem>_01).
     """
     safe_stem = sanitize_name(stem)
     ext = extension.lstrip(".")
     root = Path(base_dir)
 
-    candidate_stem = safe_stem or "capture"
+    from datetime import datetime
+
+    date_prefix = datetime.now().strftime("%Y%m%d")
+    base_name = f"{date_prefix}_{safe_stem or 'capture'}"
+
+    candidate_name = base_name
     counter = 1
 
     while True:
-        directory = root / candidate_stem
-        filepath = directory / f"{candidate_stem}.{ext}"
+        directory = root / candidate_name
+        filepath = directory / f"{candidate_name}.{ext}"
         if not filepath.exists():
             return filepath
-        candidate_stem = f"{safe_stem}_{counter:02d}"
+        candidate_name = f"{base_name}_{counter:02d}"
         counter += 1
