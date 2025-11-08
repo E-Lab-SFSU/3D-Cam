@@ -41,10 +41,14 @@ rm -rf venv
 python3 -m venv --system-site-packages venv
 
 echo "[4/4] Activating venv and installing Python requirements..."
-# shellcheck disable=SC1091
-source venv/bin/activate
+cat <<'EOF' > venv/setup_env.sh
+#!/usr/bin/env bash
+source "$(dirname "${BASH_SOURCE[0]}")/bin/activate"
 pip install --upgrade pip
-pip install -r requirements.raspi.txt
+pip install -r "$(dirname "${BASH_SOURCE[0]}")/../requirements.raspi.txt"
+EOF
+chmod +x venv/setup_env.sh
+./venv/setup_env.sh
 
 echo "Setup complete. Activate the environment with: source venv/bin/activate"
 echo "Run the capture CLI via: ./capture_raspi_cli.sh"
