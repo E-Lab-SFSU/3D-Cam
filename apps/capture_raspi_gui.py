@@ -5,7 +5,7 @@ Raspberry Pi Picamera2 GUI
 --------------------------
 
 Simple Tkinter interface around Picamera2Controller that mirrors the CLI
-features while exposing a handful of integer camera controls via sliders.
+features while exposing key camera controls via sliders, toggles, and dialogs.
 
 Requires a Raspberry Pi with Picamera2 installed and access to a display (or
 VC4-enabled virtual display). Designed to be lightweight for field usage.
@@ -18,6 +18,7 @@ import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
+from typing import Any
 
 # Ensure project root is on sys.path when running as a script
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -41,14 +42,91 @@ def ensure_temp_dir() -> Path:
 class RaspiCaptureGUI:
     """Minimal Tkinter front-end for Picamera2."""
 
-    NUMERIC_CONTROL_WHITELIST = [
-        "AnalogueGain",
-        "Brightness",
-        "Contrast",
-        "ExposureTime",
-        "Saturation",
-        "Sharpness",
-    ]
+    SLIDER_CONTROLS = {
+        "ExposureTime": {
+            "scale_factor": 1.0,
+            "value_type": "int",
+            "display_format": "{value:.0f} μs",
+            "fallback": {"min": 100, "max": 1_000_000, "step": 100, "default": 10_000},
+        },
+        "AnalogueGain": {
+            "scale_factor": 0.01,
+            "value_type": "float",
+            "display_format": "{value:.2f}×",
+            "fallback": {"min": 100, "max": 1_600, "step": 10, "default": 100},
+        },
+        "Brightness": {
+            "scale_factor": 0.01,
+            "value_type": "float",
+            "display_format": "{value:+.2f}",
+            "fallback": {"min": -100, "max": 100, "step": 5, "default": 0},
+        },
+        "Contrast": {
+            "scale_factor": 0.01,
+            "value_type": "float",
+            "display_format": "{value:.2f}",
+            "fallback": {"min": 0, "max": 200, "step": 5, "default": 100},
+        },
+        "Saturation": {
+            "scale_factor": 0.01,
+            "value_type": "float",
+            "display_format": "{value:.2f}",
+            "fallback": {"min": 0, "max": 200, "step": 5, "default": 100},
+        },
+        "Sharpness": {
+            "scale_factor": 0.01,
+            "value_type": "float",
+            "display_format": "{value:.2f}",
+            "fallback": {"min": 0, "max": 200, "step": 5, "default": 100},
+        },
+    }
+
+    TOGGLE_CONTROLS = {
+        "AeEnable": {"fallback": True},
+        "AwbEnable": {"fallback": True},
+    }
+
+    OPTION_CONTROLS = {
+        "AeFlickerMode": {
+            "fallback_values": [0, 1, 2],
+            "labels": {0: "Off", 1: "50 Hz", 2: "60 Hz"},
+            "fallback_default": 0,
+        },
+        "NoiseReductionMode": {
+            "fallback_values": ["off", "minimal", "fast", "high_quality"],
+            "labels": {
+                "off": "Off",
+                "minimal": "Minimal",
+                "fast": "Fast",
+                "high_quality": "High Quality",
+            },
+            "fallback_default": "off",
+        },
+    }
+
+    VECTOR_CONTROLS = {
+        "ColourGains": {
+            "length": 2,
+            "value_type": "float",
+            "labels": ["Red Gain", "Blue Gain"],
+            "fallback": [1.5, 1.5],
+            "display_format": "{values[0]:.2f}, {values[1]:.2f}",
+        },
+        "ScalerCrop": {
+            "length": 4,
+            "value_type": "int",
+            "labels": ["X", "Y", "Width", "Height"],
+            "fallback": [0, 0, 0, 0],
+            "display_format": "{values[0]}, {values[1]}, {values[2]}, {values[3]}",
+        },
+        "FrameDurationLimits": {
+            "length": 2,
+            "value_type": "int",
+            "labels": ["Min μs", "Max μs"],
+            "fallback": [1_000, 33_333],
+            "display_format": "{values[0]} μs, {values[1]} μs",
+        },
+    }
 
     def __init__(self, root: tk.Tk, controller: Picamera2Controller) -> None:
         self.root = root
@@ -60,6 +138,11 @@ class RaspiCaptureGUI:
 
         self.control_vars: dict[str, tk.IntVar] = {}
         self.slider_widgets: dict[str, dict[str, tk.Widget]] = {}
+        self.toggle_vars: dict[str, tk.BooleanVar] = {}
+        self.option_vars: dict[str, tk.StringVar] = {}
+        self.option_value_maps: dict[str, dict[str, Any]] = {}
+        self.vector_labels: dict[str, tk.Widget] = {}
+        self.vector_values: dict[str, list[Any]] = {}
 
         self.recording = False
         self._status_job: str | None = None
@@ -152,34 +235,91 @@ class RaspiCaptureGUI:
         for child in self.scroll_frame.winfo_children():
             child.destroy()
 
+        self.control_vars.clear()
+        self.slider_widgets.clear()
+        self.toggle_vars.clear()
+        self.option_vars.clear()
+        self.option_value_maps.clear()
+        self.vector_labels.clear()
+        self.vector_values.clear()
+
         row = 0
-        for name in self.NUMERIC_CONTROL_WHITELIST:
+        created_any = False
+
+        row, created = self._add_slider_controls(row, controls)
+        created_any = created_any or created
+        row, created = self._add_toggle_controls(row, controls)
+        created_any = created_any or created
+        row, created = self._add_option_controls(row, controls)
+        created_any = created_any or created
+        row, created = self._add_vector_controls(row, controls)
+        created_any = created_any or created
+
+        if not created_any:
+            ttk.Label(
+                self.scroll_frame,
+                text="Camera controls unavailable for this device.",
+            ).grid(row=0, column=0, pady=10, sticky="w")
+
+    def _add_section_header(self, row: int, text: str) -> int:
+        header = ttk.Label(
+            self.scroll_frame,
+            text=text,
+            font=("TkDefaultFont", 9, "bold"),
+        )
+        header.grid(row=row, column=0, sticky="w", pady=(8, 2))
+        return row + 1
+
+    def _add_slider_controls(
+        self, row: int, controls: dict[str, dict[str, Any]]
+    ) -> tuple[int, bool]:
+        created = False
+        header_added = False
+
+        for name, config in self.SLIDER_CONTROLS.items():
             meta = controls.get(name)
-            min_val = meta.get("min") if meta else None
-            max_val = meta.get("max") if meta else None
-
-            if not isinstance(min_val, (int, float)) or not isinstance(
-                max_val, (int, float)
-            ):
+            if meta is None:
                 continue
+            meta = meta or {}
 
-            # Only use integer-valued controls for consistency with the UI.
-            min_int = int(round(min_val))
-            max_int = int(round(max_val))
-            if min_int == max_int:
-                continue
+            scale_factor = float(config.get("scale_factor", 1.0)) or 1.0
+            fallback = config.get("fallback", {})
 
-            default = meta.get("default")
-            try:
-                default_int = int(round(default)) if default is not None else min_int
-            except Exception:
-                default_int = min_int
+            def to_slider(raw: Any) -> int | None:
+                if isinstance(raw, (int, float)):
+                    return int(round(raw / scale_factor))
+                return None
 
-            step = meta.get("step")
-            resolution = max(1, int(round(step))) if isinstance(step, (int, float)) else 1
+            slider_min = int(fallback.get("min", 0))
+            slider_max = int(fallback.get("max", slider_min + 1))
+            slider_step = int(fallback.get("step", 1)) or 1
+            default_slider = int(fallback.get("default", slider_min))
 
-            var = tk.IntVar(value=default_int)
-            self.control_vars[name] = var
+            meta_min = to_slider(meta.get("min"))
+            if meta_min is not None:
+                slider_min = meta_min
+            meta_max = to_slider(meta.get("max"))
+            if meta_max is not None:
+                slider_max = meta_max
+            meta_step = meta.get("step")
+            if isinstance(meta_step, (int, float)) and meta_step > 0:
+                slider_step = max(1, int(round(meta_step / scale_factor)))
+            meta_default = to_slider(meta.get("default"))
+            if meta_default is not None:
+                default_slider = meta_default
+
+            if slider_min > slider_max:
+                slider_min, slider_max = slider_max, slider_min
+
+            if slider_min == slider_max:
+                slider_max = slider_min + slider_step
+
+            resolution = max(1, slider_step)
+            default_slider = min(max(default_slider, slider_min), slider_max)
+
+            if not header_added:
+                row = self._add_section_header(row, "Exposure & Image Quality")
+                header_added = True
 
             frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
             frame.grid(row=row, column=0, sticky="ew")
@@ -187,10 +327,13 @@ class RaspiCaptureGUI:
 
             ttk.Label(frame, text=name, width=16).grid(row=0, column=0, sticky="w")
 
+            var = tk.IntVar(value=default_slider)
+            self.control_vars[name] = var
+
             scale = tk.Scale(
                 frame,
-                from_=min_int,
-                to=max_int,
+                from_=slider_min,
+                to=slider_max,
                 orient=tk.HORIZONTAL,
                 resolution=resolution,
                 showvalue=False,
@@ -198,7 +341,7 @@ class RaspiCaptureGUI:
                     control, value
                 ),
             )
-            scale.set(default_int)
+            scale.set(default_slider)
             scale.grid(row=0, column=1, sticky="ew", padx=(4, 4))
 
             entry = ttk.Entry(frame, width=6, textvariable=var, justify="center")
@@ -212,18 +355,254 @@ class RaspiCaptureGUI:
                 lambda event, control=name: self.on_entry_commit(control),
             )
 
-            ttk.Label(frame, text=f"[{min_int}, {max_int}]").grid(
-                row=0, column=3, sticky="w"
+            value_label = ttk.Label(
+                frame, text=self._format_slider_value(name, default_slider), width=12
             )
+            value_label.grid(row=0, column=3, sticky="w")
 
-            self.slider_widgets[name] = {"scale": scale, "entry": entry}
+            range_label = ttk.Label(
+                frame,
+                text=self._format_slider_range(name, slider_min, slider_max),
+            )
+            range_label.grid(row=0, column=4, sticky="w", padx=(4, 0))
+
+            self.slider_widgets[name] = {
+                "scale": scale,
+                "entry": entry,
+                "value_label": value_label,
+                "range_label": range_label,
+            }
+
             row += 1
+            created = True
 
-        if row == 0:
-            ttk.Label(
-                self.scroll_frame,
-                text="No integer-based controls detected. Update whitelist as needed.",
-            ).grid(row=0, column=0, pady=10)
+        return row, created
+
+    def _add_toggle_controls(
+        self, row: int, controls: dict[str, dict[str, Any]]
+    ) -> tuple[int, bool]:
+        created = False
+        header_added = False
+
+        for name, config in self.TOGGLE_CONTROLS.items():
+            meta = controls.get(name)
+            if meta is None:
+                continue
+            meta = meta or {}
+
+            default = meta.get("default")
+            if default is None:
+                default = config.get("fallback", False)
+            default_bool = bool(default)
+
+            if not header_added:
+                row = self._add_section_header(row, "Automatic Controls")
+                header_added = True
+
+            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame.grid(row=row, column=0, sticky="w")
+
+            var = tk.BooleanVar(value=default_bool)
+            check = ttk.Checkbutton(
+                frame,
+                text=name,
+                variable=var,
+                command=lambda control=name: self.on_toggle_change(control),
+            )
+            check.grid(row=0, column=0, sticky="w")
+
+            self.toggle_vars[name] = var
+            row += 1
+            created = True
+
+        return row, created
+
+    def _add_option_controls(
+        self, row: int, controls: dict[str, dict[str, Any]]
+    ) -> tuple[int, bool]:
+        created = False
+        header_added = False
+
+        for name, config in self.OPTION_CONTROLS.items():
+            meta = controls.get(name)
+            if meta is None:
+                continue
+            meta = meta or {}
+
+            raw_values = meta.get("values")
+            if isinstance(raw_values, (list, tuple, set)) and raw_values:
+                options = list(raw_values)
+            else:
+                options = list(config.get("fallback_values", []))
+
+            if not options:
+                continue
+
+            labels_cfg = config.get("labels", {})
+            label_map: dict[str, Any] = {}
+            for value in options:
+                label = labels_cfg.get(value)
+                if label is None:
+                    label = labels_cfg.get(str(value), None)
+                if label is None:
+                    label = str(value)
+                original_label = label
+                counter = 1
+                while label in label_map:
+                    label = f"{original_label} ({counter})"
+                    counter += 1
+                label_map[label] = value
+
+            default_value = meta.get("default")
+            if default_value is None:
+                default_value = config.get("fallback_default")
+            if default_value not in label_map.values():
+                default_value = next(iter(label_map.values()))
+
+            default_label = next(
+                (label for label, value in label_map.items() if value == default_value),
+                None,
+            )
+            if default_label is None:
+                default_label = next(iter(label_map.keys()))
+
+            if not header_added:
+                row = self._add_section_header(row, "Mode Selection")
+                header_added = True
+
+            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame.grid(row=row, column=0, sticky="w")
+
+            ttk.Label(frame, text=f"{name}:", width=16).grid(row=0, column=0, sticky="w")
+
+            var = tk.StringVar(value=default_label)
+            labels = list(label_map.keys())
+            option = ttk.OptionMenu(
+                frame,
+                var,
+                default_label,
+                *labels,
+                command=lambda selection, control=name: self.on_option_change(
+                    control, selection
+                ),
+            )
+            option.grid(row=0, column=1, sticky="w", padx=(4, 0))
+
+            self.option_vars[name] = var
+            self.option_value_maps[name] = label_map
+
+            # Ensure current selection is applied once.
+            self.on_option_change(name, default_label)
+
+            row += 1
+            created = True
+
+        return row, created
+
+    def _add_vector_controls(
+        self, row: int, controls: dict[str, dict[str, Any]]
+    ) -> tuple[int, bool]:
+        created = False
+        header_added = False
+
+        for name, config in self.VECTOR_CONTROLS.items():
+            meta = controls.get(name)
+            if meta is None:
+                continue
+            meta = meta or {}
+
+            length = int(config.get("length", 0))
+            fallback_values = list(config.get("fallback", []))
+
+            default_values = meta.get("default")
+            if isinstance(default_values, (list, tuple)) and len(default_values) == length:
+                current = list(default_values)
+            elif isinstance(default_values, (list, tuple)) and len(default_values) != length:
+                current = fallback_values[:length]
+            else:
+                current = fallback_values[:length]
+
+            if len(current) < length:
+                current.extend([0] * (length - len(current)))
+
+            if not header_added:
+                row = self._add_section_header(row, "Advanced Parameters")
+                header_added = True
+
+            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame.grid(row=row, column=0, sticky="ew")
+            frame.columnconfigure(1, weight=1)
+
+            ttk.Label(frame, text=name, width=16).grid(row=0, column=0, sticky="w")
+
+            summary = ttk.Label(
+                frame, text=self._format_vector_summary(name, current), width=30
+            )
+            summary.grid(row=0, column=1, sticky="w", padx=(4, 0))
+
+            ttk.Button(
+                frame,
+                text="Set…",
+                command=lambda control=name: self.on_vector_configure(control),
+            ).grid(row=0, column=2, padx=(4, 0))
+
+            self.vector_labels[name] = summary
+            self.vector_values[name] = current
+
+            row += 1
+            created = True
+
+        return row, created
+
+    def _slider_to_actual(self, name: str, slider_value: int) -> Any:
+        config = self.SLIDER_CONTROLS.get(name, {})
+        scale_factor = float(config.get("scale_factor", 1.0)) or 1.0
+        value_type = config.get("value_type", "float")
+        actual = slider_value * scale_factor
+        if value_type == "int":
+            return int(round(actual))
+        if value_type == "float":
+            return float(actual)
+        return actual
+
+    def _format_slider_value(self, name: str, slider_value: int) -> str:
+        config = self.SLIDER_CONTROLS.get(name, {})
+        fmt = config.get("display_format")
+        actual = self._slider_to_actual(name, slider_value)
+        if fmt:
+            try:
+                return fmt.format(value=actual)
+            except Exception:
+                pass
+        return str(actual)
+
+    def _format_slider_range(
+        self, name: str, slider_min: int, slider_max: int
+    ) -> str:
+        min_text = self._format_slider_value(name, slider_min)
+        max_text = self._format_slider_value(name, slider_max)
+        return f"Range: {min_text} → {max_text}"
+
+    def _update_slider_value_label(self, name: str, slider_value: int) -> None:
+        widgets = self.slider_widgets.get(name, {})
+        label = widgets.get("value_label")
+        if label and hasattr(label, "config"):
+            label.config(text=self._format_slider_value(name, slider_value))
+
+    def _format_vector_summary(self, name: str, values: list[Any]) -> str:
+        config = self.VECTOR_CONTROLS.get(name, {})
+        fmt = config.get("display_format")
+        if fmt:
+            try:
+                return fmt.format(values=values)
+            except Exception:
+                pass
+        return ", ".join(str(v) for v in values)
+
+    def _update_vector_label(self, name: str, values: list[Any]) -> None:
+        label = self.vector_labels.get(name)
+        if label and hasattr(label, "config"):
+            label.config(text=self._format_vector_summary(name, values))
 
     # Event Handlers ------------------------------------------------------
     def on_start_preview(self) -> None:
@@ -320,19 +699,28 @@ class RaspiCaptureGUI:
         self._refresh_status_text()
 
     def on_slider_change(self, name: str, value: str) -> None:
+        widgets = self.slider_widgets.get(name)
+        var = self.control_vars.get(name)
+        if widgets is None or var is None:
+            return
+
         try:
-            int_val = int(round(float(value)))
+            slider_value = int(round(float(value)))
         except ValueError:
             return
 
-        var = self.control_vars.get(name)
-        if var is not None and var.get() != int_val:
-            var.set(int_val)
-        entry = self.slider_widgets.get(name, {}).get("entry")
-        if isinstance(entry, ttk.Entry):
-            entry.icursor(tk.END)
+        scale_widget = widgets.get("scale")
+        if isinstance(scale_widget, tk.Scale):
+            min_val = int(scale_widget.cget("from"))
+            max_val = int(scale_widget.cget("to"))
+            slider_value = max(min(slider_value, max_val), min_val)
 
-        self._apply_control(name, int_val)
+        if var.get() != slider_value:
+            var.set(slider_value)
+
+        self._update_slider_value_label(name, slider_value)
+        actual_value = self._slider_to_actual(name, slider_value)
+        self._apply_control(name, actual_value)
 
     def on_entry_commit(self, name: str) -> None:
         var = self.control_vars.get(name)
@@ -341,7 +729,7 @@ class RaspiCaptureGUI:
             return
 
         try:
-            value = int(var.get())
+            slider_value = int(var.get())
         except Exception:
             messagebox.showwarning("Control Input", "Please enter an integer value.")
             return
@@ -350,15 +738,79 @@ class RaspiCaptureGUI:
         if isinstance(scale, tk.Scale):
             min_val = int(scale.cget("from"))
             max_val = int(scale.cget("to"))
-            clamped = max(min(value, max_val), min_val)
-            if clamped != value:
-                var.set(clamped)
-                value = clamped
-            scale.set(value)
+            slider_value = max(min(slider_value, max_val), min_val)
+            if var.get() != slider_value:
+                var.set(slider_value)
+            scale.set(slider_value)
 
+        self._update_slider_value_label(name, slider_value)
+        actual_value = self._slider_to_actual(name, slider_value)
+        self._apply_control(name, actual_value)
+
+    def on_toggle_change(self, name: str) -> None:
+        var = self.toggle_vars.get(name)
+        if var is None:
+            return
+        self._apply_control(name, bool(var.get()))
+
+    def on_option_change(self, name: str, selection: str) -> None:
+        mapping = self.option_value_maps.get(name, {})
+        value = mapping.get(selection, selection)
         self._apply_control(name, value)
 
-    def _apply_control(self, name: str, value: int) -> None:
+    def on_vector_configure(self, name: str) -> None:
+        config = self.VECTOR_CONTROLS.get(name)
+        if not config:
+            return
+
+        current = list(self.vector_values.get(name, config.get("fallback", [])))
+        labels = config.get("labels", [])
+        length = int(config.get("length", len(labels)))
+        value_type = config.get("value_type", "int")
+
+        if len(current) < length:
+            current.extend([0] * (length - len(current)))
+        if len(labels) < length:
+            labels = list(labels) + [f"Value {i+1}" for i in range(len(labels), length)]
+
+        new_values: list[Any] = []
+        for index in range(length):
+            label = labels[index]
+            initial = current[index]
+            if value_type == "float":
+                value = simpledialog.askfloat(
+                    title=name,
+                    prompt=f"{label}:",
+                    initialvalue=float(initial),
+                    parent=self.root,
+                )
+            else:
+                value = simpledialog.askinteger(
+                    title=name,
+                    prompt=f"{label}:",
+                    initialvalue=int(initial),
+                    parent=self.root,
+                )
+            if value is None:
+                return
+            new_values.append(value)
+
+        if name == "FrameDurationLimits" and new_values[0] > new_values[1]:
+            messagebox.showwarning(
+                "Invalid Limits", "Minimum frame duration must not exceed maximum."
+            )
+            return
+
+        if value_type == "int":
+            new_values = [int(round(v)) for v in new_values]
+        else:
+            new_values = [float(v) for v in new_values]
+
+        self.vector_values[name] = new_values
+        self._update_vector_label(name, new_values)
+        self._apply_control(name, tuple(new_values))
+
+    def _apply_control(self, name: str, value: Any) -> None:
         try:
             self.controller.set_control(name, value)
         except Exception as exc:  # pragma: no cover - hardware dependent
