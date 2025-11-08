@@ -1,8 +1,11 @@
 # Raspberry Pi-specific requirements for 3D-Cam
--r requirements.base.txt
+# (use alongside apt-installed Picamera2/libcamera/PyQt6/simplejpeg)
 
-# Raspberry Pi OS (Debian-based) packages:
-#   sudo apt install python3-picamera2 libcamera-dev libatlas-base-dev python3-pyqt6
-# scikit-image is available for Python 3.9+ via wheels on Linux ARM.
+# Core stack pinned to versions that ship wheels for ARM64 and
+# stay compatible with the Picamera2 dependencies provided by apt.
+numpy==1.26.4
+scipy==1.11.4
+opencv-python==4.8.1.78
+matplotlib==3.8.4
+pyopengl>=3.1.7
 scikit-image==0.24.0
-

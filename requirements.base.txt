@@ -8,8 +8,7 @@ scipy>=1.11.0
 # Computer vision
 opencv-python>=4.8.0
 
-# Raspberry Pi camera stack (install Picamera2 + libcamera + PyQt6 via apt; see README)
-simplejpeg>=1.6.5
+# OpenGL utilities (used across platforms)
 pyopengl>=3.1.7
 
 # Visualization (matplotlib 3.9+ supports NumPy 2.x)
