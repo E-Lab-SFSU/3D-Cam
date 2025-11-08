@@ -339,9 +339,9 @@ class Picamera2Controller:
                 f"{delta_ns if delta_ns != '' else ''}\n"
             )
             try:
-            state.metadata_file.write(line)
-            if state.frame_index % state.flush_interval == 0:
-                state.metadata_file.flush()
+                state.metadata_file.write(line)
+                if state.frame_index % state.flush_interval == 0:
+                    state.metadata_file.flush()
             except Exception:
                 pass
             state.frame_index += 1
