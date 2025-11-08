@@ -37,53 +37,36 @@ source venv/bin/activate
 echo "Upgrading pip..."
 pip install --upgrade pip
 
-# Install dependencies one by one (to handle failures gracefully)
+# Install dependencies via requirements.txt when available
 echo "Installing dependencies..."
-
-# Install dependencies one by one to handle failures gracefully
-INSTALLED_ALL=true
-
-# Install numpy first (required by others)
-echo "Installing numpy..."
-if pip install "numpy>=2.0.0,<3.0.0"; then
-    echo "✓ numpy installed"
+if [ -f "requirements.txt" ]; then
+    echo "Using requirements.txt..."
+    if pip install -r requirements.txt; then
+        echo "✓ requirements.txt installed successfully!"
+    else
+        echo "✗ Failed to install from requirements.txt"
+        echo "Attempting fallback installation of core packages..."
+        FALLBACK_PACKAGES=("numpy>=2.0.0,<3.0.0" "opencv-python>=4.8.0" "matplotlib>=3.9.0" "scipy>=1.11.0" "scikit-image==0.24.0")
+        for pkg in "${FALLBACK_PACKAGES[@]}"; do
+            echo "Installing ${pkg}..."
+            if pip install "${pkg}"; then
+                echo "  ✓ ${pkg}"
+            else
+                echo "  ✗ ${pkg} installation failed"
+            fi
+        done
+    fi
 else
-    echo "✗ numpy installation failed"
-    INSTALLED_ALL=false
-fi
-
-# Install opencv-python
-echo "Installing opencv-python..."
-if pip install "opencv-python>=4.8.0"; then
-    echo "✓ opencv-python installed"
-else
-    echo "✗ opencv-python installation failed"
-    INSTALLED_ALL=false
-fi
-
-# Install matplotlib
-echo "Installing matplotlib..."
-if pip install "matplotlib>=3.9.0"; then
-    echo "✓ matplotlib installed"
-else
-    echo "✗ matplotlib installation failed"
-    INSTALLED_ALL=false
-fi
-
-# Install scipy
-echo "Installing scipy..."
-if pip install "scipy>=1.11.0"; then
-    echo "✓ scipy installed"
-else
-    echo "✗ scipy installation failed"
-    INSTALLED_ALL=false
-fi
-
-echo ""
-if [[ "$INSTALLED_ALL" == true ]]; then
-    echo "✓ All dependencies installed successfully!"
-else
-    echo "⚠ Some dependencies had issues (see above)."
+    echo "requirements.txt not found. Installing core packages individually..."
+    PACKAGES=("numpy>=2.0.0,<3.0.0" "opencv-python>=4.8.0" "matplotlib>=3.9.0" "scipy>=1.11.0" "scikit-image==0.24.0")
+    for pkg in "${PACKAGES[@]}"; do
+        echo "Installing ${pkg}..."
+        if pip install "${pkg}"; then
+            echo "  ✓ ${pkg}"
+        else
+            echo "  ✗ ${pkg} installation failed"
+        fi
+    done
 fi
 
 echo ""
