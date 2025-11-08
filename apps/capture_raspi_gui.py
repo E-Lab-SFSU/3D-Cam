@@ -140,7 +140,7 @@ class RaspiCaptureGUI:
         self.controller = controller
         self.root.title("3D-Cam | Raspberry Pi Capture")
         self.debug = debug
-        self._requested_size = initial_size or (690, 585)
+        self._requested_size = initial_size or (690, 570)
         self._geometry_applied = False
 
         self.status_var = tk.StringVar(value="Initializing camera…")
@@ -1031,7 +1031,7 @@ def main() -> None:
             print(f"[WARN] Invalid --window format: {args.window!r}. Expected WIDTHxHEIGHT.", file=sys.stderr)
             initial_size = None
     if initial_size is None:
-        initial_size = (690, 585)
+        initial_size = (690, 570)
     root.geometry(f"{initial_size[0]}x{initial_size[1]}")
     app = RaspiCaptureGUI(root, controller, debug=args.debug, initial_size=initial_size)
     try:
