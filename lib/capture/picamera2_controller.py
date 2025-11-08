@@ -41,6 +41,15 @@ def _has_desktop_session() -> bool:
     display = os.environ.get("DISPLAY")
     wayland = os.environ.get("WAYLAND_DISPLAY")
     session_type = os.environ.get("XDG_SESSION_TYPE", "").lower()
+    print(
+        "[DEBUG] Session env:",
+        {
+            "DISPLAY": display,
+            "WAYLAND_DISPLAY": wayland,
+            "XDG_SESSION_TYPE": session_type,
+            "PICAMERA2_FORCE_DESKTOP": os.environ.get("PICAMERA2_FORCE_DESKTOP"),
+        },
+    )
     if session_type in {"wayland", "x11"}:
         return bool(display or wayland)
     # Allow explicit override via environment variable.
@@ -101,13 +110,18 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
     else:
         order = [backend]
 
+    print(f"[DEBUG] Preview backend order: {order}")
+
     last_exc: Optional[Exception] = None
 
     for name in order:
         try:
+            print(f"[DEBUG] Attempting preview backend: {name}")
             picam2.start_preview(backends[name])
+            print(f"[DEBUG] Preview backend started: {name}")
             return name
         except Exception as exc:  # pragma: no cover - hardware dependency
+            print(f"[WARN] Preview backend {name} failed: {exc}")
             last_exc = exc
 
     raise RuntimeError(f"Failed to start preview using {order}: {last_exc}")  # pragma: no cover
