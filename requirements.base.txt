@@ -1,0 +1,17 @@
+# 3D-Cam shared Python dependencies
+# Compatible with NumPy 2.x across platforms
+
+# Core numerical and scientific computing
+numpy>=2.0.0,<3.0.0
+scipy>=1.11.0
+
+# Computer vision
+opencv-python>=4.8.0
+
+# Raspberry Pi camera stack (install Picamera2 + libcamera + PyQt6 via apt; see README)
+simplejpeg>=1.6.5
+pyopengl>=3.1.7
+
+# Visualization (matplotlib 3.9+ supports NumPy 2.x)
+matplotlib>=3.9.0
+

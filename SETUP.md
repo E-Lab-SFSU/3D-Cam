@@ -90,9 +90,13 @@ chmod +x setup_venv.sh
    pip install --upgrade pip
    ```
 
-5. **Install project dependencies**:
+5. **Install project dependencies** (pick your platform file):
    ```bash
-   pip install -r requirements.txt
+   # Windows (requires Python 3.11 or 3.12 for prebuilt wheels)
+   pip install -r requirements.windows.txt
+
+   # Raspberry Pi / Linux
+   pip install -r requirements.raspi.txt
    ```
 
 ## Using the Virtual Environment
@@ -149,8 +153,9 @@ To update dependencies to the latest compatible versions:
 # Make sure virtual environment is activated
 source venv/bin/activate
 
-# Upgrade packages
-pip install --upgrade -r requirements.txt
+# Upgrade packages (choose the file for your platform)
+#   Windows: pip install --upgrade -r requirements.windows.txt
+#   Raspberry Pi / Linux: pip install --upgrade -r requirements.raspi.txt
 ```
 
 ## Troubleshooting
@@ -175,8 +180,13 @@ If you get errors activating the virtual environment, try recreating it:
 ```bash
 rm -rf venv
 python3 -m venv venv
+# Linux / Raspberry Pi
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.raspi.txt
+
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.windows.txt
 ```
 
 ## Why Use a Virtual Environment?
@@ -196,5 +206,5 @@ The project requires:
 - SciPy 1.11+
 - Tkinter (usually included with Python)
 
-See `requirements.txt` for exact version specifications.
+See `requirements.base.txt` plus the OS-specific files for exact version specifications.
 

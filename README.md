@@ -767,7 +767,10 @@ The system builds an averaged background model from the entire video before proc
 ├── *.ps1                       # Windows PowerShell run scripts
 ├── *.sh                        # Linux/Raspberry Pi run scripts
 ├── setup_venv.*                # Virtual environment setup scripts
-└── requirements.txt            # Python dependencies
+├── requirements.base.txt       # Shared Python dependencies
+├── requirements.windows.txt    # Windows dependency set (includes base)
+├── requirements.raspi.txt      # Raspberry Pi / Linux dependency set (includes base)
+└── requirements.txt            # Platform selection notes
 ```
 
 ## File Organization and Naming Conventions
@@ -864,7 +867,7 @@ setup_venv.bat
 REM Or manually:
 python -m venv venv
 venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.windows.txt
 ```
 
 #### System Requirements
@@ -876,7 +879,7 @@ sudo apt install python3-venv python3-full
 ```
 
 **Windows:**
-- Python 3.7+ from [python.org](https://www.python.org/downloads/)
+- Python 3.11 (recommended) or 3.12 from [python.org](https://www.python.org/downloads/)
 - Make sure Python is added to PATH during installation
 
 **Note:** This project supports Windows and Raspberry Pi (Linux) only. macOS support has been removed.
@@ -894,7 +897,9 @@ See `SETUP.md` for detailed setup instructions and troubleshooting.
 
 **NumPy/Matplotlib compatibility errors**
 - Ensure you're using matplotlib 3.9+ which supports NumPy 2.x
-- Reinstall dependencies: `pip install -r requirements.txt --upgrade`
+- Reinstall dependencies with your platform file:
+  - Windows: `pip install -r requirements.windows.txt --upgrade`
+  - Raspberry Pi / Linux: `pip install -r requirements.raspi.txt --upgrade`
 - Make sure virtual environment is activated
 
 

@@ -1,0 +1,7 @@
+# Windows-specific requirements for 3D-Cam
+-r requirements.base.txt
+
+# scikit-image wheels currently target Python < 3.13 on Windows.
+# Install Python 3.11 (recommended) or 3.12 before creating the venv.
+scikit-image==0.24.0; python_version < "3.13"
+

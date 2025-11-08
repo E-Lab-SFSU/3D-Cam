@@ -37,16 +37,16 @@ source venv/bin/activate
 echo "Upgrading pip..."
 pip install --upgrade pip
 
-# Install dependencies via requirements.txt when available
+# Install dependencies via requirements.raspi.txt when available
 echo "Installing dependencies..."
-if [ -f "requirements.txt" ]; then
-    echo "Using requirements.txt..."
-    if pip install -r requirements.txt; then
-        echo "✓ requirements.txt installed successfully!"
+if [ -f "requirements.raspi.txt" ]; then
+    echo "Using requirements.raspi.txt..."
+    if pip install -r requirements.raspi.txt; then
+        echo "✓ requirements.raspi.txt installed successfully!"
     else
-        echo "✗ Failed to install from requirements.txt"
+        echo "✗ Failed to install from requirements.raspi.txt"
         echo "Attempting fallback installation of core packages..."
-        FALLBACK_PACKAGES=("numpy>=2.0.0,<3.0.0" "opencv-python>=4.8.0" "matplotlib>=3.9.0" "scipy>=1.11.0" "scikit-image==0.24.0")
+        FALLBACK_PACKAGES=("numpy>=2.0.0,<3.0.0" "scipy>=1.11.0" "opencv-python>=4.8.0" "simplejpeg>=1.6.5" "pyopengl>=3.1.7" "matplotlib>=3.9.0" "scikit-image==0.24.0")
         for pkg in "${FALLBACK_PACKAGES[@]}"; do
             echo "Installing ${pkg}..."
             if pip install "${pkg}"; then
@@ -57,8 +57,8 @@ if [ -f "requirements.txt" ]; then
         done
     fi
 else
-    echo "requirements.txt not found. Installing core packages individually..."
-    PACKAGES=("numpy>=2.0.0,<3.0.0" "opencv-python>=4.8.0" "matplotlib>=3.9.0" "scipy>=1.11.0" "scikit-image==0.24.0")
+    echo "requirements.raspi.txt not found. Installing core packages individually..."
+    PACKAGES=("numpy>=2.0.0,<3.0.0" "scipy>=1.11.0" "opencv-python>=4.8.0" "simplejpeg>=1.6.5" "pyopengl>=3.1.7" "matplotlib>=3.9.0" "scikit-image==0.24.0")
     for pkg in "${PACKAGES[@]}"; do
         echo "Installing ${pkg}..."
         if pip install "${pkg}"; then
