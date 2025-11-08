@@ -746,7 +746,7 @@ class RaspiCaptureGUI:
         messagebox.showinfo("Recording Saved", f"Video saved to:\n{final_path.resolve()}")
         self._refresh_status_text()
 
-    def on_slider_change(self, name: str, value: str) -> None:
+    def on_slider_change(self, name: str, value: str, *, force_apply: bool = False) -> None:
         widgets = self.slider_widgets.get(name)
         var = self.control_vars.get(name)
         if widgets is None or var is None:
@@ -763,12 +763,13 @@ class RaspiCaptureGUI:
             max_val = int(scale_widget.cget("to"))
             slider_value = max(min(slider_value, max_val), min_val)
 
-        if var.get() != slider_value:
+        if force_apply or var.get() != slider_value:
             var.set(slider_value)
 
         self._update_slider_value_label(name, slider_value)
-        actual_value = self._slider_to_actual(name, slider_value)
-        self._apply_control(name, actual_value)
+        if force_apply or slider_value != var.get():
+            actual_value = self._slider_to_actual(name, slider_value)
+            self._apply_control(name, actual_value)
 
     def on_entry_commit(self, name: str) -> None:
         var = self.control_vars.get(name)
