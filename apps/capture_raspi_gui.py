@@ -138,11 +138,15 @@ class RaspiCaptureGUI:
 
         self.control_vars: dict[str, tk.IntVar] = {}
         self.slider_widgets: dict[str, dict[str, tk.Widget]] = {}
+        self.slider_defaults: dict[str, int] = {}
         self.toggle_vars: dict[str, tk.BooleanVar] = {}
+        self.toggle_defaults: dict[str, bool] = {}
         self.option_vars: dict[str, tk.StringVar] = {}
+        self.option_defaults: dict[str, str] = {}
         self.option_value_maps: dict[str, dict[str, Any]] = {}
         self.vector_labels: dict[str, tk.Widget] = {}
         self.vector_values: dict[str, list[Any]] = {}
+        self.vector_defaults: dict[str, tuple[Any, ...]] = {}
 
         self.recording = False
         self._status_job: str | None = None
@@ -196,6 +200,11 @@ class RaspiCaptureGUI:
             text="Stop Recording",
             command=self.on_stop_recording,
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            button_row,
+            text="Reset Controls",
+            command=self.reset_controls,
+        ).pack(side=tk.LEFT, padx=(8, 0))
 
         # Control sliders container
         controls_frame = ttk.LabelFrame(main, text="Camera Controls", padding="6")
@@ -237,11 +246,15 @@ class RaspiCaptureGUI:
 
         self.control_vars.clear()
         self.slider_widgets.clear()
+        self.slider_defaults.clear()
         self.toggle_vars.clear()
+        self.toggle_defaults.clear()
         self.option_vars.clear()
+        self.option_defaults.clear()
         self.option_value_maps.clear()
         self.vector_labels.clear()
         self.vector_values.clear()
+        self.vector_defaults.clear()
 
         row = 0
         created_any = False
@@ -260,6 +273,8 @@ class RaspiCaptureGUI:
                 self.scroll_frame,
                 text="Camera controls unavailable for this device.",
             ).grid(row=0, column=0, pady=10, sticky="w")
+
+        self._adjust_window_size()
 
     def _add_section_header(self, row: int, text: str) -> int:
         header = ttk.Label(
@@ -372,6 +387,7 @@ class RaspiCaptureGUI:
                 "value_label": value_label,
                 "range_label": range_label,
             }
+            self.slider_defaults[name] = default_slider
 
             row += 1
             created = True
@@ -412,6 +428,7 @@ class RaspiCaptureGUI:
             check.grid(row=0, column=0, sticky="w")
 
             self.toggle_vars[name] = var
+            self.toggle_defaults[name] = default_bool
             row += 1
             created = True
 
@@ -490,6 +507,7 @@ class RaspiCaptureGUI:
 
             self.option_vars[name] = var
             self.option_value_maps[name] = label_map
+            self.option_defaults[name] = default_label
 
             # Ensure current selection is applied once.
             self.on_option_change(name, default_label)
@@ -548,11 +566,41 @@ class RaspiCaptureGUI:
 
             self.vector_labels[name] = summary
             self.vector_values[name] = current
+            self.vector_defaults[name] = tuple(current)
 
             row += 1
             created = True
 
         return row, created
+
+    def _adjust_window_size(self) -> None:
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            return
+
+        required_width = self.root.winfo_reqwidth()
+        required_height = self.root.winfo_reqheight()
+        if required_width <= 0 or required_height <= 0:
+            return
+
+        self.root.minsize(required_width, required_height)
+
+        current_width = self.root.winfo_width()
+        current_height = self.root.winfo_height()
+        width = max(current_width, required_width)
+        height = max(current_height, required_height)
+
+        # Preserve existing position when possible.
+        try:
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            if x < 0 or y < 0:
+                self.root.geometry(f"{width}x{height}")
+            else:
+                self.root.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            self.root.geometry(f"{width}x{height}")
 
     def _slider_to_actual(self, name: str, slider_value: int) -> Any:
         config = self.SLIDER_CONTROLS.get(name, {})
@@ -809,6 +857,45 @@ class RaspiCaptureGUI:
         self.vector_values[name] = new_values
         self._update_vector_label(name, new_values)
         self._apply_control(name, tuple(new_values))
+
+    def reset_controls(self) -> None:
+        for name, slider_default in self.slider_defaults.items():
+            var = self.control_vars.get(name)
+            widgets = self.slider_widgets.get(name)
+            if var is None or widgets is None:
+                continue
+            current_slider = var.get()
+            scale = widgets.get("scale")
+            if isinstance(scale, tk.Scale):
+                scale.set(slider_default)
+            if current_slider == slider_default:
+                if var.get() != slider_default:
+                    var.set(slider_default)
+                self._update_slider_value_label(name, slider_default)
+                actual_value = self._slider_to_actual(name, slider_default)
+                self._apply_control(name, actual_value)
+
+        for name, default_bool in self.toggle_defaults.items():
+            var = self.toggle_vars.get(name)
+            if var is None:
+                continue
+            if var.get() != default_bool:
+                var.set(default_bool)
+            self._apply_control(name, default_bool)
+
+        for name, default_label in self.option_defaults.items():
+            var = self.option_vars.get(name)
+            if var is None:
+                continue
+            if var.get() != default_label:
+                var.set(default_label)
+            self.on_option_change(name, default_label)
+
+        for name, default_values in self.vector_defaults.items():
+            values = list(default_values)
+            self.vector_values[name] = values
+            self._update_vector_label(name, values)
+            self._apply_control(name, tuple(values))
 
     def _apply_control(self, name: str, value: Any) -> None:
         if isinstance(value, str):
