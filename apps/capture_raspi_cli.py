@@ -21,7 +21,11 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from lib.capture import Picamera2Controller, build_output_path, sanitize_name
+from lib.capture.picamera2_controller import (
+    Picamera2Controller,
+    build_output_path,
+    sanitize_name,
+)
 
 
 TEMP_DIR = Path("inputs_outputs") / "_tmp"

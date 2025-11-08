@@ -34,6 +34,17 @@ DEFAULT_RECORDING_BITRATE = 12_000_000
 DEFAULT_FRAME_RATE = 30
 DEFAULT_RESOLUTION = (1920, 1080)
 DEFAULT_OUTPUT_DIR = Path("inputs_outputs")
+_QT_PLUGIN_HINTS = [
+    Path("/usr/lib/arm-linux-gnueabihf/qt5/plugins"),
+    Path("/usr/lib/aarch64-linux-gnu/qt5/plugins"),
+    Path("/usr/lib/qt/plugins"),
+]
+
+if "QT_QPA_PLATFORM_PLUGIN_PATH" not in os.environ:
+    for hint in _QT_PLUGIN_HINTS:
+        if hint.exists():
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(hint)
+            break
 
 
 def _has_desktop_session() -> bool:
@@ -67,12 +78,14 @@ def _start_best_preview(picam2: Picamera2, backend: str = "auto") -> str:
 
     # Pick order based on simple desktop detection
     if backend == "auto":
-        if _running_over_ssh() and not _has_desktop_session():
+        has_desktop = _has_desktop_session()
+        over_ssh = _running_over_ssh()
+        if has_desktop:
+            order = ["qtgl", "drm", "null"]
+        elif over_ssh and not has_desktop:
             order = ["null", "drm", "qtgl"]
         else:
-            # Always try DRM first; QTGL can abort hard when the Qt stack is absent or misconfigured
-            # (common on headless/SSH sessions). NULL provides a headless fallback.
-            order = ["drm", "qtgl", "null"]
+            order = ["drm", "null", "qtgl"]
     else:
         order = [backend]
 
