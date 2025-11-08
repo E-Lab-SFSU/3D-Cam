@@ -140,7 +140,7 @@ class RaspiCaptureGUI:
         self.controller = controller
         self.root.title("3D-Cam | Raspberry Pi Capture")
         self.debug = debug
-        self._requested_size = initial_size
+        self._requested_size = initial_size or (690, 585)
         self._geometry_applied = False
 
         self.status_var = tk.StringVar(value="Initializing camera…")
@@ -221,39 +221,13 @@ class RaspiCaptureGUI:
         # Control sliders container
         controls_frame = ttk.LabelFrame(main, text="Camera Controls", padding="6")
         controls_frame.pack(fill=tk.BOTH, expand=True)
-        self.controls_inner = ttk.Frame(controls_frame)
-        self.controls_inner.pack(fill=tk.BOTH, expand=True)
-
-        # Scrollable frame to handle many controls gracefully.
-        self._add_scroll_region(self.controls_inner)
-
-    def _add_scroll_region(self, container: ttk.Frame) -> None:
-        canvas = tk.Canvas(container, borderwidth=0, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        frame = ttk.Frame(canvas)
-        frame.bind(
-            "<Configure>",
-            lambda event: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-
-        window = canvas.create_window((0, 0), window=frame, anchor="nw")
-
-        def _resize_canvas(event: tk.Event) -> None:
-            canvas.itemconfig(window, width=event.width)
-
-        canvas.bind("<Configure>", _resize_canvas)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.scroll_frame = frame
+        self.controls_panel = ttk.Frame(controls_frame)
+        self.controls_panel.pack(fill=tk.BOTH, expand=True)
 
     # Control population --------------------------------------------------
     def _populate_controls(self) -> None:
         controls = self.controller.list_controls()
-        for child in self.scroll_frame.winfo_children():
+        for child in self.controls_panel.winfo_children():
             child.destroy()
 
         self.control_vars.clear()
@@ -282,7 +256,7 @@ class RaspiCaptureGUI:
 
         if not created_any:
             ttk.Label(
-                self.scroll_frame,
+                self.controls_panel,
                 text="Camera controls unavailable for this device.",
             ).grid(row=0, column=0, pady=10, sticky="w")
 
@@ -290,7 +264,7 @@ class RaspiCaptureGUI:
 
     def _add_section_header(self, row: int, text: str) -> int:
         header = ttk.Label(
-            self.scroll_frame,
+            self.controls_panel,
             text=text,
             font=("TkDefaultFont", 9, "bold"),
         )
@@ -348,7 +322,7 @@ class RaspiCaptureGUI:
                 row = self._add_section_header(row, "Exposure & Image Quality")
                 header_added = True
 
-            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame = ttk.Frame(self.controls_panel, padding=(0, 2))
             frame.grid(row=row, column=0, sticky="ew")
             frame.columnconfigure(1, weight=1)
 
@@ -427,7 +401,7 @@ class RaspiCaptureGUI:
                 row = self._add_section_header(row, "Automatic Controls")
                 header_added = True
 
-            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame = ttk.Frame(self.controls_panel, padding=(0, 2))
             frame.grid(row=row, column=0, sticky="w")
 
             var = tk.BooleanVar(value=default_bool)
@@ -499,7 +473,7 @@ class RaspiCaptureGUI:
                 row = self._add_section_header(row, "Mode Selection")
                 header_added = True
 
-            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame = ttk.Frame(self.controls_panel, padding=(0, 2))
             frame.grid(row=row, column=0, sticky="w")
 
             ttk.Label(frame, text=f"{name}:", width=16).grid(row=0, column=0, sticky="w")
@@ -559,7 +533,7 @@ class RaspiCaptureGUI:
                 row = self._add_section_header(row, "Advanced Parameters")
                 header_added = True
 
-            frame = ttk.Frame(self.scroll_frame, padding=(0, 2))
+            frame = ttk.Frame(self.controls_panel, padding=(0, 2))
             frame.grid(row=row, column=0, sticky="ew")
             frame.columnconfigure(1, weight=1)
 
@@ -1056,8 +1030,9 @@ def main() -> None:
         except Exception:
             print(f"[WARN] Invalid --window format: {args.window!r}. Expected WIDTHxHEIGHT.", file=sys.stderr)
             initial_size = None
-    if initial_size:
-        root.geometry(f"{initial_size[0]}x{initial_size[1]}")
+    if initial_size is None:
+        initial_size = (690, 585)
+    root.geometry(f"{initial_size[0]}x{initial_size[1]}")
     app = RaspiCaptureGUI(root, controller, debug=args.debug, initial_size=initial_size)
     try:
         root.mainloop()
