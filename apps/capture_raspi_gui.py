@@ -797,7 +797,7 @@ class RaspiCaptureGUI:
             return
 
         try:
-            temp_path = self.controller.stop_recording()
+            temp_path, temp_csv_path = self.controller.stop_recording()
         except Exception as exc:  # pragma: no cover - hardware dependent
             self._stop_recording_indicator()
             messagebox.showerror("Recording Error", f"Failed to stop recording:\n{exc}")
@@ -814,14 +814,25 @@ class RaspiCaptureGUI:
         if raw is None:
             try:
                 temp_path.unlink()
+                try:
+                    temp_csv_path.unlink()
+                except FileNotFoundError:
+                    pass
             except Exception:
                 pass
             return
         stem = sanitize_name(raw or default_stem)
         final_path = build_output_path(stem, "mp4")
+        final_csv_path = final_path.with_suffix(".csv")
         try:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path.replace(final_path)
+            try:
+                temp_csv_path.replace(final_csv_path)
+            except AttributeError:
+                import shutil
+
+                shutil.move(str(temp_csv_path), final_csv_path)
         except Exception as exc:  # pragma: no cover - hardware dependent
             messagebox.showerror("Save Error", f"Failed to save recording:\n{exc}")
             return

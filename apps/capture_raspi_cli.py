@@ -210,7 +210,7 @@ def run_cli(controller: Picamera2Controller, bitrate: int) -> None:
                     continue
 
                 try:
-                    temp_path = controller.stop_recording()
+                    temp_path, temp_csv_path = controller.stop_recording()
                 except Exception as exc:  # pragma: no cover - hardware dependent
                     print(f"[ERROR] Failed to stop recording: {exc}")
                     continue
@@ -218,10 +218,12 @@ def run_cli(controller: Picamera2Controller, bitrate: int) -> None:
                 default_stem = temp_path.stem.replace("temp_video_", "video_")
                 stem = prompt_filename(default_stem)
                 final_path = build_output_path(stem, "mp4")
+                final_csv_path = final_path.with_suffix(".csv")
 
                 try:
                     final_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(str(temp_path), final_path)
+                    shutil.move(str(temp_csv_path), final_csv_path)
                     print(f"[INFO] Saved recording to: {final_path.resolve()}")
                 except Exception as exc:  # pragma: no cover - hardware dependent
                     print(f"[ERROR] Failed to save recording: {exc}")

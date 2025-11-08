@@ -252,7 +252,7 @@ class Picamera2Controller:
         )
         print(f"[INFO] Recording -> {filepath}")
 
-    def stop_recording(self) -> Path:
+    def stop_recording(self) -> tuple[Path, Path]:
         if not self.is_recording:
             raise RuntimeError("No active recording to stop.")
         self.picam2.stop_recording()
@@ -261,9 +261,10 @@ class Picamera2Controller:
             state.metadata_file.flush()
             state.metadata_file.close()
         filepath = state.filepath
+        metadata_path = state.metadata_path
         self._recording_state = None
         print(f"[INFO] Recording saved: {filepath}")
-        return filepath
+        return filepath, metadata_path
 
     # Stills
     def capture_image(self, filepath: Path) -> Path:
