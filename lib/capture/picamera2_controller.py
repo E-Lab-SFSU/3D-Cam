@@ -56,6 +56,15 @@ def _ensure_qt_plugin_path() -> None:
                 os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(hint)
                 break
 
+    # Ensure Qt runtime directories are owned by the user with 0700 perms
+    uid = os.getuid()
+    runtime_dir = Path(f"/run/user/{uid}")
+    try:
+        if runtime_dir.exists():
+            runtime_dir.chmod(0o700)
+    except PermissionError:
+        pass
+
 
 def _has_desktop_session() -> bool:
     """Return True if running under X11 or Wayland."""
