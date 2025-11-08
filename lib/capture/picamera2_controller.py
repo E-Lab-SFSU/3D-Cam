@@ -245,9 +245,35 @@ class Picamera2Controller:
     # Stills
     def capture_image(self, filepath: Path) -> Path:
         filepath.parent.mkdir(parents=True, exist_ok=True)
-        self.picam2.switch_mode_and_capture_file(self._still_config, str(filepath))
-        self.picam2.configure(self._preview_config)
-        self.picam2.start()
+        was_running = self._camera_started
+
+        if was_running:
+            try:
+                self.picam2.stop()
+            finally:
+                self._camera_started = False
+
+        try:
+            self.picam2.switch_mode_and_capture_file(self._still_config, str(filepath))
+        finally:
+            try:
+                self.picam2.configure(self._preview_config)
+            except Exception as exc:
+                print(f"[WARN] Failed to restore preview configuration: {exc}")
+            else:
+                if was_running:
+                    if self.framerate:
+                        try:
+                            self.picam2.set_controls({"FrameRate": self.framerate})
+                        except Exception:
+                            pass
+                    try:
+                        self.picam2.start()
+                    except Exception as exc:
+                        print(f"[WARN] Failed to restart preview: {exc}")
+                    else:
+                        self._camera_started = True
+
         print(f"[INFO] Still captured: {filepath}")
         return filepath
 
