@@ -1,0 +1,107 @@
+{
+  "z_calibration_scale_factor": 0.5450128395538847,
+  "z_calibration_offset_mm": 0.0186113178471866,
+  "r_squared": 1.0,
+  "data_points": [
+    {
+      "csv_path": "C:/Users/923521596/Documents/GitHub/3D-Cam/inputs_outputs/one_slide_20251103_163744/one_slide_video_20251103_163744-paired-tracked.csv",
+      "z_mm": 3.0,
+      "working_distance_mm": 110.94630682162375,
+      "avg_Geometric_Z_mm": 5.47030907490767,
+      "avg_radial_distance_from_center_px": 243.56078863711227
+    },
+    {
+      "csv_path": "C:/Users/923521596/Documents/GitHub/3D-Cam/inputs_outputs/two_slide_20251103_163835/two_slide_20251103_163835-paired-tracked.csv",
+      "z_mm": 4.0,
+      "working_distance_mm": 110.94630682162375,
+      "avg_Geometric_Z_mm": 7.305128234064618,
+      "avg_radial_distance_from_center_px": 241.9017294081536
+    }
+  ],
+  "formula": "Z = Geometric_Z_mm * z_calibration_scale_factor + z_calibration_offset_mm",
+  "description": "Z is the calibrated mm height input, Geometric_Z_mm is calculated from pair data",
+  "geometric_z_formula": "Geometric_Z_mm = working_distance * (C-A)/(A+C)",
+  "radial_distance_formula": "radial_distance_from_center = (2*A*C)/(A+C)",
+  "metrics": {
+    "input_dataset": {
+      "total_pairs": 1709,
+      "per_video": [
+        {
+          "video": "one_slide_video_20251103_163744-paired-tracked.csv",
+          "count": 548,
+          "geometric_z_mean": 5.494819727049928,
+          "geometric_z_std": 1.4362404635567545,
+          "geometric_z_min": 0.9236901011593595,
+          "geometric_z_max": 20.071998685803496,
+          "b_mean": 249.4004496660525,
+          "b_std": 63.11411574203006,
+          "b_min": 78.7769448306898,
+          "b_max": 424.4134151379854,
+          "score_mean": 0.7006113138686132,
+          "score_std": 0.10957044720723493,
+          "score_min": 0.3526,
+          "score_max": 0.9597
+        },
+        {
+          "video": "two_slide_20251103_163835-paired-tracked.csv",
+          "count": 1161,
+          "geometric_z_mean": 7.286078278149682,
+          "geometric_z_std": 0.9859861857852948,
+          "geometric_z_min": 1.8673660133091743,
+          "geometric_z_max": 13.473150589427672,
+          "b_mean": 245.67698403955873,
+          "b_std": 74.5526437252707,
+          "b_min": 44.01105494593372,
+          "b_max": 415.455409845072,
+          "score_mean": 0.7498893195521102,
+          "score_std": 0.08186405028035991,
+          "score_min": 0.375,
+          "score_max": 0.9806
+        }
+      ]
+    },
+    "chosen_dataset": {
+      "total_pairs": 492,
+      "percent_of_input": 28.788765359859568,
+      "per_video": [
+        {
+          "video": "one_slide_video_20251103_163744-paired-tracked.csv",
+          "count": 234,
+          "percent_of_input": 42.7007299270073,
+          "geometric_z_mean": 5.47030907490767,
+          "geometric_z_std": 0.094469500792257,
+          "geometric_z_min": 5.3119901858870575,
+          "geometric_z_max": 5.668888404106058,
+          "b_mean": 243.56078863711227,
+          "b_std": 59.15047518616738,
+          "b_min": 144.154907593154,
+          "b_max": 421.47211055211983,
+          "score_mean": 0.7401072649572649,
+          "score_std": 0.0861714698271862,
+          "score_min": 0.509,
+          "score_max": 0.8854
+        },
+        {
+          "video": "two_slide_20251103_163835-paired-tracked.csv",
+          "count": 258,
+          "percent_of_input": 22.22222222222222,
+          "geometric_z_mean": 7.305128234064618,
+          "geometric_z_std": 0.07130499901144882,
+          "geometric_z_min": 7.164428836849195,
+          "geometric_z_max": 7.411971840552401,
+          "b_mean": 241.9017294081536,
+          "b_std": 70.87784903600985,
+          "b_min": 87.01557340118681,
+          "b_max": 415.455409845072,
+          "score_mean": 0.7367131782945736,
+          "score_std": 0.07290007643454162,
+          "score_min": 0.4769,
+          "score_max": 0.9806
+        }
+      ]
+    }
+  },
+  "working_distance_mm": 110.94630682162375,
+  "magic_constant": 0.5450128395538847,
+  "magic_offset": 0.0186113178471866
+}
