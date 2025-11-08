@@ -184,6 +184,7 @@ class Picamera2Controller:
         self.picam2.configure(self._preview_config)
 
         self.fps_tracker = FPSTracker()
+        self.recording_fps_tracker = FPSTracker()
         self.picam2.post_callback = self._frame_callback
 
         self._preview_backend: Optional[str] = None
@@ -231,6 +232,7 @@ class Picamera2Controller:
         output = FfmpegOutput(str(filepath))
         self.picam2.start_recording(encoder, output)
         self._recording_state = RecordingState(filepath, encoder, output)
+        self.recording_fps_tracker = FPSTracker()
         print(f"[INFO] Recording -> {filepath}")
 
     def stop_recording(self) -> Path:
@@ -239,6 +241,7 @@ class Picamera2Controller:
         self.picam2.stop_recording()
         filepath = self._recording_state.filepath
         self._recording_state = None
+        self.recording_fps_tracker = FPSTracker()
         print(f"[INFO] Recording saved: {filepath}")
         return filepath
 
@@ -281,6 +284,9 @@ class Picamera2Controller:
     def get_fps(self) -> float:
         return self.fps_tracker.get_fps()
 
+    def get_recording_fps(self) -> float:
+        return self.recording_fps_tracker.get_fps()
+
     def status(self) -> Dict[str, Any]:
         return {
             "preview_backend": self._preview_backend,
@@ -289,10 +295,13 @@ class Picamera2Controller:
             "resolution": self.resolution,
             "framerate": self.framerate,
             "fps": self.get_fps(),
+            "recording_fps": self.get_recording_fps(),
         }
 
     def _frame_callback(self, request: Any) -> None:
         self.fps_tracker.update()
+        if self.is_recording:
+            self.recording_fps_tracker.update()
 
     def list_controls(self) -> Dict[str, Dict[str, Any]]:
         """

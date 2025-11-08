@@ -18,7 +18,7 @@ import sys
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
 # Ensure project root is on sys.path when running as a script
@@ -144,7 +144,8 @@ class RaspiCaptureGUI:
         self._geometry_applied = False
 
         self.status_var = tk.StringVar(value="Initializing camera…")
-        self.fps_var = tk.StringVar(value="FPS: —")
+        self.preview_fps_var = tk.StringVar(value="Preview FPS: —")
+        self.record_fps_var = tk.StringVar(value="Recording FPS: —")
 
         self.control_vars: dict[str, tk.IntVar] = {}
         self.slider_widgets: dict[str, dict[str, tk.Widget]] = {}
@@ -187,36 +188,25 @@ class RaspiCaptureGUI:
         ttk.Label(status_row, textvariable=self.status_var).pack(
             side=tk.LEFT, padx=(0, 10)
         )
-        ttk.Label(status_row, textvariable=self.fps_var).pack(side=tk.LEFT)
+        ttk.Label(status_row, textvariable=self.preview_fps_var).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(status_row, textvariable=self.record_fps_var).pack(side=tk.LEFT)
 
         # Buttons
         button_row = ttk.Frame(main)
         button_row.pack(fill=tk.X, pady=(0, 6))
+        button_row.columnconfigure((0, 1, 2, 3), weight=1, uniform="buttons")
 
-        ttk.Button(button_row, text="Start Preview", command=self.on_start_preview).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ttk.Button(button_row, text="Stop Preview", command=self.on_stop_preview).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ttk.Button(button_row, text="Capture Still", command=self.on_capture).pack(
-            side=tk.LEFT, padx=(0, 4)
-        )
-        ttk.Button(
-            button_row,
-            text="Start Recording",
-            command=self.on_start_recording,
-        ).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(
-            button_row,
-            text="Stop Recording",
-            command=self.on_stop_recording,
-        ).pack(side=tk.LEFT)
-        ttk.Button(
-            button_row,
-            text="Reset Controls",
-            command=self.reset_controls,
-        ).pack(side=tk.LEFT, padx=(8, 0))
+        self.preview_btn = ttk.Button(button_row, text="Start Preview", command=self.on_toggle_preview)
+        self.preview_btn.grid(row=0, column=0, padx=4, sticky="ew")
+
+        self.capture_btn = ttk.Button(button_row, text="Capture Still", command=self.on_capture)
+        self.capture_btn.grid(row=0, column=1, padx=4, sticky="ew")
+
+        self.record_btn = ttk.Button(button_row, text="Start Recording", command=self.on_toggle_recording)
+        self.record_btn.grid(row=0, column=2, padx=4, sticky="ew")
+
+        self.reset_btn = ttk.Button(button_row, text="Reset Controls", command=self.reset_controls)
+        self.reset_btn.grid(row=0, column=3, padx=4, sticky="ew")
 
         # Control sliders container
         controls_frame = ttk.LabelFrame(main, text="Camera Controls", padding="6")
@@ -697,15 +687,26 @@ class RaspiCaptureGUI:
             return
 
         default_stem = temp_path.stem.replace("temp_image_", "image_")
-        raw = simpledialog.askstring(
-            "Save Still Image",
-            "Enter filename (stem only):",
-            initialvalue=default_stem,
+        initial_dir = (Path.cwd() / "inputs_outputs").resolve()
+        initial_dir.mkdir(parents=True, exist_ok=True)
+        suggested = build_output_path(default_stem, "jpg")
+        save_path = filedialog.asksaveasfilename(
+            title="Save Still Image",
             parent=self.root,
+            defaultextension=".jpg",
+            initialdir=str(initial_dir),
+            initialfile=suggested.name,
+            filetypes=[("JPEG Image", "*.jpg;*.jpeg"), ("All Files", "*.*")],
         )
-        stem = sanitize_name(raw or default_stem)
-        final_path = build_output_path(stem, "jpg")
 
+        if not save_path:
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+            return
+
+        final_path = Path(save_path)
         try:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path.replace(final_path)
@@ -744,15 +745,26 @@ class RaspiCaptureGUI:
             return
 
         default_stem = temp_path.stem.replace("temp_video_", "video_")
-        raw = simpledialog.askstring(
-            "Save Recording",
-            "Enter filename (stem only):",
-            initialvalue=default_stem,
+        initial_dir = (Path.cwd() / "inputs_outputs").resolve()
+        initial_dir.mkdir(parents=True, exist_ok=True)
+        suggested = build_output_path(default_stem, "mp4")
+        save_path = filedialog.asksaveasfilename(
+            title="Save Recording",
             parent=self.root,
+            defaultextension=".mp4",
+            initialdir=str(initial_dir),
+            initialfile=suggested.name,
+            filetypes=[("MP4 Video", "*.mp4"), ("All Files", "*.*")],
         )
-        stem = sanitize_name(raw or default_stem)
-        final_path = build_output_path(stem, "mp4")
 
+        if not save_path:
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+            return
+
+        final_path = Path(save_path)
         try:
             final_path.parent.mkdir(parents=True, exist_ok=True)
             temp_path.replace(final_path)
@@ -762,6 +774,20 @@ class RaspiCaptureGUI:
 
         messagebox.showinfo("Recording Saved", f"Video saved to:\n{final_path.resolve()}")
         self._refresh_status_text()
+
+    def on_toggle_preview(self) -> None:
+        if getattr(self.controller, "_camera_started", False):
+            self.on_stop_preview()
+        else:
+            self.on_start_preview()
+        self._update_button_states()
+
+    def on_toggle_recording(self) -> None:
+        if self.controller.is_recording:
+            self.on_stop_recording()
+        else:
+            self.on_start_recording()
+        self._update_button_states()
 
     def on_slider_change(self, name: str, value: str) -> None:
         widgets = self.slider_widgets.get(name)
@@ -968,14 +994,33 @@ class RaspiCaptureGUI:
         preview = status.get("preview_backend") or "stopped"
         recording = "Recording" if status.get("recording") else "Idle"
         self.status_var.set(f"Preview: {preview} | {recording}")
+        self._update_button_states()
+
+    def _update_button_states(self) -> None:
+        if getattr(self.controller, "_camera_started", False):
+            self.preview_btn.config(text="Stop Preview")
+        else:
+            self.preview_btn.config(text="Start Preview")
+
+        if self.controller.is_recording:
+            self.record_btn.config(text="Stop Recording")
+        else:
+            self.record_btn.config(text="Start Recording")
 
     def update_status(self) -> None:
         self._refresh_status_text()
         self._status_job = self.root.after(1000, self.update_status)
 
     def update_fps(self) -> None:
-        fps = self.controller.get_fps()
-        self.fps_var.set(f"FPS: {fps:.1f}")
+        preview_fps = self.controller.get_fps()
+        self.preview_fps_var.set(f"Preview FPS: {preview_fps:.1f}")
+
+        if getattr(self.controller, "is_recording", False):
+            recording_fps = self.controller.get_recording_fps()
+            self.record_fps_var.set(f"Recording FPS: {recording_fps:.1f}")
+        else:
+            self.record_fps_var.set("Recording FPS: —")
+
         self._fps_job = self.root.after(500, self.update_fps)
 
     # Shutdown ------------------------------------------------------------
