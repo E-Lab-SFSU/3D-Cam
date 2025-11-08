@@ -13,6 +13,11 @@ from lib.capture.camera_info import (
     list_all_cameras,
     set_camera_control,
 )
+from lib.capture.picamera2_controller import (
+    Picamera2Controller,
+    build_output_path,
+    sanitize_name,
+)
 
 __all__ = [
     'PreviewManager',
@@ -27,5 +32,8 @@ __all__ = [
     'get_camera_control_range',
     'list_all_cameras',
     'set_camera_control',
+    'Picamera2Controller',
+    'build_output_path',
+    'sanitize_name',
 ]
 
