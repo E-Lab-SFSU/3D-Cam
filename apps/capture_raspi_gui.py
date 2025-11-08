@@ -93,14 +93,14 @@ class RaspiCaptureGUI:
             "fallback_default": 0,
         },
         "NoiseReductionMode": {
-            "fallback_values": ["off", "minimal", "fast", "high_quality"],
+            "fallback_values": [0, 1, 2, 3],
             "labels": {
-                "off": "Off",
-                "minimal": "Minimal",
-                "fast": "Fast",
-                "high_quality": "High Quality",
+                0: "Off",
+                1: "Minimal",
+                2: "Fast",
+                3: "High Quality",
             },
-            "fallback_default": "off",
+            "fallback_default": 0,
         },
     }
 
@@ -811,6 +811,45 @@ class RaspiCaptureGUI:
         self._apply_control(name, tuple(new_values))
 
     def _apply_control(self, name: str, value: Any) -> None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            lower = stripped.lower()
+            if lower in {"true", "false"}:
+                value = lower == "true"
+            else:
+                try:
+                    value = int(stripped, 0)
+                except ValueError:
+                    try:
+                        value = float(stripped)
+                    except ValueError:
+                        pass
+        elif isinstance(value, (list, tuple)):
+            converted = []
+            changed = False
+            for item in value:
+                if isinstance(item, str):
+                    stripped = item.strip()
+                    lower = stripped.lower()
+                    if lower in {"true", "false"}:
+                        converted.append(lower == "true")
+                        changed = True
+                        continue
+                    try:
+                        converted.append(int(stripped, 0))
+                        changed = True
+                        continue
+                    except ValueError:
+                        try:
+                            converted.append(float(stripped))
+                            changed = True
+                            continue
+                        except ValueError:
+                            pass
+                converted.append(item)
+            if changed:
+                value = type(value)(converted)
+
         try:
             self.controller.set_control(name, value)
         except Exception as exc:  # pragma: no cover - hardware dependent
