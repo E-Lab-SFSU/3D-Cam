@@ -36,6 +36,25 @@ DEFAULT_FRAME_RATE = 30
 DEFAULT_RESOLUTION = (1920, 1080)
 
 
+def _has_wayland_socket() -> bool:
+    wayland = os.environ.get("WAYLAND_DISPLAY")
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if not wayland or not runtime_dir:
+        return False
+    return (Path(runtime_dir) / wayland).exists()
+
+
+def _has_x11_socket() -> bool:
+    display = os.environ.get("DISPLAY", "")
+    if not display:
+        return False
+    display_name = display.split(".", 1)[0]
+    if display_name.startswith(":"):
+        display_name = display_name[1:]
+    display_name = display_name or "0"
+    return (Path("/tmp/.X11-unix") / f"X{display_name}").exists()
+
+
 def _has_desktop_session() -> bool:
     """Heuristically detect if an interactive desktop session is active."""
     display = os.environ.get("DISPLAY")
@@ -44,26 +63,35 @@ def _has_desktop_session() -> bool:
     ssh_connection = os.environ.get("SSH_CONNECTION")
     ssh_client = os.environ.get("SSH_CLIENT")
     ssh_tty = os.environ.get("SSH_TTY")
+    force_desktop = os.environ.get("PICAMERA2_FORCE_DESKTOP", "").lower()
+    force_headless = os.environ.get("PICAMERA2_FORCE_HEADLESS", "").lower()
+    x11_socket = _has_x11_socket()
+    wayland_socket = _has_wayland_socket()
     print(
         "[DEBUG] Session env:",
         {
             "DISPLAY": display,
             "WAYLAND_DISPLAY": wayland,
             "XDG_SESSION_TYPE": session_type,
-            "PICAMERA2_FORCE_DESKTOP": os.environ.get("PICAMERA2_FORCE_DESKTOP"),
+            "PICAMERA2_FORCE_DESKTOP": force_desktop,
+            "PICAMERA2_FORCE_HEADLESS": force_headless,
             "SSH_CONNECTION": ssh_connection,
             "SSH_CLIENT": ssh_client,
             "SSH_TTY": ssh_tty,
+            "HAS_X11_SOCKET": x11_socket,
+            "HAS_WAYLAND_SOCKET": wayland_socket,
         },
     )
+    if force_headless in {"1", "true", "yes"}:
+        print("[DEBUG] Headless forced via PICAMERA2_FORCE_HEADLESS.")
+        return False
+    if force_desktop in {"1", "true", "yes"}:
+        print("[DEBUG] Desktop forced via PICAMERA2_FORCE_DESKTOP.")
+        return True
     if ssh_connection or ssh_client or ssh_tty:
         print("[DEBUG] SSH session detected; treating as headless.")
         return False
-    if session_type in {"wayland", "x11"}:
-        return bool(display or wayland)
-    # Allow explicit override via environment variable.
-    force = os.environ.get("PICAMERA2_FORCE_DESKTOP", "").lower()
-    if force in {"1", "true", "yes"}:
+    if wayland_socket or x11_socket:
         return True
     return False
 
