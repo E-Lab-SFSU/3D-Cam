@@ -1,0 +1,45 @@
+# Jekyll configuration for GitHub Pages
+title: 3D Particle Tracking Camera
+description: A 3D particle tracking system using a single camera and a perpendicular mirror
+baseurl: "/3D-Cam"
+url: "https://e-lab-sfsu.github.io"
+
+# GitHub Pages settings
+github:
+  repository_url: https://github.com/e-lab-sfsu/3D-Cam
+
+# Theme (using minimal theme for GitHub Pages)
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+# Navigation
+header_pages:
+  - index.md
+  - usage.md
+  - setup.md
+  - scripts.md
+  - linux-basics.md
+
+# Exclude files from processing
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor/bundle/
+  - vendor/cache/
+  - vendor/gems/
+  - vendor/ruby/
+
+# Markdown settings
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+# Site settings
+author: e-lab-sfsu
+email: ""
+
