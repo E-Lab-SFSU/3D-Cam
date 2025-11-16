@@ -5,8 +5,7 @@ baseurl: "/3D-Cam"
 url: "https://e-lab-sfsu.github.io"
 
 # GitHub Pages settings
-github:
-  repository_url: https://github.com/e-lab-sfsu/3D-Cam
+repository: e-lab-sfsu/3D-Cam
 
 # Theme (using minimal theme for GitHub Pages)
 theme: minima
